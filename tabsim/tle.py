@@ -14,17 +14,24 @@ from tqdm import tqdm
 
 import os
 import ast
-
-from glob import glob
-
 import string
 import random
 
-from spacetrack import SpaceTrackClient
-from astropy.time import Time
-import pandas as pd
-from spacetrack import operators as op
-import ast
+from glob import glob
+
+from importlib.resources import files
+
+
+def make_tle_dir(tle_dir: str | None):
+
+    if tle_dir:
+        tle_dir = os.path.abspath(tle_dir)
+    else:
+        tle_dir = files("tabsim.data").joinpath("aux_data/tles").__str__()
+
+    os.makedirs(tle_dir, exist_ok=True)
+
+    return tle_dir
 
 
 def get_space_track_client(username, password):
@@ -82,8 +89,10 @@ def get_tles_by_id(
     epoch_jd: float,
     window_days: float = 1.0,
     limit: int = 2000,
-    tle_dir: str = None,
+    tle_dir: str | None = None,
 ) -> pd.DataFrame:
+
+    tle_dir = make_tle_dir(tle_dir)
 
     norad_ids = list(np.array(list(set(norad_ids))).astype(int))
     n_ids_start = len(norad_ids)
@@ -157,10 +166,10 @@ def get_tles_by_name(
     epoch_jd: float,
     window_days: float = 1.0,
     limit: int = 10000,
-    tle_dir: str = "./tles",
+    tle_dir: str | None = None,
 ) -> pd.DataFrame:
 
-    os.makedirs(tle_dir, exist_ok=True)
+    tle_dir = make_tle_dir(tle_dir)
 
     # Calculate the date threshold
     epoch_str = Time(epoch_jd, format="jd", scale="ut1").strftime("%Y-%m-%d")
@@ -282,7 +291,7 @@ def get_visible_satellite_tles(
     min_elevation: float,
     names: ArrayLike = [],
     norad_ids: ArrayLike = [],
-    tle_dir: str = "./tles",
+    tle_dir: str | None = None,
 ) -> tuple:
     """Get the TLEs corresponding to satellites that satisfy the conditions given.
 
@@ -321,6 +330,8 @@ def get_visible_satellite_tles(
         - NORAD IDs that pass the criteria.
         - TLEs for the satellites corresponding to the returned NORAD IDs.
     """
+
+    tle_dir = make_tle_dir(tle_dir)
 
     tles = pd.DataFrame()
     if len(norad_ids) > 0:

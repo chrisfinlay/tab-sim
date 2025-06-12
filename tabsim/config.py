@@ -24,21 +24,12 @@ from tabsim.tle import get_visible_satellite_tles
 from daskms import xds_from_ms
 
 from tqdm import tqdm
-
-from pathlib import Path
-
 from importlib.resources import files
 
-# config_dir = files("tabsim.data").joinpath("/config_files/")
-# print(config_dir)
-# pkg_dir = Path(__file__).parent.absolute()
-# config_dir = os.path.join(pkg_data, "/config_files/")
+config_dir = files("tabsim.data").joinpath("config_files").__str__()
 
-sim_base_config_path = files("tabsim.data").joinpath(
-    "config_files/sim_config_base.yaml"
-)
-# sim_base_config_path = os.path.join(config_dir, "sim_config_base.yaml")
-# tab_base_config_path = os.path.join(config_dir, "tab_config_base.yaml")
+sim_base_config_path = os.path.join(config_dir, "sim_config_base.yaml")
+tab_base_config_path = os.path.join(config_dir, "tab_config_base.yaml")
 # extract_base_config_path = os.path.join(config_dir, "extract_config_base.yaml")
 # pow_spec_base_config_path = os.path.join(
 #     config_dir, "extract_pow_spec_config_base.yaml"
