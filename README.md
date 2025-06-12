@@ -1,4 +1,4 @@
-# tabascal
+# tab-sim
 
 [![DOI:10.1093/mnras/stad1979](https://zenodo.org/badge/DOI/10.1093/mnras/stad1979.svg)](https://doi.org/10.1093/mnras/stad1979)
 [![DOI:10.48550/arXiv.2502.00106](https://img.shields.io/badge/arXiv-2502.00106-b31b1b.svg)](https://doi.org/10.48550/arXiv.2502.00106)
@@ -21,7 +21,7 @@ git clone https://github.com/chrisfinlay/tab-sim.git
 
 ### Pure `pip` install
 
-You can install `tabascal` with pip alone inside an environment of your choice with optional GPU support.
+You can install `tab-sim` with pip alone inside an environment of your choice with optional GPU support.
 
 #### GPU Enabled
 ```bash
@@ -39,8 +39,8 @@ If you are having trouble with the `pip` install method you can try with [Docker
 
 Assuming you have cloned this git repository into you current working directory then you can either:
 
-1. build an image with the latest tabascal.
-2. download a working but older version of a tabascal image. 
+1. build an image with the latest tab-sim.
+2. download a working but older version of a tab-sim image. 
 
 First we can simplify by setting the `TAB_DIR` environment variable using
 
@@ -74,7 +74,7 @@ docker run -it -v ${TAB_DIR}:/data -u $(id -u):$(id -g) ${TAB_IMG} bash
 docker run -it -v ${TAB_DIR}:/data ${TAB_IMG} bash
 ```
 
-For more complex tabascal installs using docker you can adapt the [Dockerfile](Dockerfile) to your needs. 
+For more complex tab-sim installs using docker you can adapt the [Dockerfile](Dockerfile) to your needs. 
 
 
 <!-- ### GPU 
@@ -235,7 +235,7 @@ The structure of the `.zarr` file is as follows:
 
 ## Measurement Set Output
 
-Measurement sets allow the addition of non-standard data columns. The simulator in tabascal takes advantage of this and adds the following columns to help with debugging and analysis.
+Measurement sets allow the addition of non-standard data columns. The simulator in tab-sim takes advantage of this and adds the following columns to help with debugging and analysis.
 
 ### Standard Columns
 
@@ -253,7 +253,7 @@ Measurement sets allow the addition of non-standard data columns. The simulator 
 * `NOISE_DATA` : The complex noise that is added to the above datasets. 
 
 
-## Citing tabascal
+## Citing tab-sim
 
 ```bibtex
 @ARTICLE{Finlay2023,
