@@ -4,8 +4,8 @@ from numpy.typing import ArrayLike
 
 import jax.numpy as jnp
 
-from tab_sim.dask.observation import Observation
-from tab_sim.jax.coordinates import alt_az_of_source
+from tabsim.dask.observation import Observation
+from tabsim.jax.coordinates import alt_az_of_source
 import os
 
 plt.rcParams["font.size"] = 18

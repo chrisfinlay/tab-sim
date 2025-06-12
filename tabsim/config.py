@@ -14,12 +14,12 @@ import xarray as xr
 import numpy as np
 import pandas as pd
 
-from tab_sim.dask.observation import Observation
-from tab_sim.sky import generate_random_sky
-from tab_sim.plot import plot_uv, plot_src_alt, plot_angular_seps
-from tab_sim.write import write_ms, mk_obs_name, mk_obs_dir
-from tab_sim.jax.coordinates import calculate_fringe_frequency
-from tab_sim.tle import get_visible_satellite_tles
+from tabsim.dask.observation import Observation
+from tabsim.sky import generate_random_sky
+from tabsim.plot import plot_uv, plot_src_alt, plot_angular_seps
+from tabsim.write import write_ms, mk_obs_name, mk_obs_dir
+from tabsim.jax.coordinates import calculate_fringe_frequency
+from tabsim.tle import get_visible_satellite_tles
 
 from daskms import xds_from_ms
 
@@ -27,16 +27,22 @@ from tqdm import tqdm
 
 from pathlib import Path
 
-pkg_dir = Path(__file__).parent.absolute()
-config_dir = os.path.join(pkg_dir, "../data/config_files/")
+from importlib.resources import files
 
+# config_dir = files("tabsim.data").joinpath("/config_files/")
+# print(config_dir)
+# pkg_dir = Path(__file__).parent.absolute()
+# config_dir = os.path.join(pkg_data, "/config_files/")
 
-sim_base_config_path = os.path.join(config_dir, "sim_config_base.yaml")
-tab_base_config_path = os.path.join(config_dir, "tab_config_base.yaml")
-extract_base_config_path = os.path.join(config_dir, "extract_config_base.yaml")
-pow_spec_base_config_path = os.path.join(
-    config_dir, "extract_pow_spec_config_base.yaml"
+sim_base_config_path = files("tabsim.data").joinpath(
+    "config_files/sim_config_base.yaml"
 )
+# sim_base_config_path = os.path.join(config_dir, "sim_config_base.yaml")
+# tab_base_config_path = os.path.join(config_dir, "tab_config_base.yaml")
+# extract_base_config_path = os.path.join(config_dir, "extract_config_base.yaml")
+# pow_spec_base_config_path = os.path.join(
+#     config_dir, "extract_pow_spec_config_base.yaml"
+# )
 
 JD0 = 2459997.079914223  # 2023-02-21 13:55:04.589 UTC => GMSA = 0
 MJD0 = JD0 - 2400000.5
@@ -843,7 +849,7 @@ def run_sim_config(
     obs_spec: dict = None, config_path: str = None, spacetrack_path: str = None
 ) -> Tuple[Observation, str]:
 
-    from tab_sim.tle import id_generator
+    from tabsim.tle import id_generator
 
     log_path = f"log_sim_{id_generator()}.txt"
     log = open(log_path, "w")

@@ -1,4 +1,4 @@
-from tab_sim.jax import coordinates as coord
+from tabsim.jax import coordinates as coord
 
 import dask.array as da
 from dask.delayed import delayed

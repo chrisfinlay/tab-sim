@@ -1,7 +1,14 @@
 import argparse
 import os
 
-from tab_sim.config import load_config, run_sim_config
+from tabsim.config import load_config, run_sim_config
+
+
+def get_abs_path(rel_path: str | None, work_dir: str) -> str | None:
+    if rel_path:
+        return os.path.abspath(os.path.join(work_dir, rel_path))
+    else:
+        return None
 
 
 def main():
@@ -9,7 +16,10 @@ def main():
         description="Simulate an observation defined by a YAML config file."
     )
     parser.add_argument(
-        "-c", "--config_path", help="File path to the observation config file."
+        "-c",
+        "--config_path",
+        required=True,
+        help="File path to the observation config file.",
     )
     parser.add_argument(
         "-r",
@@ -54,7 +64,10 @@ def main():
     rfi_amp = args.rfi_amp
     spacetrack_path = args.spacetrack
 
-    obs_spec = load_config(args.config_path, config_type="sim")
+    config_path = os.path.abspath(args.config_path)
+    work_dir = os.path.split(config_path)[0]
+
+    obs_spec = load_config(config_path, config_type="sim")
 
     if args.ra is not None:
         obs_spec["observation"]["ra"] = args.ra
@@ -62,10 +75,10 @@ def main():
     config_st_path = obs_spec["rfi_sources"]["tle_satellite"]["spacetrack_path"]
     if spacetrack_path:
         obs_spec["rfi_sources"]["tle_satellite"]["spacetrack_path"] = os.path.abspath(
-            spacetrack_path
+            os.path.join(work_dir, spacetrack_path)
         )
     elif config_st_path:
-        config_st_path = os.path.abspath(config_st_path)
+        config_st_path = get_abs_path(config_st_path, work_dir)
         obs_spec["rfi_sources"]["tle_satellite"]["spacetrack_path"] = config_st_path
         spacetrack_path = config_st_path
 
@@ -96,6 +109,25 @@ def main():
 
     if args.n_time is not None:
         obs_spec["observation"]["n_time"] = args.n_time
+
+    for ast in ["exp", "gauss", "point", "pow_spec"]:
+        obs_spec["ast_sources"][ast]["path"] = get_abs_path(
+            obs_spec["ast_sources"][ast]["path"], work_dir
+        )
+
+    obs_spec["output"]["path"] = get_abs_path(obs_spec["output"]["path"], work_dir)
+    obs_spec["rfi_sources"]["tle_satellite"]["norad_ids_path"] = get_abs_path(
+        obs_spec["rfi_sources"]["tle_satellite"]["norad_ids_path"], work_dir
+    )
+    obs_spec["rfi_sources"]["tle_satellite"]["norad_spec_model"] = get_abs_path(
+        obs_spec["rfi_sources"]["tle_satellite"]["norad_spec_model"], work_dir
+    )
+    obs_spec["telescope"]["enu_path"] = get_abs_path(
+        obs_spec["telescope"]["enu_path"], work_dir
+    )
+    obs_spec["telescope"]["itrf_path"] = get_abs_path(
+        obs_spec["telescope"]["itrf_path"], work_dir
+    )
 
     return run_sim_config(obs_spec=obs_spec, spacetrack_path=spacetrack_path)
 

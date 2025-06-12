@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 from jax import jit, vmap, jacrev, config, Array
-from tab_sim.jax.utils import jit_with_doc
+from tabsim.jax.utils import jit_with_doc
 
 config.update("jax_enable_x64", True)
 

@@ -7,7 +7,7 @@ from scipy.special import jv
 
 from functools import partial
 
-from tab_sim.jax.utils import jit_with_doc
+from tabsim.jax.utils import jit_with_doc
 
 config.update("jax_enable_x64", True)
 

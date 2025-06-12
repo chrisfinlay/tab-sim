@@ -4,3 +4,4 @@ data/aux_data/tles/*
 examples/data
 *.pyc
 *log*
+build/*

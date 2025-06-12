@@ -3,7 +3,7 @@ import numpy as np
 import xarray as xr
 from dask.delayed import delayed
 from dask.array.core import Array
-from tab_sim.jax import interferometry as itf
+from tabsim.jax import interferometry as itf
 
 
 def astro_vis(sources: Array, uvw: Array, lmn: Array, freqs: Array) -> Array:

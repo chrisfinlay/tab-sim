@@ -4,7 +4,7 @@ telescope:
   longitude: 21.0
   elevation: 1050.0
   dish_d: 13.5
-  itrf_path: ../../data/MeerKAT.itrf.txt
+  itrf_path: ../../tabsim/data/MeerKAT.itrf.txt
   n_ant: 16
 
 observation:
@@ -44,8 +44,8 @@ rfi_sources:
     sat_names: [navstar]
     # max_n_sat: 1
     spacetrack_path: spacetrack_login.yaml
-    tle_dir: ../../data/aux_data/tles
-    norad_spec_model: ../../data/aux_data/norad_satellite.rfimodel
+    tle_dir: ../../tabsim/data/aux_data/tles
+    norad_spec_model: ../../tabsim/data/aux_data/norad_satellite.rfimodel
     power_scale: 1e-2
     max_ang_sep: 30  # degrees
     min_alt: 0       # degrees

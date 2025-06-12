@@ -13,9 +13,9 @@ import os
 
 import matplotlib.colors as mcolors
 
-from tab_sim.config import yaml_load
-from tab_sim.tle import get_tles_by_id, get_satellite_positions
-from tab_sim.jax.coordinates import itrf_to_xyz, mjd_to_jd
+from tabsim.config import yaml_load
+from tabsim.tle import get_tles_by_id, get_satellite_positions
+from tabsim.jax.coordinates import itrf_to_xyz, mjd_to_jd
 
 from astropy.coordinates import EarthLocation
 from astropy.time import Time

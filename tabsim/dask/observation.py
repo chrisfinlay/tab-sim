@@ -5,7 +5,7 @@ import dask.array as da
 import numpy as np
 import xarray as xr
 
-from tab_sim.dask.coordinates import (
+from tabsim.dask.coordinates import (
     ENU_to_ITRF,
     ITRF_to_UVW,
     ENU_to_GEO,
@@ -15,7 +15,7 @@ from tab_sim.dask.coordinates import (
     radec_to_lmn,
     angular_separation,
 )
-from tab_sim.dask.interferometry import (
+from tabsim.dask.interferometry import (
     astro_vis,
     astro_vis_gauss,
     astro_vis_exp,
@@ -30,19 +30,19 @@ from tab_sim.dask.interferometry import (
     apply_gains,
 )
 
-from tab_sim.jax.interferometry import int_sample_times
+from tabsim.jax.interferometry import int_sample_times
 
-from tab_sim.jax.coordinates import (
+from tabsim.jax.coordinates import (
     itrf_to_geo,
     alt_az_of_source,
     gmsa_from_jd,
     mjd_to_jd,
     secs_to_days,
 )
-from tab_sim.tools import beam_size
-from tab_sim.write import construct_observation_ds, write_ms
-from tab_sim.dask.extras import get_chunksizes
-from tab_sim.tle import get_satellite_positions, ants_pos, sat_distance
+from tabsim.tools import beam_size
+from tabsim.write import construct_observation_ds, write_ms
+from tabsim.dask.extras import get_chunksizes
+from tabsim.tle import get_satellite_positions, ants_pos, sat_distance
 
 config.update("jax_enable_x64", True)
 
