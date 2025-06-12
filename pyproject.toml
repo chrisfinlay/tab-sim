@@ -1,0 +1,49 @@
+[build-system]
+# XXX: If your project needs other packages to build properly, add them to this list.
+requires = ["setuptools >= 64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tab_sim"
+version = "0.0.1"
+license = {file = "LICENSE"}
+readme = "README.md"
+# dynamic = ["version", "readme"]
+authors = [
+  {name = "Chris Finlay", email = "christopher.finlay@epfl.ch"},
+]
+maintainers = [
+  {name = "Chris Finlay", email = "christopher.finlay@epfl.ch"}
+]
+description = "Trajectory-based Radio Frequency Interference (RFI) simulations for radio interferometeric data."
+
+requires-python = ">=3.9,<3.13"
+dependencies = [
+    "jax", "dask<=2024.10.0", "xarray", "zarr<3.0.0", 
+    "dask-ms>=0.2.21", "scipy", "tqdm", "matplotlib", 
+    "astropy", "spacetrack", "skyfield", "numpy<2.0.0", 
+    # "pandas", "requests"
+]
+
+[project.optional-dependencies]
+gpu = ["jax[cuda12]"]
+sat = ["regions"]
+ps = ["TGEpy @ git+https://github.com/chrisfinlay/TGEpy.git"]
+all = ["jax[cuda12]", "regions", "bdsf", "TGEpy @ git+https://github.com/chrisfinlay/TGEpy.git"]
+all_cpu = ["regions", "bdsf", "TGEpy @ git+https://github.com/chrisfinlay/TGEpy.git"]
+ipy = ["ipython", "ipykernel"]
+
+[project.urls]
+Repository = "https://github.com/chrisfinlay/tab_sim.git"
+
+[tool.setuptools.package-data]
+tabascal = ["tab_sim/data/*"]
+
+[tool.setuptools.packages]
+find = {}
+
+[project.scripts]
+tle-region = "tab_sim.scripts.tle_sat_region:main"
+ast-region = "tab_sim.scripts.ast_region:main"
+flag-data = "tab_sim.scripts.flag_data:main"
+sim-vis = "tab_sim.scripts.sim_vis:main"

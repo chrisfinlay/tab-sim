@@ -1,0 +1,6 @@
+.DS_Store
+*.egg-info
+data/aux_data/tles/*
+examples/data
+*.pyc
+*log*
