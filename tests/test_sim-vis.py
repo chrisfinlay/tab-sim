@@ -27,7 +27,7 @@ def test_missing_config_file():
 
 def test_simulation_runs_with_config(capsys):
     config_path = (
-        Path(__file__).parent.parent / "examples" / "target" / "sim_target_16A.yaml"
+        Path(__file__).parent.parent / "examples" / "test" / "sim_test_16A.yaml"
     )
 
     assert config_path.is_file(), f"Missing config file: {config_path}"
