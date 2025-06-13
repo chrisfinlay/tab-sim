@@ -31,6 +31,7 @@ sat = ["regions"]
 # all = ["jax[cuda12]", "regions", "bdsf", "TGEpy @ git+https://github.com/chrisfinlay/TGEpy.git"]
 # all_cpu = ["regions", "bdsf", "TGEpy @ git+https://github.com/chrisfinlay/TGEpy.git"]
 ipy = ["ipython", "ipykernel"]
+test = ["pytest"]
 
 [project.urls]
 Repository = "https://github.com/chrisfinlay/tab-sim.git"
