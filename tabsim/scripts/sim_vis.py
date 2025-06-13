@@ -1,5 +1,7 @@
 import argparse
 import os
+import sys
+from pathlib import Path
 
 from tabsim.config import load_config, run_sim_config
 
@@ -63,6 +65,11 @@ def main():
     args = parser.parse_args()
     rfi_amp = args.rfi_amp
     spacetrack_path = args.spacetrack
+    config_path = Path(args.config_path)
+
+    if not config_path.is_file():
+        print(f"Error: config file not found: {config_path}", file=sys.stderr)
+        sys.exit(1)  # Exit with error code
 
     config_path = os.path.abspath(args.config_path)
     work_dir = os.path.split(config_path)[0]
