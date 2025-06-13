@@ -1,0 +1,58 @@
+name: Test on Multiple Python Versions
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+    branches: ["*"]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        # os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
+        python-version: ["3.8"]
+
+    name: Test on Python ${{ matrix.python-version }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Confirm Python version
+        run: |
+          python --version
+          which python
+
+      - name: Install system dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y casacore-dev libboost-python-dev libcfitsio-dev wcslib-dev
+      
+      # - name: Install system dependencies (macOS)
+      #   if: runner.os == 'macOS'
+      #   run: |
+      #     brew update
+      #     brew install geos gdal proj libxml2
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --no-cache-dir .[test]
+
+      - name: Restore spacetrack login file
+        env:
+          SPACETRACK_LOGIN: ${{ secrets.SPACETRACK_LOGIN || env.SPACETRACK_LOGIN }}
+        run: |
+          echo "$SPACETRACK_LOGIN" > examples/target/spacetrack_login.yaml
+
+      - name: Run tests
+        run: pytest
