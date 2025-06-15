@@ -14,12 +14,3 @@ python:
 # Build documentation using Sphinx
 sphinx:
   configuration: docs/conf.py
-
-# Set the build output formats
-formats: all
-
-# Optionally set the Python interpreter path (default is docs/)
-build:
-  os: ubuntu-22.04
-  tools:
-    python: "3.10"
