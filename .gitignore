@@ -5,3 +5,4 @@ examples/data
 *.pyc
 *log*
 build/*
+docs/_build

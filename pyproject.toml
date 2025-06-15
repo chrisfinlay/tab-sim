@@ -32,6 +32,7 @@ sat = ["regions"]
 # all_cpu = ["regions", "bdsf", "TGEpy @ git+https://github.com/chrisfinlay/TGEpy.git"]
 ipy = ["ipython", "ipykernel"]
 test = ["pytest"]
+docs = ["sphinx", "sphinx_rtd_theme"]
 
 [project.urls]
 Repository = "https://github.com/chrisfinlay/tab-sim.git"

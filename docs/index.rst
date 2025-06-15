@@ -1,4 +1,4 @@
-Welcome to TAB‑Sim documentation
+Welcome to tab‑sim documentation
 ================================
 
 .. toctree::
