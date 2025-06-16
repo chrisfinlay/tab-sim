@@ -9,6 +9,11 @@ build:
   os: ubuntu-22.04
   tools:
     python: "3.12"
+  apt_packages:
+    - casacore-dev 
+    - libboost-python-dev 
+    - libcfitsio-dev 
+    - wcslib-dev
 
 # Build documentation in the "docs/" directory with Sphinx
 sphinx:
@@ -29,5 +34,3 @@ formats:
 python:
   install:
     - requirements: docs/requirements.txt
-    - method: pip
-      spec: tabsim
