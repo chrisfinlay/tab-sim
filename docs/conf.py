@@ -2,7 +2,7 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath('..'))
 
-project = 'TAB‑Sim'
+project = 'tab‑sim'
 author = 'Chris Finlay'
 extensions = [
     'sphinx.ext.autodoc',
