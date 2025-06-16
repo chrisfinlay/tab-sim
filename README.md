@@ -2,12 +2,17 @@
 
 [![DOI:10.1093/mnras/stad1979](https://zenodo.org/badge/DOI/10.1093/mnras/stad1979.svg)](https://doi.org/10.1093/mnras/stad1979)
 [![DOI:10.48550/arXiv.2502.00106](https://img.shields.io/badge/arXiv-2502.00106-b31b1b.svg)](https://doi.org/10.48550/arXiv.2502.00106)
+[![Documentation Status](https://readthedocs.org/projects/tabascal/badge/?version=latest)](https://tab-sim.readthedocs.io/en/latest/?badge=latest)
 
 **T**r**A**jectory **B**ased RFI **Sim**ulations of radio interferometry data. 
 A source to visibility model for RFI sources including certain near-field effects. 
 
 `tab-sim` is written in [JAX](https://jax.readthedocs.io/en/latest/notebooks/quickstart.html) 
 and [Dask](https://www.dask.org) and can therefore use GPUs and/or CPUs to perform larger than memory computation.
+
+## Documentation
+
+[https://tab-sim.readthedocs.io/](https://tab-sim.readthedocs.io/)
 
 ## Installation
 
