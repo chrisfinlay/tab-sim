@@ -1,6 +1,7 @@
 import jax.numpy as jnp
 from jax import jit, vmap, jacrev, config, Array
 from tabsim.jax.utils import jit_with_doc
+from jax.lax import scan
 
 config.update("jax_enable_x64", True)
 
@@ -1072,6 +1073,259 @@ def orbit_fisher(times: Array, orbit_params: Array, RIC_std: Array) -> Array:
     orbit_params = jnp.asarray(orbit_params)
     RIC_std = jnp.asarray(RIC_std)
     J = jacrev(RIC_dev, argnums=(2,))(times, orbit_params, orbit_params)[0]
+    F = jnp.diag(1.0 / RIC_std**2)
+
+    def propagate(J, F):
+        return J.T @ F @ J
+
+    fisher = vmap(propagate, in_axes=(0, None))(J, F).sum(axis=0)
+
+    return fisher
+
+
+# New Orbit Model with Keplerian Elements
+
+
+def R_z(angle):
+    c, s = jnp.cos(angle), jnp.sin(angle)
+    return jnp.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
+
+def R_x(angle):
+    c, s = jnp.cos(angle), jnp.sin(angle)
+    return jnp.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+
+
+def solve_kepler(M, e, max_iter=100):
+    """Newton-Raphson solver for Kepler's equation."""
+
+    def newton_step(E, _):
+        f = E - e * jnp.sin(E) - M
+        f_prime = 1 - e * jnp.cos(E)
+        E_new = E - f / f_prime
+        return E_new, E_new
+
+    E0 = M
+    E_final, _ = scan(newton_step, E0, None, length=max_iter)
+
+    return E_final
+
+
+def kepler_orbit(times, t_epoch, params):
+    """
+    Compute orbit position over time for a single satellite.
+
+    times: (T,)
+    params: (6,) = [a, e, i, Ω, ω, M0]
+    Returns: (T, 3)
+    """
+    a, e, i_deg, Ω_deg, ω_deg, M0_deg = params
+
+    mu = 398600.4418  # km^3/s^2
+
+    n = jnp.sqrt(mu / jnp.abs(a) ** 3) * 86400
+
+    i = jnp.radians(i_deg)
+    Ω = jnp.radians(Ω_deg)
+    ω = jnp.radians(ω_deg)
+    M_0 = jnp.radians(M0_deg)
+
+    M = M_0 + n * (times - t_epoch)  # Mean anomaly
+
+    E = vmap(solve_kepler, (0, None))(jnp.atleast_1d(M), e)
+
+    nu = 2 * jnp.arctan2(
+        jnp.sqrt(1 + e) * jnp.sin(E / 2), jnp.sqrt(1 - e) * jnp.cos(E / 2)
+    )
+
+    r = a * (1 - e * jnp.cos(E))
+    x_orb = r * jnp.cos(nu)
+    y_orb = r * jnp.sin(nu)
+    z_orb = jnp.zeros_like(x_orb)
+
+    R = R_z(Ω) @ R_x(i) @ R_z(ω)
+
+    pos_orb = jnp.stack([x_orb, y_orb, z_orb], axis=1)  # (T, 3)
+    pos_inertial = pos_orb @ R.T  # (T, 3)
+
+    return pos_inertial * 1e3
+
+
+def kepler_orbit_many(
+    times_jd: Array,
+    epoch_jd: Array,
+    elements: Array,
+    # semi_major: Array,
+    # eccentricity: Array,
+    # inclination: Array,
+    # ra_of_asc_node: Array,
+    # arg_of_peri: Array,
+    # mean_anomaly: Array,
+):
+    """Propagate Keplerian orbits for a set of satellites using orbital elements as defined in a TLE.
+
+    Parameters
+    ----------
+    times_jd : Array (n_time,)
+        Propagation times in Julian Date.
+    epoch_jd : Array (n_sat,)
+        Epoch of the TLE in Julian Date.
+    semi_major : Array (n_sat,)
+        Semi major axis of the orbit in km.
+    eccentricity : Array (n_sat,)
+        Eccentricity of the orbit.
+    inclination : Array (n_sat,)
+        Inclination of the orbit in degrees.
+    ra_of_asc_node : Array (n_sat,)
+        Right ascension of the ascending node in degrees.
+    arg_of_peri : Array (n_sat,)
+        Argument of the pericentre in degrees.
+    mean_anomaly : Array (n_sat,)
+        Mean anomaly of the orbit at the epoch time in degrees.
+    """
+
+    # elements = [
+    #     jnp.atleast_1d(x)
+    #     for x in [
+    #         semi_major,
+    #         eccentricity,
+    #         inclination,
+    #         ra_of_asc_node,
+    #         arg_of_peri,
+    #         mean_anomaly,
+    #     ]
+    # ]
+
+    pos = vmap(kepler_orbit, (None, 0, 0))(times_jd, epoch_jd, elements)
+
+    return pos
+
+
+def kepler_orbit_velocity(times_jd: Array, epoch_jd: float, elements: Array) -> Array:
+
+    vel_vmap = vmap(jacrev(kepler_orbit, argnums=(0)), in_axes=(0, None, None))
+    velocity = vel_vmap(times_jd, epoch_jd, elements).reshape(len(times_jd), 3)
+
+    return velocity
+
+
+def R_uvw(
+    times_jd: Array,
+    epoch_jd: float,
+    elements: Array,
+) -> Array:
+    """
+    Calculate the rotation matrices at each time step to transform from an Earth
+    centric reference frame (ECI) to a satellite centric frame given the
+    parameters of its (circular) orbit.
+
+    Parameters
+    ----------
+    times: ndarray (n_time,)
+        Times at which to evaluate the rotation matrices.
+    elevation: float
+        Elevation/Altitude of the orbit in metres.
+    inclination: float
+        Inclination angle of the orbit relative to the equatorial plane.
+    lon_asc_node: float
+        Longitude of the ascending node of the orbit. This is the longitude of
+        when the orbit crosses the equator from the south to the north.
+    periapsis: float
+        Perisapsis of the orbit. This is the angular starting point of the orbit
+        at t = 0.
+
+    Returns
+    -------
+    R: ndarray (3, 3)
+        The rotation matrix to orient to a satellite centric (RIC) frame defined
+        by the Radial, In-track, Cross-track components.
+    """
+    times_jd = jnp.asarray(times_jd)
+    elements = jnp.asarray(elements)
+
+    position = kepler_orbit(times_jd, epoch_jd, elements)
+    velocity = kepler_orbit_velocity(times_jd, epoch_jd, elements)
+
+    vel_hat = velocity / jnp.linalg.norm(velocity, axis=-1, keepdims=True)
+    u_hat = position / jnp.linalg.norm(position, axis=-1, keepdims=True)
+    w_hat = jnp.cross(u_hat, vel_hat)
+    v_hat = jnp.cross(w_hat, u_hat)
+    R = jnp.stack([u_hat.T, v_hat.T, w_hat.T])
+
+    return R
+
+
+def kepler_RIC_dev(
+    times_jd: Array,
+    epoch_jd: float,
+    true_elements: Array,
+    estimated_elements: Array,
+) -> Array:
+    """
+    Calculate the Radial (R), In-track (I) and Cross-track (C) deviations
+    between two circular orbits given their orbit parameters at many time steps.
+
+    Parameters
+    ----------
+    times: array (n_time,)
+        Times at which to evaluate the RIC deviations.
+    true_orb_params: ndarray (4,)
+        Orbit parameters (elevation, inclination, lon_asc_node, periapsis) of
+        the object of most interest. The more accurate measurement when
+        comparing the same object.
+    est_orb_params: array (elevation, inclination, lon_asc_node, periapsis)
+        Estimated orbit parameters.
+
+    Returns
+    -------
+    RIC: ndarray (n_time, 3)
+        Radial, In-track and Cross-track coordinates, in metres, of the orbiting
+        body relative to the orbit defined by 'true_orbit_params'.
+    """
+    times_jd = jnp.asarray(times_jd)
+    true_elements = jnp.asarray(true_elements)
+    estimated_elements = jnp.asarray(estimated_elements)
+
+    true_xyz = kepler_orbit(times_jd, epoch_jd, true_elements)
+    est_xyz = kepler_orbit(times_jd, epoch_jd, estimated_elements)
+
+    R = R_uvw(times_jd, epoch_jd, true_elements)
+    true_uvw = vmap(lambda x, y: x @ y, in_axes=(-1, 0))(R, true_xyz)
+    est_uvw = vmap(lambda x, y: x @ y, in_axes=(-1, 0))(R, est_xyz)
+
+    return est_uvw - true_uvw
+
+
+def kepler_orbit_fisher(
+    times_jd: Array, epoch_jd: float, elements: Array, RIC_std: Array
+) -> Array:
+    """
+    Calculate the inverse covariance (Fisher) matrix in orbital elements
+    induced by errors in the RIC frame of an orbiting object. This is
+    essentially linear uncertainty propagation assuming Gaussian errors.
+
+    Parameters
+    ----------
+    times: ndarray (n_time,)
+        Times at which the RIC covariance/standard deviations is defined.
+    orbit_params: ndarray (4,)
+        Orbit parameters (elevation, inclination, lon_asc_node, periapsis) for
+        the orbit defining the origin of the RIC frame.
+    RIC_std: ndarray (3,)
+        The standard deviation in the Radial, In-track and Cross-track
+        directions.
+
+    Returns
+    -------
+    fisher: ndarray (6, 6)
+        The inverse covariance (Fisher) matrix for the orbit parameters induced
+        by the orbit uncertainties in the RIC frame.
+    """
+    times_jd = jnp.asarray(times_jd)
+    elements = jnp.asarray(elements)
+    RIC_std = jnp.asarray(RIC_std)
+
+    J = jacrev(kepler_RIC_dev, argnums=(3,))(times_jd, epoch_jd, elements, elements)[0]
     F = jnp.diag(1.0 / RIC_std**2)
 
     def propagate(J, F):
