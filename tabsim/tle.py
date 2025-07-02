@@ -21,8 +21,10 @@ from glob import glob
 
 from importlib.resources import files
 
+from typing import Optional
 
-def make_tle_dir(tle_dir: str | None):
+
+def make_tle_dir(tle_dir: Optional[str]):
 
     if tle_dir:
         tle_dir = os.path.abspath(tle_dir)
@@ -89,7 +91,7 @@ def get_tles_by_id(
     epoch_jd: float,
     window_days: float = 1.0,
     limit: int = 2000,
-    tle_dir: str | None = None,
+    tle_dir: Optional[str] = None,
 ) -> pd.DataFrame:
 
     tle_dir = make_tle_dir(tle_dir)
@@ -166,7 +168,7 @@ def get_tles_by_name(
     epoch_jd: float,
     window_days: float = 1.0,
     limit: int = 10000,
-    tle_dir: str | None = None,
+    tle_dir: Optional[str] = None,
 ) -> pd.DataFrame:
 
     tle_dir = make_tle_dir(tle_dir)
@@ -291,7 +293,7 @@ def get_visible_satellite_tles(
     min_elevation: float,
     names: ArrayLike = [],
     norad_ids: ArrayLike = [],
-    tle_dir: str | None = None,
+    tle_dir: Optional[str] = None,
 ) -> tuple:
     """Get the TLEs corresponding to satellites that satisfy the conditions given.
 

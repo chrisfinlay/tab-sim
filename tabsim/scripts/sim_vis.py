@@ -5,8 +5,10 @@ from pathlib import Path
 
 from tabsim.config import load_config, run_sim_config
 
+from typing import Union
 
-def get_abs_path(rel_path: str | None, work_dir: str) -> str | None:
+
+def get_abs_path(rel_path: Union[str, None], work_dir: str) -> Union[str, None]:
     if rel_path:
         return os.path.abspath(os.path.join(work_dir, rel_path))
     else:

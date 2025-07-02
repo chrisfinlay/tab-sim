@@ -5,7 +5,7 @@ import sys
 import shutil
 
 import collections.abc
-from typing import Tuple
+from typing import Tuple, Union
 from datetime import datetime
 
 import dask.array as da
@@ -188,7 +188,7 @@ def load_sky_model(file_path: str, freqs: Array, src_type: str) -> tuple:
         raise KeyError("'src_type' must be one of {'point', 'gauss', 'exp'}.")
 
 
-def sigma_value(value: str | float | int, obs: Observation):
+def sigma_value(value: Union[str, float, int], obs: Observation):
     try:
         if isinstance(value, str):
             sigma = (np.mean(obs.noise_std) / np.sqrt(obs.n_time * obs.n_bl)).compute()
