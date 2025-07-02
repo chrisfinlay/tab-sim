@@ -2,8 +2,10 @@ import numpy as np
 import jax.numpy as jnp
 import dask.array as da
 
+from typing import Optional
 
-def uniform_points_disk(radius: float, n_src: int, random_seed: int | None = None):
+
+def uniform_points_disk(radius: float, n_src: int, random_seed: Optional[int] = None):
     """
     Generate uniformly distributed random points on a disk.
 

@@ -690,7 +690,7 @@ def calculate_fringe_frequency(
     r_ecef = xyz_to_itrf(rfi_xyz, gsa)
     s_ecef = r_ecef - jnp.mean(ants_itrf, axis=0)
     s_hat_ecef = s_ecef / jnp.linalg.norm(s_ecef, axis=-1, keepdims=True)
-    s_hat_dot = jnp.gradient(s_hat_ecef, times, axis=0)
+    s_hat_dot = jnp.gradient(s_hat_ecef, jnp.diff(times[:2])[0], axis=0)
 
     a1, a2 = jnp.triu_indices(len(ants_itrf), 1)
     bl_ecef = ants_itrf[a1] - ants_itrf[a2]
