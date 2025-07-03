@@ -6,6 +6,7 @@ import shutil
 
 import collections.abc
 from typing import Tuple, Union, Optional
+
 from datetime import datetime
 
 import dask.array as da
@@ -13,13 +14,14 @@ from dask.array.core import Array
 import xarray as xr
 import numpy as np
 import pandas as pd
+from astropy.time import Time
 
 from tabsim.dask.observation import Observation
 from tabsim.sky import generate_random_sky
 from tabsim.plot import plot_uv, plot_src_alt, plot_angular_seps
 from tabsim.write import write_ms, mk_obs_name, mk_obs_dir
-from tabsim.jax.coordinates import calculate_fringe_frequency
-from tabsim.tle import get_visible_satellite_tles
+from tabsim.jax.coordinates import calculate_fringe_frequency, jd_to_mjd
+from tabsim.tle import get_visible_satellite_tles, id_generator
 
 from daskms import xds_from_ms
 
@@ -212,12 +214,9 @@ def load_obs(obs_spec: dict) -> Observation:
         return x
 
     if obs_["start_time_jd"]:
-        from tabascal.jax.coordinates import jd_to_mjd
 
         start_time_mjd = jd_to_mjd(obs_["start_time_jd"])
     elif obs_["start_time_isot"]:
-        from astropy.time import Time
-        from tabascal.jax.coordinates import jd_to_mjd
 
         start_time_mjd = jd_to_mjd(
             Time(obs_["start_time_isot"], format="isot", scale="ut1").jd
@@ -844,6 +843,7 @@ def run_sim_config(
 
     from tabsim.tle import id_generator
 
+
     log_path = f"log_sim_{id_generator()}.txt"
     log = open(log_path, "w")
     backup = sys.stdout
@@ -861,7 +861,7 @@ def run_sim_config(
     obs = load_obs(obs_spec)
     add_astro_sources(obs, obs_spec)
     add_satellite_sources(obs, obs_spec)
-    if obs_spec["rfi_sources"]["tle_satellite"]["max_n_sat"] != 0:
+    if obs_spec["rfi_sources"]["tle_satellite"]["max_n_sat"] != 0 and spacetrack_path:
         add_tle_satellite_sources(obs, obs_spec, spacetrack_path)
     add_stationary_sources(obs, obs_spec)
     add_gains(obs, obs_spec)
