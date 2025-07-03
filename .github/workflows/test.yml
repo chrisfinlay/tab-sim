@@ -38,7 +38,7 @@ jobs:
           which python
 
       - name: Install system dependencies (Ubuntu)
-        if: runner.os == "Linux"
+        if: ${{ runner.os == 'Linux' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y casacore-dev libboost-python-dev libcfitsio-dev wcslib-dev
