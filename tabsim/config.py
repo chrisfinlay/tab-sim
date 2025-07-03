@@ -5,7 +5,7 @@ import sys
 import shutil
 
 import collections.abc
-from typing import Tuple, Union
+from typing import Tuple, Union, Optional
 from datetime import datetime
 
 import dask.array as da
@@ -837,7 +837,9 @@ def print_fringe_freq_tle_sat(obs: Observation):
 
 
 def run_sim_config(
-    obs_spec: dict = None, config_path: str = None, spacetrack_path: str = None
+    obs_spec: Optional[dict] = None,
+    config_path: Optional[str] = None,
+    spacetrack_path: Optional[str] = None,
 ) -> Tuple[Observation, str]:
 
     from tabsim.tle import id_generator

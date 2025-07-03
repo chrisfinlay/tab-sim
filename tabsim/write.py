@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from tabsim.dask.observation import Observation
@@ -12,8 +12,10 @@ import dask
 import dask.array as da
 import numpy as np
 import xarray as xr
-from daskms import Dataset, xds_to_table
+from daskms import Dataset, xds_to_table, xds_from_ms
 import numpy as np
+
+from dask.core import Array
 
 
 def rm_dir(path: str, overwrite: bool = True):
@@ -73,7 +75,7 @@ def mk_obs_dir(output_path: str, obs_name: str, overwrite: bool = True) -> tuple
     return save_path, zarr_path, ms_path
 
 
-def mk_obs_name(prefix: str, obs: Observation, suffix: str = None) -> str:
+def mk_obs_name(prefix: str, obs: Observation, suffix: Optional[str] = None) -> str:
     """Construct an observation name based on the parameters of the observation and an additional prefix.
 
     Parameters
@@ -379,6 +381,40 @@ def get_stationary_rfi_data(obs: Observation):
         rfi_stat = {}
 
     return rfi_stat
+
+
+def add_to_ms(ds: Dataset, ms_path: str, flags: Optional[Array] = None):
+
+    n_time = ds.attrs["n_time"]
+    n_freq = ds.attrs["n_freq"]
+    n_corr = 1
+    n_bl = ds.attrs["n_bl"]
+    n_row = n_time * n_bl
+
+    xds_ms = xds_from_ms(ms_path)[0]
+
+    dims = ["row", "chan", "corr"]
+    chunks = {k: v for k, v in xds_ms.chunks.items() if k in dims}
+
+    vis_rfi = ds.vis_rfi.data.reshape(n_row, n_freq, n_corr)
+    vis_rfi = xr.DataArray(
+        da.stack(
+            [vis_rfi, da.zeros_like(vis_rfi), da.zeros_like(vis_rfi), vis_rfi], axis=2
+        ),
+        dims=("row", "chan", "corr"),
+    )
+
+    xds_ms = xds_ms.assign(DATA=xds_ms.DATA + vis_rfi)
+    cols = "DATA"
+
+    if flags:
+        flags = xr.DataArray(
+            ds.flags.data.reshape(n_row, n_freq, n_corr), dims=("row", "chan", "corr")
+        )
+        xds_ms = xds_ms.assign(FLAG=flags)
+        cols.append("FLAG")
+
+    dask.compute(xds_to_table([xds_ms], ms_path, cols))
 
 
 def write_ms(
