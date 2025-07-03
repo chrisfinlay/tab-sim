@@ -15,7 +15,7 @@ import xarray as xr
 from daskms import Dataset, xds_to_table, xds_from_ms
 import numpy as np
 
-from dask.core import Array
+from dask.array.core import Array
 
 
 def rm_dir(path: str, overwrite: bool = True):
