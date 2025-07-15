@@ -1,0 +1,19 @@
+meerkat:
+  name: MeerKAT
+  latitude: -30.71333
+  longitude: 21.44306
+  elevation: 1050.0
+  dish_d: 13.5
+  itrf_path: MeerKAT.itrf.txt
+
+eda2:
+  name: EDA2
+  latitude: -26.70332832058474
+  longitude: 116.67080565276791
+  elevation: 375.03913483856707
+  dish_d: 0.1
+  itrf_path: EDA2.itrf.txt
+
+mwa:
+  name: MWA
+  itrf_path: MWA.itrf.txt

@@ -2,6 +2,8 @@
 # This is base simulation config that is loaded and then updated with your provided config.
 # Populated parameters here are the default values used if none are specified in your config.
 ###############################################################################################
+# Astronomical Sources
+#######################
 ast_sources:
 ##########################################
 # Exponential shaped astronomical sources
@@ -125,6 +127,9 @@ output:
   path: ./                    # Optional - Path to where the simulation should be saved
   prefix: null                # Optional - Prefix used in the simulation file name
   suffix: null                # Optional - Suffix used in the simulation file name
+##############
+# RFI sources
+##############
 rfi_sources:
 #######################################
 # Circular trajectory based satellites
@@ -164,7 +169,7 @@ rfi_sources:
 telescope:
   latitude: null              # Required - Latitude of the telescope location in decimal degrees. North is +ve
   longitude: null             # Required - Longitude of the telescope in decimal degrees. East from Greenwich meridian
-  elevation: null             # Required - Elevation of the telescope above the WGS84 Earth ellipsoid model in metres.
+  elevation: 0                # Required - Elevation of the telescope above the WGS84 Earth ellipsoid model in metres.
   dish_d: null                # Required - Dish diameter in metres
   enu_path: null              # Required if itrf_path is null - Path to the csv file of the antennas in East, North, Up frame, in metres, relative to the telescope location 
   itrf_path: null             # Required if enu_path is null - Path to the csv file contaning the antenna positions in International Terrestrial Reference Frame in metres.

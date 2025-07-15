@@ -28,14 +28,9 @@ from daskms import xds_from_ms
 from tqdm import tqdm
 from importlib.resources import files
 
-config_dir = files("tabsim.data").joinpath("config_files").__str__()
 
-sim_base_config_path = os.path.join(config_dir, "sim_config_base.yaml")
-tab_base_config_path = os.path.join(config_dir, "tab_config_base.yaml")
-# extract_base_config_path = os.path.join(config_dir, "extract_config_base.yaml")
-# pow_spec_base_config_path = os.path.join(
-#     config_dir, "extract_pow_spec_config_base.yaml"
-# )
+sky_dir = files("tabsim.data").joinpath("sky").__str__()
+
 
 JD0 = 2459997.079914223  # 2023-02-21 13:55:04.589 UTC => GMSA = 0
 MJD0 = JD0 - 2400000.5
@@ -115,22 +110,65 @@ def load_config(path: str, config_type: str = "sim") -> dict:
     dict
         Configuration dictionary.
     """
+    config_dir = files("tabsim.data").joinpath("config").__str__()
+
+    sim_base_config_path = os.path.join(config_dir, "sim_config_base.yaml")
+    tab_base_config_path = os.path.join(config_dir, "tab_config_base.yaml")
+    # extract_base_config_path = os.path.join(config_dir, "extract_config_base.yaml")
+    # pow_spec_base_config_path = os.path.join(
+    #     config_dir, "extract_pow_spec_config_base.yaml"
+    # )
 
     config = yaml_load(path)
     if config_type == "sim":
         base_config = yaml_load(sim_base_config_path)
     elif config_type == "tab":
         base_config = yaml_load(tab_base_config_path)
-    elif config_type == "extract":
-        base_config = yaml_load(extract_base_config_path)
-    elif config_type == "pow_spec":
-        base_config = yaml_load(pow_spec_base_config_path)
+    # elif config_type == "extract":
+    #     base_config = yaml_load(extract_base_config_path)
+    # elif config_type == "pow_spec":
+    #     base_config = yaml_load(pow_spec_base_config_path)
     else:
-        ValueError(
-            "A config type must be specified. Options are {sim, tab, extract, pow_spec}."
-        )
+        raise ValueError("A config type must be specified. Options are {sim, tab}.")
 
     return deep_update(base_config, config)
+
+
+def get_telescope_definitions(tel_name: str):
+
+    tel_dir = files("tabsim.data").joinpath("telescopes").__str__()
+    tel_def = yaml_load(os.path.join(tel_dir, "_telescopes.yaml"))
+
+    tel_name = tel_name.lower()
+    telescope_list = tel_def.keys()
+
+    if tel_name in telescope_list:
+        tel_def = tel_def[tel_name]
+        tel_def["itrf_path"] = os.path.join(tel_dir, tel_def["itrf_path"])
+    else:
+        raise ValueError(
+            f"{tel_name} is not a pre-defined telescope within tab-sim. Choose from {telescope_list}"
+        )
+
+    return tel_def
+
+
+def get_rfi_definitions():
+
+    rfi_dir = files("tabsim.data").joinpath("rfi").__str__()
+
+    rfi_def = {
+        "tle_satellite": {
+            "tle_dir": os.path.join(rfi_dir, "tles"),
+            "norad_spec_model": os.path.join(rfi_dir, "norad_satellite.rfimodel"),
+        },
+        "stationary": {
+            "geo_path": os.path.join(rfi_dir, "stationary.loc"),
+            "spec_path": os.path.join(rfi_dir, "stationary.rfimodel"),
+        },
+    }
+
+    return rfi_def
 
 
 def load_sky_model(file_path: str, freqs: Array, src_type: str) -> tuple:
@@ -729,20 +767,7 @@ def save_inputs(obs: Observation, obs_spec: dict, save_path: str) -> None:
         if path is not None:
             shutil.copy(path, save_path)
 
-    key = (
-        2
-        * [
-            "tle_satellite",
-        ]
-        + 2
-        * [
-            "satellite",
-        ]
-        + 2
-        * [
-            "stationary",
-        ]
-    )
+    key = 2 * ["tle_satellite"] + 2 * ["satellite"] + 2 * ["stationary"]
     subkey = [
         "norad_ids_path",
         "norad_spec_model",
@@ -835,6 +860,20 @@ def print_fringe_freq_tle_sat(obs: Observation):
     print(f"Recommended n_int is >=     : {n_int:.0f} ({obs.n_int_samples} used)")
 
 
+def check_telescope_defintion(tel_def: dict):
+
+    dish_d = tel_def["dish_d"]
+
+    if tel_def["itrf_path"] and dish_d:
+        return True
+    elif (
+        tel_def["longitude"] and tel_def["latitude"] and tel_def["enu_path"] and dish_d
+    ):
+        return True
+    else:
+        return False
+
+
 def run_sim_config(
     obs_spec: Optional[dict] = None,
     config_path: Optional[str] = None,
@@ -842,7 +881,6 @@ def run_sim_config(
 ) -> Tuple[Observation, str]:
 
     from tabsim.tle import id_generator
-
 
     log_path = f"log_sim_{id_generator()}.txt"
     log = open(log_path, "w")
@@ -852,11 +890,17 @@ def run_sim_config(
     start = datetime.now()
     print(datetime.now())
 
-    if config_path is not None:
+    if config_path:
         obs_spec = load_config(config_path, config_type="sim")
     elif obs_spec is None:
-        print("obs_spec or path must be defined.")
-        return None
+        raise ValueError("obs_spec or config_path must be defined.")
+
+    rfi_def = get_rfi_definitions()
+    obs_spec["rfi_sources"] = deep_update(obs_spec["rfi_sources"], rfi_def)
+
+    if not check_telescope_defintion(obs_spec["telescope"]):
+        tel_def = get_telescope_definitions(obs_spec["telescope"]["name"])
+        obs_spec["telescope"] = deep_update(obs_spec["telescope"], tel_def)
 
     obs = load_obs(obs_spec)
     add_astro_sources(obs, obs_spec)
