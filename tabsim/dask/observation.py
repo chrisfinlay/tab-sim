@@ -1,9 +1,9 @@
-import jax.numpy as jnp
 from jax import config, Array
 
 import dask.array as da
 import numpy as np
 import xarray as xr
+from typing import Optional
 
 from tabsim.dask.coordinates import (
     ENU_to_ITRF,
@@ -75,12 +75,12 @@ class Telescope(object):
         latitude: float,
         longitude: float,
         elevation: float = 0.0,
-        ENU_array: Array = None,
-        ENU_path: str = None,
-        ITRF_array: Array = None,
-        ITRF_path: str = None,
-        tel_name: str = None,
-        n_ant: int = None,
+        ENU_array: Optional[Array] = None,
+        ENU_path: Optional[str] = None,
+        ITRF_array: Optional[Array] = None,
+        ITRF_path: Optional[str] = None,
+        tel_name: Optional[str] = None,
+        n_ant: Optional[int] = None,
     ):
         self.tel_name = tel_name
         self.latitude = da.asarray(latitude)
@@ -132,16 +132,16 @@ Elevation : {elevation}\n"""
         self.ITRF = ENU_to_ITRF(self.ENU, self.latitude, self.longitude, self.elevation)
 
     def createArrayITRF(self, ITRF_array, ITRF_path):
+
         if ITRF_array is not None:
             self.ITRF = ITRF_array
         elif ITRF_path is not None:
             self.ITRF = np.loadtxt(ITRF_path, usecols=(0, 1, 2), max_rows=self.n_ant)
         else:
-            self.ITRF = None
-            msg = """Error : ITRF antenna coordinates are needed either in an 
+            msg = """ITRF antenna coordinates are needed either in an 
                      array or as a csv like file."""
-            print(msg)
-            return
+            raise ValueError(msg)
+
         self.ITRF = da.asarray(self.ITRF)
         self.GEO_ants = da.asarray(itrf_to_geo(self.ITRF.compute()))
 
@@ -205,11 +205,11 @@ class Observation(Telescope):
         times_mjd: Array,
         int_time: float = 2.0,
         chan_width: float = 209e3,
-        ENU_array: Array = None,
-        ENU_path: str = None,
-        ITRF_array: Array = None,
-        ITRF_path: str = None,
-        n_ant: int = None,
+        ENU_array: Optional[Array] = None,
+        ENU_path: Optional[str] = None,
+        ITRF_array: Optional[Array] = None,
+        ITRF_path: Optional[str] = None,
+        n_ant: Optional[int] = None,
         dish_d: float = 13.5,
         random_seed: int = 0,
         auto_corrs: bool = False,
@@ -242,7 +242,7 @@ class Observation(Telescope):
         self.target_name = target_name
         self.auto_corrs = auto_corrs
 
-        a1, a2 = jnp.triu_indices(self.n_ant, 0 if auto_corrs else 1)
+        a1, a2 = np.triu_indices(self.n_ant, 0 if auto_corrs else 1)
         self.n_bl = len(a1)
 
         self.ant_chunk = self.n_ant
@@ -326,17 +326,17 @@ class Observation(Telescope):
         self.vis_rfi = da.zeros(
             shape=(self.n_time, self.n_bl, self.n_freq),
             chunks=(self.time_chunk, self.bl_chunk, self.freq_chunk),
-            dtype=jnp.complex128,
+            dtype=np.complex128,
         )
         self.vis_ast = da.zeros(
             shape=(self.n_time, self.n_bl, self.n_freq),
             chunks=(self.time_chunk, self.bl_chunk, self.freq_chunk),
-            dtype=jnp.complex128,
+            dtype=np.complex128,
         )
         self.gains_ants = da.ones(
             shape=(self.n_time, self.n_ant, self.n_freq),
             chunks=(self.time_chunk, self.ant_chunk, self.freq_chunk),
-            dtype=jnp.complex128,
+            dtype=np.complex128,
         )
         self.random_seed = random_seed
 
@@ -486,7 +486,7 @@ Number of stationary RFI :  {n_stat}"""
 
         self.ast_p_I.append(I)
         self.ast_p_lmn.append(lmn)
-        self.ast_p_radec.append(jnp.array([ra, dec]))
+        self.ast_p_radec.append(np.array([ra, dec]))
         self.n_p_ast += len(I)
         self.n_ast += len(I)
 
@@ -550,7 +550,7 @@ Number of stationary RFI :  {n_stat}"""
         self.ast_g_pos_angle.append(pos_angle)
         self.ast_g_I.append(I)
         self.ast_g_lmn.append(lmn)
-        self.ast_g_radec.append(jnp.array([ra, dec]))
+        self.ast_g_radec.append(np.array([ra, dec]))
         self.n_g_ast += len(I)
         self.n_ast += len(I)
 
@@ -596,7 +596,7 @@ Number of stationary RFI :  {n_stat}"""
         self.ast_e_major.append(shape)
         self.ast_e_I.append(I)
         self.ast_e_lmn.append(lmn)
-        self.ast_e_radec.append(jnp.array([ra, dec]))
+        self.ast_e_radec.append(np.array([ra, dec]))
         self.n_e_ast += len(I)
         self.n_ast += len(I)
 
@@ -959,7 +959,7 @@ Number of stationary RFI :  {n_stat}"""
         self,
         path: str = "Observation.ms",
         overwrite: bool = False,
-        ds: xr.Dataset = None,
+        ds: Optional[xr.Dataset] = None,
     ):
         """
         Write the visibilities to disk using Measurement Set format.

@@ -29,7 +29,7 @@ def make_tle_dir(tle_dir: Optional[str]):
     if tle_dir:
         tle_dir = os.path.abspath(tle_dir)
     else:
-        tle_dir = files("tabsim.data").joinpath("aux_data/tles").__str__()
+        tle_dir = files("tabsim.data").joinpath("rfi/tles").__str__()
 
     os.makedirs(tle_dir, exist_ok=True)
 
