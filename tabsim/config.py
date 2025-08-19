@@ -936,6 +936,12 @@ def run_sim_config(
     plot_diagnostics(obs, obs_spec, save_path)
     save_data(obs, obs_spec, zarr_path, ms_path)
 
+    if obs_spec["output"]["accumulate_ms"] is not None:
+        from tabsim.write import add_to_ms
+
+        xds = xr.open_zarr(zarr_path)
+        add_to_ms(xds, obs_spec["output"]["accumulate_ms"])
+
     end = datetime.now()
     print()
     print(f"Total simulation time : {end - start}")
@@ -947,4 +953,11 @@ def run_sim_config(
     os.remove(log_path)
     sys.stdout = backup
 
-    return obs, save_path
+    if (
+        not obs_spec["output"]["keep_sim"]
+        and obs_spec["output"]["accumulate_ms"] is not None
+    ):
+        shutil.rmtree(save_path)
+        return obs, ""
+    else:
+        return obs, save_path
