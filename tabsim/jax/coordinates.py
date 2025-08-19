@@ -362,7 +362,50 @@ def gmsa_from_jd(jd: float) -> float:
 
     gmsa = gmst_hours * 15
 
-    return gmsa
+    return gmsa % 360
+
+
+def julian_date_to_gmst(jd: float):
+    """
+    Convert Julian Date to Greenwich Mean Sidereal Angle (radians).
+
+    Parameters
+    ----------
+    jd : float
+        Julian Date (UTC).
+
+    Returns
+    -------
+    float
+        Greenwich Mean Sidereal Angle in radians, in the range [0, 2π).
+
+    Notes
+    -----
+    Uses the IAU 1982 expression:
+      T = (jd - 2451545.0) / 36525
+      GMST (deg) = 280.46061837
+                   + 360.98564736629 * (jd - 2451545.0)
+                   + 0.000387933 * T**2
+                   - (T**3) / 38710000
+      then reduced mod 360 degrees.
+    Reference: The Astronomical Almanac (Sects. 3.4, 12.2).
+
+    """
+    # centuries since J2000.0
+    T = (jd - 2451545.0) / 36525.0
+
+    # GMST in degrees
+    gmst_deg = (
+        280.46061837
+        + 360.98564736629 * (jd - 2451545.0)
+        + 0.000387933 * T**2
+        - (T**3) / 38710000.0
+    )
+
+    # normalize into [0, 360)
+    gmst_deg = gmst_deg % 360.0
+
+    return gmst_deg
 
 
 def jd_from_gmst(gmst: float) -> float:
@@ -1096,7 +1139,7 @@ def R_x(angle):
     return jnp.array([[1, 0, 0], [0, c, -s], [0, s, c]])
 
 
-def solve_kepler(M, e, max_iter=100):
+def solve_kepler(M, e, max_iter=10):
     """Newton-Raphson solver for Kepler's equation."""
 
     def newton_step(E, _):
@@ -1111,26 +1154,49 @@ def solve_kepler(M, e, max_iter=100):
     return E_final
 
 
-def kepler_orbit(times, t_epoch, params):
+def orbital_to_cartesian(
+    a: float, e: float, E: Array, i: float, omega: float, Omega: float
+):
+
+    nu = 2 * jnp.arctan2(
+        jnp.sqrt(1 + e) * jnp.sin(E / 2), jnp.sqrt(1 - e) * jnp.cos(E / 2)
+    )
+
+    r = a * (1 - e * jnp.cos(E))
+    x_orb = r * jnp.cos(nu)
+    y_orb = r * jnp.sin(nu)
+    z_orb = jnp.zeros_like(x_orb)
+
+    R = R_z(Omega) @ R_x(i) @ R_z(omega)
+
+    pos_orb = jnp.stack([x_orb, y_orb, z_orb], axis=1)  # (T, 3)
+    pos_inertial = pos_orb @ R.T  # (T, 3)
+
+    return pos_inertial
+
+
+def kepler_orbit(times, t_epoch, elements):
     """
     Compute orbit position over time for a single satellite.
 
     times: (T,)
-    params: (6,) = [a, e, i, Ω, ω, M0]
+    elements: (6,) = [a, e, i, Ω, ω, M0]
     Returns: (T, 3)
     """
-    a, e, i_deg, Ω_deg, ω_deg, M0_deg = params
+    a, e, i_deg, Omega_deg, omega_deg, M0_deg = elements
 
     mu = 398600.4418  # km^3/s^2
 
-    n = jnp.sqrt(mu / jnp.abs(a) ** 3) * 86400
+    n = jnp.sqrt(mu / jnp.abs(a) ** 3) * DAY_SECS  # rad/day
 
     i = jnp.radians(i_deg)
-    Ω = jnp.radians(Ω_deg)
-    ω = jnp.radians(ω_deg)
+    Omega = jnp.radians(Omega_deg)
+    omega = jnp.radians(omega_deg)
     M_0 = jnp.radians(M0_deg)
 
-    M = M_0 + n * (times - t_epoch)  # Mean anomaly
+    dt = times - t_epoch
+
+    M = M_0 + n * dt  # Mean anomaly
 
     E = vmap(solve_kepler, (0, None))(jnp.atleast_1d(M), e)
 
@@ -1143,12 +1209,62 @@ def kepler_orbit(times, t_epoch, params):
     y_orb = r * jnp.sin(nu)
     z_orb = jnp.zeros_like(x_orb)
 
-    R = R_z(Ω) @ R_x(i) @ R_z(ω)
+    R = R_z(Omega) @ R_x(i) @ R_z(omega)
+    R_T = R_z(-omega) @ R_x(-i) @ R_z(-Omega)  # Unused but could be better
 
     pos_orb = jnp.stack([x_orb, y_orb, z_orb], axis=1)  # (T, 3)
     pos_inertial = pos_orb @ R.T  # (T, 3)
 
+    # pos_inertial = orbital_to_cartesian(
+    #     a,
+    #     e,
+    #     E,
+    #     i,
+    #     omega,
+    #     Omega,
+    # )
+
     return pos_inertial * 1e3
+
+
+# def kepler_orbit(times, t_epoch, params):
+#     """
+#     Compute orbit position over time for a single satellite.
+
+#     times: (T,)
+#     params: (6,) = [a, e, i, Ω, ω, M0]
+#     Returns: (T, 3)
+#     """
+#     a, e, i_deg, Ω_deg, ω_deg, M0_deg = params
+
+#     mu = 398600.4418  # km^3/s^2
+
+#     n = jnp.sqrt(mu / jnp.abs(a) ** 3) * 86400
+
+#     i = jnp.radians(i_deg)
+#     Ω = jnp.radians(Ω_deg)
+#     ω = jnp.radians(ω_deg)
+#     M_0 = jnp.radians(M0_deg)
+
+#     M = M_0 + n * (times - t_epoch)  # Mean anomaly
+
+#     E = vmap(solve_kepler, (0, None))(jnp.atleast_1d(M), e)
+
+#     nu = 2 * jnp.arctan2(
+#         jnp.sqrt(1 + e) * jnp.sin(E / 2), jnp.sqrt(1 - e) * jnp.cos(E / 2)
+#     )
+
+#     r = a * (1 - e * jnp.cos(E))
+#     x_orb = r * jnp.cos(nu)
+#     y_orb = r * jnp.sin(nu)
+#     z_orb = jnp.zeros_like(x_orb)
+
+#     R = R_z(Ω) @ R_x(i) @ R_z(ω)
+
+#     pos_orb = jnp.stack([x_orb, y_orb, z_orb], axis=1)  # (T, 3)
+#     pos_inertial = pos_orb @ R.T  # (T, 3)
+
+#     return pos_inertial * 1e3
 
 
 def kepler_orbit_many(

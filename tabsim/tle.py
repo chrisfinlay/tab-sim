@@ -152,9 +152,10 @@ def get_tles_by_id(
 
     if len(tles) > 0:
         tles.reset_index(drop=True, inplace=True)
-        tles["EPOCH_JD"] = tles["EPOCH"].apply(
-            lambda x: Time(spacetrack_time_to_isot(x)).jd
-        )
+        # tles["EPOCH_JD"] = tles["EPOCH"].apply(
+        #     lambda x: Time(spacetrack_time_to_isot(x), format="isot").jd
+        # )
+        tles["EPOCH_JD"] = tles["EPOCH"].apply(lambda x: Time(x, format="iso").jd)
         tles = type_cast_tles(tles)
         tles = get_closest_times(tles, epoch_jd)
 
@@ -638,7 +639,7 @@ def check_satellite_visibilibities(
     return pd.DataFrame(all_windows)
 
 
-def get_satellite_positions(tles: list, times_jd: list) -> ArrayLike:
+def get_satellite_positions(tles: list, times_jd: list) -> np.ndarray:
     """Calculate the ICRS positions of satellites by propagating their TLEs over the given times.
 
     Parameters
@@ -663,6 +664,65 @@ def get_satellite_positions(tles: list, times_jd: list) -> ArrayLike:
             for tle_line1, tle_line2 in tles
         ]
     )
+
+    return sat_pos
+
+
+def get_satellite_positions_kepler(tles: list, times_jd: list) -> np.ndarray:
+    """Calculate the ICRS positions of satellites by propagating their TLEs over the given times.
+
+    Parameters
+    ----------
+    tles : Array (n_sat, 2)
+        TLEs usind to propagate positions.
+    times : Array (n_time,)
+        Times to calculate positions at in Julian date.
+
+    Returns
+    -------
+    Array (n_sat, n_time, 3)
+        Satellite positions over time
+    """
+
+    def mean_motion_to_semi_major_axis(mean_motion):
+
+        mu = 398600.4418  # km^3/s^2
+
+        mean_motion = mean_motion / 60.0  # rad/sec
+
+        a = np.cbrt(mu / mean_motion**2)
+
+        return a
+
+    sats = [EarthSatellite(tle_line1, tle_line2) for tle_line1, tle_line2 in tles]
+
+    import jax.numpy as jnp
+
+    epoch_jd = jnp.asarray(
+        [sat.model.jdsatepoch + sat.model.epochdays % 1 for sat in sats]
+    )
+
+    # print(f"skyfield :     {epoch_jd[0]}")
+
+    elements = jnp.asarray(
+        [
+            [
+                mean_motion_to_semi_major_axis(sat.model.no_kozai),
+                sat.model.ecco,
+                np.rad2deg(sat.model.inclo),
+                np.rad2deg(sat.model.nodeo),
+                np.rad2deg(sat.model.argpo),
+                np.rad2deg(sat.model.mo),
+            ]
+            for sat in sats
+        ]
+    )
+
+    # print(elements)
+
+    from tabsim.jax.coordinates import kepler_orbit_many
+
+    sat_pos = kepler_orbit_many(jnp.asarray(times_jd), epoch_jd, elements)
 
     return sat_pos
 

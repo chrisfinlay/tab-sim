@@ -42,7 +42,12 @@ from tabsim.jax.coordinates import (
 from tabsim.tools import beam_size
 from tabsim.write import construct_observation_ds, write_ms
 from tabsim.dask.extras import get_chunksizes
-from tabsim.tle import get_satellite_positions, ants_pos, sat_distance
+from tabsim.tle import (
+    get_satellite_positions,
+    get_satellite_positions_kepler,
+    ants_pos,
+    sat_distance,
+)
 
 config.update("jax_enable_x64", True)
 
@@ -725,6 +730,16 @@ Number of stationary RFI :  {n_stat}"""
             get_satellite_positions(tles, mjd_to_jd(self.times_mjd_fine.compute())),
             chunks=(-1, self.time_fine_chunk, 3),
         )
+        rfi_xyz_kepler = da.asarray(
+            get_satellite_positions_kepler(
+                tles, mjd_to_jd(self.times_mjd_fine.compute())
+            ),
+            chunks=(-1, self.time_fine_chunk, 3),
+        )
+        print(
+            np.mean(np.linalg.norm(rfi_xyz - rfi_xyz_kepler, axis=-1), axis=1).compute()
+        )
+
         tles = da.asarray(da.atleast_2d(tles), chunks=(-1,))
         # rfi_xyz is shape (n_src,n_time_fine,3)
         # self.ants_xyz is shape (n_time_fine,n_ant,3)
