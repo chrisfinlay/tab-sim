@@ -934,8 +934,17 @@ def run_sim_config(
     print()
     print(f"Writing data to : {save_path}")
 
-    if np.any(obs_spec["diagnostics"].values):
+    plot_cond = np.array(
+        [
+            obs_spec["diagnostics"]["rfi_seps"],
+            obs_spec["diagnostics"]["src_alt"],
+            obs_spec["diagnostics"]["uv_cov"],
+        ]
+    )
+    if np.any(plot_cond):
         plot_diagnostics(obs, obs_spec, save_path)
+    else:
+        print("\nNo diagnostic plots.")
 
     save_data(obs, obs_spec, zarr_path, ms_path)
 
