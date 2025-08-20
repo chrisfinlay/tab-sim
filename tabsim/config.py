@@ -18,7 +18,6 @@ from astropy.time import Time
 
 from tabsim.dask.observation import Observation
 from tabsim.sky import generate_random_sky
-from tabsim.plot import plot_uv, plot_src_alt, plot_angular_seps
 from tabsim.write import write_ms, mk_obs_name, mk_obs_dir
 from tabsim.jax.coordinates import calculate_fringe_frequency, jd_to_mjd
 from tabsim.tle import get_visible_satellite_tles, id_generator
@@ -668,6 +667,8 @@ def add_gains(obs: Observation, obs_spec: dict) -> None:
 
 def plot_diagnostics(obs: Observation, obs_spec: dict, save_path: str) -> None:
 
+    from tabsim.plot import plot_uv, plot_src_alt, plot_angular_seps
+
     diag_ = obs_spec["diagnostics"]
 
     if diag_["src_alt"]:
@@ -933,7 +934,9 @@ def run_sim_config(
     print()
     print(f"Writing data to : {save_path}")
 
-    plot_diagnostics(obs, obs_spec, save_path)
+    if np.any(obs_spec["diagnostics"].values):
+        plot_diagnostics(obs, obs_spec, save_path)
+
     save_data(obs, obs_spec, zarr_path, ms_path)
 
     if obs_spec["output"]["accumulate_ms"] is not None:
@@ -958,6 +961,6 @@ def run_sim_config(
         and obs_spec["output"]["accumulate_ms"] is not None
     ):
         shutil.rmtree(save_path)
-        return obs, ""
+        return obs, save_path
     else:
         return obs, save_path
