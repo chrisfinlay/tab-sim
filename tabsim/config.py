@@ -255,9 +255,7 @@ def load_obs(obs_spec: dict) -> Observation:
         start_time_mjd = jd_to_mjd(obs_["start_time_jd"])
     elif obs_["start_time_isot"]:
 
-        start_time_mjd = jd_to_mjd(
-            Time(obs_["start_time_isot"], format="isot", scale="ut1").jd
-        )
+        start_time_mjd = jd_to_mjd(Time(obs_["start_time_isot"], format="isot").jd)
     elif obs_["start_time_lha"] is not None:
         gsa = obs_["start_time_lha"] - tel_["longitude"] + obs_["ra"]
         start_time_mjd = MJD0 + (gsa / 360)
@@ -809,11 +807,14 @@ def print_fringe_freq_sat(obs: Observation):
         for i in range(obs.n_rfi_satellite)
     ]
     fringe_freq = [calculate_fringe_frequency(**f_params) for f_params in fringe_params]
+    noise_std = obs.noise_std.mean().compute()
+    if noise_std == 0:
+        noise_std = 1.0
     f_sample = (
         np.pi
         * np.max(np.abs(fringe_freq))
         * np.max(obs.rfi_satellite_A_app)
-        / np.sqrt(6 * obs.noise_std.mean()).compute()
+        / np.sqrt(6 * noise_std)
     )
     n_int = int(np.ceil(obs.int_time * f_sample))
 
@@ -844,11 +845,14 @@ def print_fringe_freq_tle_sat(obs: Observation):
         for i in range(obs.n_rfi_tle_satellite)
     ]
     fringe_freq = [calculate_fringe_frequency(**f_params) for f_params in fringe_params]
+    noise_std = obs.noise_std.mean().compute()
+    if noise_std == 0:
+        noise_std = 1.0
     f_sample = (
         np.pi
         * np.max(np.abs(fringe_freq))
         * np.max(obs.rfi_tle_satellite_A_app)
-        / np.sqrt(6 * obs.noise_std.mean()).compute()
+        / np.sqrt(6 * noise_std)
     )
     n_int = int(np.ceil(obs.int_time * f_sample))
 

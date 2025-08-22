@@ -290,11 +290,17 @@ class Observation(Telescope):
             self.n_int_samples // 2, self.n_time_fine, self.n_int_samples
         ).rechunk(self.time_chunk)
 
+        # self.gsa = da.asarray(
+        #     Time(self.times_mjd_fine.compute(), format="mjd")
+        #     .sidereal_time("mean", "greenwich")
+        #     .hour
+        #     * 15,
+        #     chunks=(self.time_fine_chunk,),
+        # )
+        from tabsim.jax.coordinates import mjd_to_gast
+
         self.gsa = da.asarray(
-            Time(self.times_mjd_fine.compute(), format="mjd")
-            .sidereal_time("mean", "greenwich")
-            .hour
-            * 15,
+            mjd_to_gast(self.times_mjd_fine.compute()),
             chunks=(self.time_fine_chunk,),
         )
         self.gha = (self.gsa - self.ra) % 360
@@ -313,7 +319,9 @@ class Observation(Telescope):
         self.dish_d = da.asarray(dish_d)
         self.fov = beam_size(dish_d, freqs.max(), fwhp=False)
 
-        self.ants_uvw = ITRF_to_UVW(self.ITRF, self.gha, self.dec)
+        self.ants_uvw = da.asarray(
+            np.array(ITRF_to_UVW(self.ITRF, self.gha, self.dec).compute())
+        )
 
         if no_w:
             self.ants_uvw[:, :, -1] = 0.0
@@ -725,6 +733,11 @@ Number of stationary RFI :  {n_stat}"""
             get_satellite_positions(tles, mjd_to_jd(self.times_mjd_fine.compute())),
             chunks=(-1, self.time_fine_chunk, 3),
         )
+        # from tabsim.jax.coordinates import kepler_orbit_many
+        # from tabsim.tle import
+        # rfi_xyz = da.asarray(
+        #     kepler_orbit_many(mjd_to_jd(self.times_mjd_fine.compute()), )
+        # )
         tles = da.asarray(da.atleast_2d(tles), chunks=(-1,))
         # rfi_xyz is shape (n_src,n_time_fine,3)
         # self.ants_xyz is shape (n_time_fine,n_ant,3)
@@ -938,7 +951,7 @@ Number of stationary RFI :  {n_stat}"""
             else:
                 self.flags = (
                     da.abs(self.vis_cal - self.vis_ast)
-                    > 3.0 * da.std(self.vis_model, axis=0)[None, ...]
+                    > 3.0 * da.std(self.vis_ast, axis=0)[None, ...]
                 )
         else:
             self.flags = da.zeros(shape=self.vis_cal.shape, dtype=bool)

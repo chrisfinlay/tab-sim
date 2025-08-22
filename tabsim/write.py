@@ -426,9 +426,12 @@ def add_to_ms(
     dims = ["row", "chan", "corr"]
     chunks = {k: v for k, v in xds_ms.chunks.items() if k in dims}
 
+    # vis_rfi_ms = construct_rfi_mscol(
+    #     ds.vis_rfi.data.reshape(n_row, n_freq), xds_ms[data_col]
+    # )
     vis_rfi_ms = construct_rfi_mscol(
-        ds.vis_rfi.data.reshape(n_row, n_freq), xds_ms[data_col]
-    )
+        np.conjugate(ds.vis_rfi.data.reshape(n_row, n_freq)), xds_ms[data_col]
+    )  # Needed for OSKAR simulations compatibility
 
     xds_ms = xds_ms.assign({data_col: xds_ms[data_col] + vis_rfi_ms.chunk(chunks)})
     cols = data_col
@@ -508,7 +511,9 @@ def construct_ms_data_table(
         flags = da.asarray(flags).reshape(n_row, n_freq, n_corr)
 
     row_times = da.asarray(
-        (ds.coords["time_mjd"].data[:, None] * da.ones(shape=(1, n_bl))).flatten()
+        (
+            ds.coords["time_mjd"].data[:, None] * da.ones(shape=(1, n_bl)) * (24 * 3600)
+        ).flatten()
     )
     ant1 = (
         (ds.antenna1.data[None, :] * da.ones(shape=(n_time, 1)))
