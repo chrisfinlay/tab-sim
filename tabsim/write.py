@@ -511,9 +511,8 @@ def construct_ms_data_table(
         flags = da.asarray(flags).reshape(n_row, n_freq, n_corr)
 
     row_times = da.asarray(
-        (
-            ds.coords["time_mjd"].data[:, None] * da.ones(shape=(1, n_bl)) * (24 * 3600)
-        ).flatten()
+        (ds.coords["time_mjd"].data[:, None] * da.ones(shape=(1, n_bl))).flatten()
+        * (24 * 3600)
     )
     ant1 = (
         (ds.antenna1.data[None, :] * da.ones(shape=(n_time, 1)))
@@ -550,10 +549,10 @@ def construct_ms_data_table(
         "ARRAY_ID": (("row"), a_id),
         "FLAG": (("row", "chan", "corr"), flags),
         "INTERVAL": (("row"), interval),
-        "FLAG_CATEGORY": (
-            ("row", "chan", "corr", "flagcat"),
-            da.expand_dims(flags, axis=3),
-        ),
+        # "FLAG_CATEGORY": (
+        #     ("row", "chan", "corr", "flagcat"),
+        #     da.expand_dims(flags, axis=3),
+        # ),
     }
 
     if extras:
@@ -712,7 +711,7 @@ def construct_ms_spectral_window_table(ds: Dataset, ms_path: str):
         "CHAN_FREQ": (("row", "chan"), chan_freq),
         "CHAN_WIDTH": (("row", "chan"), chan_width),
         "EFFECTIVE_BW": (("row", "chan"), chan_width),
-        "EFFECTIVE_BW": (("row", "chan"), n_freq * chan_width),
+        # "EFFECTIVE_BW": (("row", "chan"), n_freq * chan_width),
         "FLAG_ROW": (("row"), zero),
         "FREQ_GROUP": (("row"), zero),
         # 'FREQ_GROUP_NAME': (('row'), zero),
@@ -720,7 +719,7 @@ def construct_ms_spectral_window_table(ds: Dataset, ms_path: str):
         "MEAS_FREQ_REF": (("row"), 5 * one),
         # 'NAME': (('row'), zero),
         "NET_SIDEBAND": (("row"), one),
-        "NUM_CHAN": (("row"), one),
+        "NUM_CHAN": (("row"), n_freq * one),
         "REF_FREQUENCY": (("row"), ref_freq),
         "RESOLUTION": (("row", "chan"), chan_width),
         "TOTAL_BANDWIDTH": (("row"), total_bw),
