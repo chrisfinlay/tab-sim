@@ -383,7 +383,37 @@ def get_stationary_rfi_data(obs: Observation):
     return rfi_stat
 
 
-def add_to_ms(ds: Dataset, ms_path: str, flags: Optional[Array] = None):
+def construct_rfi_mscol(vis_rfi: Array, data: Array):
+
+    n_corr = data.shape[-1]
+
+    if n_corr == 1:
+        vis_rfi_ms = xr.DataArray(
+            vis_rfi[:, :, None],
+            dims=("row", "chan", "corr"),
+        )
+    elif n_corr == 2:
+        vis_rfi_ms = xr.DataArray(
+            da.stack([vis_rfi, vis_rfi], axis=2),
+            dims=("row", "chan", "corr"),
+        )
+    elif n_corr == 4:
+        vis_rfi_ms = xr.DataArray(
+            da.stack(
+                [vis_rfi, da.zeros_like(vis_rfi), da.zeros_like(vis_rfi), vis_rfi],
+                axis=2,
+            ),
+            dims=("row", "chan", "corr"),
+        )
+    else:
+        raise ValueError("Correlation axis in target MS file is non-standard")
+
+    return vis_rfi_ms
+
+
+def add_to_ms(
+    ds: xr.Dataset, ms_path: str, flags: Optional[Array] = None, data_col: str = "DATA"
+):
 
     n_time = ds.attrs["n_time"]
     n_freq = ds.attrs["n_freq"]
@@ -396,23 +426,26 @@ def add_to_ms(ds: Dataset, ms_path: str, flags: Optional[Array] = None):
     dims = ["row", "chan", "corr"]
     chunks = {k: v for k, v in xds_ms.chunks.items() if k in dims}
 
-    vis_rfi = ds.vis_rfi.data.reshape(n_row, n_freq, n_corr)
-    vis_rfi = xr.DataArray(
-        da.stack(
-            [vis_rfi, da.zeros_like(vis_rfi), da.zeros_like(vis_rfi), vis_rfi], axis=2
-        ),
-        dims=("row", "chan", "corr"),
+    # vis_rfi_ms = construct_rfi_mscol(
+    #     ds.vis_rfi.data.reshape(n_row, n_freq), xds_ms[data_col]
+    # )
+    vis_rfi_ms = construct_rfi_mscol(
+        np.conjugate(ds.vis_rfi.data.reshape(n_row, n_freq)), xds_ms[data_col]
+    )  # Needed for OSKAR simulations compatibility
+
+    xds_ms = xds_ms.assign({data_col: xds_ms[data_col] + vis_rfi_ms.chunk(chunks)})
+    cols = data_col
+
+    # if flags:
+    #     flags = xr.DataArray(
+    #         ds.flags.data.reshape(n_row, n_freq, n_corr), dims=("row", "chan", "corr")
+    #     )
+    #     xds_ms = xds_ms.assign(FLAG=flags)
+    #     cols.append("FLAG")
+
+    print(
+        f"Writing tabsim generated RFI visibilities to {data_col} column in {ms_path}"
     )
-
-    xds_ms = xds_ms.assign(DATA=xds_ms.DATA + vis_rfi)
-    cols = "DATA"
-
-    if flags:
-        flags = xr.DataArray(
-            ds.flags.data.reshape(n_row, n_freq, n_corr), dims=("row", "chan", "corr")
-        )
-        xds_ms = xds_ms.assign(FLAG=flags)
-        cols.append("FLAG")
 
     dask.compute(xds_to_table([xds_ms], ms_path, cols))
 
