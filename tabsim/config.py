@@ -18,7 +18,6 @@ from astropy.time import Time
 
 from tabsim.dask.observation import Observation
 from tabsim.sky import generate_random_sky
-from tabsim.plot import plot_uv, plot_src_alt, plot_angular_seps
 from tabsim.write import write_ms, mk_obs_name, mk_obs_dir
 from tabsim.jax.coordinates import calculate_fringe_frequency, jd_to_mjd
 from tabsim.tle import get_visible_satellite_tles, id_generator
@@ -256,9 +255,7 @@ def load_obs(obs_spec: dict) -> Observation:
         start_time_mjd = jd_to_mjd(obs_["start_time_jd"])
     elif obs_["start_time_isot"]:
 
-        start_time_mjd = jd_to_mjd(
-            Time(obs_["start_time_isot"], format="isot", scale="ut1").jd
-        )
+        start_time_mjd = jd_to_mjd(Time(obs_["start_time_isot"], format="isot").jd)
     elif obs_["start_time_lha"] is not None:
         gsa = obs_["start_time_lha"] - tel_["longitude"] + obs_["ra"]
         start_time_mjd = MJD0 + (gsa / 360)
@@ -668,6 +665,8 @@ def add_gains(obs: Observation, obs_spec: dict) -> None:
 
 def plot_diagnostics(obs: Observation, obs_spec: dict, save_path: str) -> None:
 
+    from tabsim.plot import plot_uv, plot_src_alt, plot_angular_seps
+
     diag_ = obs_spec["diagnostics"]
 
     if diag_["src_alt"]:
@@ -808,11 +807,14 @@ def print_fringe_freq_sat(obs: Observation):
         for i in range(obs.n_rfi_satellite)
     ]
     fringe_freq = [calculate_fringe_frequency(**f_params) for f_params in fringe_params]
+    noise_std = obs.noise_std.mean().compute()
+    if noise_std == 0:
+        noise_std = 1.0
     f_sample = (
         np.pi
         * np.max(np.abs(fringe_freq))
         * np.max(obs.rfi_satellite_A_app)
-        / np.sqrt(6 * obs.noise_std.mean()).compute()
+        / np.sqrt(6 * noise_std)
     )
     n_int = int(np.ceil(obs.int_time * f_sample))
 
@@ -843,11 +845,14 @@ def print_fringe_freq_tle_sat(obs: Observation):
         for i in range(obs.n_rfi_tle_satellite)
     ]
     fringe_freq = [calculate_fringe_frequency(**f_params) for f_params in fringe_params]
+    noise_std = obs.noise_std.mean().compute()
+    if noise_std == 0:
+        noise_std = 1.0
     f_sample = (
         np.pi
         * np.max(np.abs(fringe_freq))
         * np.max(obs.rfi_tle_satellite_A_app)
-        / np.sqrt(6 * obs.noise_std.mean()).compute()
+        / np.sqrt(6 * noise_std)
     )
     n_int = int(np.ceil(obs.int_time * f_sample))
 
@@ -933,8 +938,25 @@ def run_sim_config(
     print()
     print(f"Writing data to : {save_path}")
 
-    plot_diagnostics(obs, obs_spec, save_path)
+    plot_cond = np.array(
+        [
+            obs_spec["diagnostics"]["rfi_seps"],
+            obs_spec["diagnostics"]["src_alt"],
+            obs_spec["diagnostics"]["uv_cov"],
+        ]
+    )
+    if np.any(plot_cond):
+        plot_diagnostics(obs, obs_spec, save_path)
+    else:
+        print("\nNo diagnostic plots.")
+
     save_data(obs, obs_spec, zarr_path, ms_path)
+
+    if obs_spec["output"]["accumulate_ms"] is not None:
+        from tabsim.write import add_to_ms
+
+        xds = xr.open_zarr(zarr_path)
+        add_to_ms(xds, obs_spec["output"]["accumulate_ms"])
 
     end = datetime.now()
     print()
@@ -947,4 +969,11 @@ def run_sim_config(
     os.remove(log_path)
     sys.stdout = backup
 
-    return obs, save_path
+    if (
+        not obs_spec["output"]["keep_sim"]
+        and obs_spec["output"]["accumulate_ms"] is not None
+    ):
+        shutil.rmtree(save_path)
+        return obs, save_path
+    else:
+        return obs, save_path

@@ -386,6 +386,61 @@ def jd_from_gmst(gmst: float) -> float:
     return jd
 
 
+def mjd_to_gmst(mjd: float) -> float:
+    """Taken from OSKAR simulator"""
+
+    sec2rad = 7.2722052166430399038487e-5
+    two_pi = 6.28318530717958647693
+
+    # Days since J2000
+    jd2000 = mjd - 51544.5
+
+    # Centuries from J2000.0
+    t = jd2000 / 36525.0
+
+    # GMST at this time
+    gmst = (mjd % 1.0) * two_pi + (
+        24110.54841 + (8640184.812866 + (0.093104 - 6.2e-6 * t) * t) * t
+    ) * sec2rad
+
+    # Restrict to 2 pi
+    x = (gmst % two_pi) / two_pi * 360
+
+    return x
+
+
+def equation_of_equinoxes(mjd: float) -> float:
+    """Taken from OSKAR simulator"""
+
+    deg2rad = 0.0174532925199432957692
+    hour2rad = 0.261799387799149436539
+    #  Days from J2000.0
+    jd2000 = mjd - 51544.5
+
+    # Longitude of ascending node of the Moon
+    omega = (125.04 - 0.052954 * jd2000) * deg2rad
+
+    # Mean Longitude of the Sun
+    L = (280.47 + 0.98565 * jd2000) * deg2rad
+
+    # eqeq = delta_psi * cos(epsilon)
+    delta_psi = -0.000319 * jnp.sin(omega) - 0.000024 * jnp.sin(2.0 * L)
+    epsilon = (23.4393 - 0.0000004 * jd2000) * deg2rad
+
+    # Return equation of equinoxes in radians
+    eqeq = delta_psi * jnp.cos(epsilon) * hour2rad
+
+    return eqeq
+
+
+def mjd_to_gast(mjd: float) -> float:
+    """Taken from OSKAR simulator"""
+
+    gast = mjd_to_gmst(mjd) + equation_of_equinoxes(mjd)
+
+    return gast
+
+
 def jd_to_mjd(jd):
 
     mjd = jd - 2400000.5

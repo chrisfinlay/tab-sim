@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tabsim"
-version = "0.0.4"
+version = "0.0.5"
 license = {file = "LICENSE"}
 readme = "README.md"
 # dynamic = ["version", "readme"]
@@ -17,11 +17,11 @@ maintainers = [
 ]
 description = "Trajectory-based Radio Frequency Interference (RFI) simulations for radio interferometeric data."
 
-requires-python = ">=3.9,<3.13"
+requires-python = ">=3.9"
 dependencies = [
-    "jax", "dask<=2024.10.0", "xarray", "zarr<3.0.0", 
+    "jax", "dask", "xarray", "zarr<3.0.0", 
     "dask-ms>=0.2.21", "scipy", "tqdm", "matplotlib", 
-    "astropy", "spacetrack", "skyfield", "numpy<2.0.0", 
+    "astropy", "spacetrack", "skyfield", "numpy", 
 ]
 
 [project.optional-dependencies]
@@ -51,3 +51,4 @@ tle-region = "tabsim.scripts.tle_sat_region:main"
 ast-region = "tabsim.scripts.ast_region:main"
 flag-data = "tabsim.scripts.flag_data:main"
 sim-vis = "tabsim.scripts.sim_vis:main"
+write-config = "tabsim.scripts.write_config_from_ms:main"
