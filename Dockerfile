@@ -8,7 +8,7 @@ RUN apt-get install -y casacore-dev libblas-dev liblapack-dev libboost-python-de
 WORKDIR /usr/local
 
 RUN git clone https://github.com/chrisfinlay/tab-sim.git
-RUN mkdir tab_env && virtualenv tab_env && . tab_env/bin/activate && pip install -e ./tab-sim/
+RUN mkdir tab_env && virtualenv tab_env && . tab_env/bin/activate && pip install -e ./tab-sim/[gpu]
 
 RUN echo "source /usr/local/tab_env/bin/activate" >> /etc/bash.bashrc
 RUN echo "source /usr/local/tab_env/bin/activate" >> /root/.bashrc
