@@ -1,9 +1,15 @@
-import dask.array as da
+from jax import jit
+
 import numpy as np
 import xarray as xr
+
+import dask.array as da
 from dask.delayed import delayed
 from dask.array.core import Array
+
 from tabsim.jax import interferometry as itf
+
+from typing import Optional
 
 
 def astro_vis(sources: Array, uvw: Array, lmn: Array, freqs: Array) -> Array:
@@ -51,7 +57,7 @@ def astro_vis(sources: Array, uvw: Array, lmn: Array, freqs: Array) -> Array:
         {
             "vis": (
                 ["time", "bl", "freq"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     shape=(n_time, n_bl, n_freq),
                     chunks=(time_chunk, bl_chunk, freq_chunk),
                     dtype=complex,
@@ -61,7 +67,7 @@ def astro_vis(sources: Array, uvw: Array, lmn: Array, freqs: Array) -> Array:
     )
 
     def _astro_vis(ds):
-        vis = delayed(itf.astro_vis)(
+        vis = delayed(jit(itf.astro_vis), pure=True)(
             ds.I.data, ds.uvw.data, ds.lmn.data, ds.freqs.data
         ).compute()
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
@@ -122,7 +128,7 @@ def astro_vis_gauss(
         {
             "vis": (
                 ["time", "bl", "freq"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     shape=(n_time, n_bl, n_freq),
                     chunks=(time_chunk, bl_chunk, freq_chunk),
                     dtype=complex,
@@ -132,7 +138,7 @@ def astro_vis_gauss(
     )
 
     def _astro_vis_gauss(ds):
-        vis = delayed(itf.astro_vis_gauss)(
+        vis = delayed(jit(itf.astro_vis_gauss), pure=True)(
             ds.I.data,
             ds.major.data,
             ds.minor.data,
@@ -191,7 +197,7 @@ def astro_vis_exp(
         {
             "vis": (
                 ["time", "bl", "freq"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     shape=(n_time, n_bl, n_freq),
                     chunks=(time_chunk, bl_chunk, freq_chunk),
                     dtype=complex,
@@ -201,7 +207,7 @@ def astro_vis_exp(
     )
 
     def _astro_vis_exp(ds):
-        vis = delayed(itf.astro_vis_exp)(
+        vis = delayed(jit(itf.astro_vis_exp), pure=True)(
             ds.I.data, ds.sigmas.data, ds.uvw.data, ds.lmn.data, ds.freqs.data
         ).compute()
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
@@ -259,7 +265,7 @@ def rfi_vis(
         {
             "vis": (
                 ["time", "bl", "freq"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     shape=(n_time, n_bl, n_freq),
                     chunks=(time_chunk, bl_chunk, freq_chunk),
                     dtype=complex,
@@ -269,7 +275,7 @@ def rfi_vis(
     )
 
     def _rfi_vis(ds):
-        vis = delayed(itf.rfi_vis)(
+        vis = delayed(jit(itf.rfi_vis), pure=True)(
             ds.app_amplitude.data,
             ds.c_distances.data,
             ds.freqs.data,
@@ -299,7 +305,7 @@ def ants_to_bl(G: Array, a1: Array, a2: Array) -> Array:
         {
             "G_bl": (
                 ["time", "bl", "freq"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     (n_time, n_bl, n_freq), chunks=(time_chunk, bl_chunk, freq_chunk)
                 ),
             )
@@ -307,7 +313,9 @@ def ants_to_bl(G: Array, a1: Array, a2: Array) -> Array:
     )
 
     def _ants_to_bl(ds):
-        G_bl = delayed(itf.ants_to_bl)(ds.G.data, ds.a1.data, ds.a2.data).compute()
+        G_bl = delayed(jit(itf.ants_to_bl), pure=True)(
+            ds.G.data, ds.a1.data, ds.a2.data
+        ).compute()
         ds_out = xr.Dataset({"G_bl": (["time", "bl", "freq"], G_bl)})
         return ds_out
 
@@ -330,7 +338,7 @@ def airy_beam(theta, freqs, dish_d):
         {
             "theta": (["src", "time", "ant"], theta),
             "freqs": (["freq"], freqs),
-            "dish_d": (["space_0"], da.from_array([dish_d])),
+            "dish_d": (["space_0"], da.from_array([dish_d])),  # type: ignore
         }
     )
 
@@ -338,7 +346,7 @@ def airy_beam(theta, freqs, dish_d):
         {
             "beam": (
                 ["src", "time", "ant", "freq"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     (n_src, n_time, n_ant, n_freq),
                     chunks=(src_chunk, time_chunk, ant_chunk, freq_chunk),
                 ),
@@ -347,7 +355,7 @@ def airy_beam(theta, freqs, dish_d):
     )
 
     def _airy_beam(ds):
-        beam = delayed(itf.airy_beam)(
+        beam = delayed(itf.airy_beam, pure=True)(
             ds.theta.data, ds.freqs.data, ds.dish_d.data
         ).compute()
         ds_out = xr.Dataset({"beam": (["src", "time", "ant", "freq"], beam)})
@@ -376,7 +384,7 @@ def Pv_to_Sv(Pv, d):
         {
             "Sv": (
                 ["src", "time", "ant", "freq"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     (n_src, n_time, n_ant, n_freq),
                     chunks=(src_chunk, time_chunk, ant_chunk, freq_chunk),
                 ),
@@ -406,7 +414,7 @@ def add_noise(vis: Array, noise_std: float, key: int):
 
 
 def SEFD_to_noise_std(SEFD, chan_width, t_int):
-    noise_std = SEFD / da.sqrt(chan_width * t_int)
+    noise_std = SEFD / da.sqrt(chan_width * t_int)  # type: ignore
     return noise_std
 
 
@@ -417,13 +425,13 @@ def SEFD_to_noise_std(SEFD, chan_width, t_int):
 #     return times_fine
 
 
-def int_sample_times(times, n_int_samples: int, int_time: float = None):
+def int_sample_times(times, n_int_samples: int, int_time: Optional[float] = None):
 
     n_time = len(times)
     time_range = times[-1] - times[0]
     int_time = time_range / (n_time - 1) if not int_time else int_time
     n_time_fine = n_time * n_int_samples
-    times_fine = da.linspace(
+    times_fine = da.linspace(  # type: ignore
         -int_time / 2, time_range + int_time / 2, n_time_fine, endpoint=False
     )
 
@@ -444,7 +452,7 @@ def generate_gains(
     times = times[:, None, None] - times[0]
 
     # Generate the initial gain values
-    G0 = G0_mean * da.exp(
+    G0 = G0_mean * da.exp(  # type: ignore
         1.0j * rng.uniform(low=-np.pi / 2, high=np.pi / 2, size=(1, n_ant, n_freq))
     ) + (
         rng.normal(scale=G0_std, size=(1, n_ant, n_freq))
@@ -455,9 +463,9 @@ def generate_gains(
     gain_amp = rng.normal(scale=Gt_std_amp, size=(1, n_ant, 1)) * times
     gain_phase = rng.normal(scale=Gt_std_phase, size=(1, n_ant, 1)) * times
     # Generate the gain time series
-    gain_ants = G0 + gain_amp * da.exp(1.0j * gain_phase)
+    gain_ants = G0 + gain_amp * da.exp(1.0j * gain_phase)  # type: ignore
     # Set the gain on the last antenna to have zero phase (reference antenna)
-    gain_ants[:, -1, :] = da.abs(gain_ants[:, -1, :])
+    gain_ants[:, -1, :] = da.abs(gain_ants[:, -1, :])  # type: ignore
 
     return gain_ants
 
@@ -479,7 +487,7 @@ def generate_fourier_gains(
     times = times_jd[None, :, None, None] * 24
 
     # Generate the initial gain values
-    G0 = G0_mean * da.exp(
+    G0 = G0_mean * da.exp(  # type: ignore
         1.0j * rng.uniform(low=-np.pi / 2, high=np.pi / 2, size=(1, n_ant, n_freq))
     ) + (
         rng.normal(scale=G0_std / 100, size=(1, n_ant, n_freq))
@@ -513,9 +521,9 @@ def generate_fourier_gains(
         axis=0,
     ) * np.sqrt(2 * N)
     # Generate the gain time series
-    gain_ants = G0 + gain_amp * da.exp(1.0j * gain_phase)
+    gain_ants = G0 + gain_amp * da.exp(1.0j * gain_phase)  # type: ignore
     # Set the gain on the last antenna to have zero phase (reference antenna)
-    gain_ants[:, -1, :] = da.abs(gain_ants[:, -1, :])
+    gain_ants[:, -1, :] = da.abs(gain_ants[:, -1, :])  # type: ignore
 
     return gain_ants
 
@@ -545,7 +553,7 @@ def apply_gains(
         {
             "vis_obs": (
                 ["time", "bl", "freq"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     (n_time, n_bl, n_freq),
                     chunks=(time_chunk, bl_chunk, freq_chunk),
                     dtype=vis_ast.dtype,
@@ -567,6 +575,6 @@ def apply_gains(
 
 
 def time_avg(vis, n_int_samples):
-    return da.mean(
-        da.reshape(vis, (-1, n_int_samples, vis.shape[1], vis.shape[2])), axis=1
+    return da.mean(  # type: ignore
+        da.reshape(vis, (-1, n_int_samples, vis.shape[1], vis.shape[2])), axis=1  # type: ignore
     )

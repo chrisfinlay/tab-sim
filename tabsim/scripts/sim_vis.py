@@ -7,6 +7,10 @@ from tabsim.config import load_config, run_sim_config
 
 from typing import Union
 
+from jax import config
+
+config.update("jax_enable_x64", True)
+
 
 def get_abs_path(rel_path: Union[str, None], work_dir: str) -> Union[str, None]:
     if rel_path:

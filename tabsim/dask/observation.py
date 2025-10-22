@@ -1,4 +1,4 @@
-from jax import config, Array
+from jax import Array
 
 import dask.array as da
 import numpy as np
@@ -44,8 +44,6 @@ from tabsim.write import construct_observation_ds, write_ms
 from tabsim.dask.extras import get_chunksizes
 from tabsim.tle import get_satellite_positions, ants_pos, sat_distance
 
-config.update("jax_enable_x64", True)
-
 from astropy.time import Time
 
 
@@ -83,23 +81,24 @@ class Telescope(object):
         n_ant: Optional[int] = None,
     ):
         self.tel_name = tel_name
-        self.latitude = da.asarray(latitude)
-        self.longitude = da.asarray(longitude)
-        self.elevation = da.asarray(elevation)
-        self.GEO = da.asarray([latitude, longitude, elevation])
+        self.latitude = da.asarray(latitude)  # type: ignore
+        self.longitude = da.asarray(longitude)  # type: ignore
+        self.elevation = da.asarray(elevation)  # type: ignore
+        self.GEO = da.asarray([latitude, longitude, elevation])  # type: ignore
         self.ITRF = None
         self.ENU = None
         self.n_ant = n_ant
 
-        if ENU_array is not None or ENU_path is not None:
+        if ENU_array or ENU_path:
             self.createArrayENU(ENU_array, ENU_path)
-        if ITRF_array is not None or ITRF_path is not None:
+        if ITRF_array or ITRF_path:
             self.createArrayITRF(ITRF_array, ITRF_path)
         if self.ITRF is None and self.ENU is None:
             raise ValueError(
-                "One of ('ENU_array', 'ENU_path', 'ITRF_array', 'ITRF_path') must be provided to create a Telescope object."
+                "One of 'ENU_path' or 'ITRF_path' must be provided to create a Telescope object."
             )
-        self.n_ant = len(self.ITRF)
+        else:
+            self.n_ant = len(self.ITRF)
 
     def __str__(self):
         msg = """\nTelescope Location
@@ -126,7 +125,7 @@ Elevation : {elevation}\n"""
                      array or as a csv like file."""
             print(msg)
             return
-        self.ENU = da.asarray(self.ENU)
+        self.ENU = da.asarray(self.ENU)  # type: ignore
         self.ENU_path = ENU_path
         self.GEO_ants = ENU_to_GEO(self.GEO, self.ENU)
         self.ITRF = ENU_to_ITRF(self.ENU, self.latitude, self.longitude, self.elevation)
@@ -142,8 +141,8 @@ Elevation : {elevation}\n"""
                      array or as a csv like file."""
             raise ValueError(msg)
 
-        self.ITRF = da.asarray(self.ITRF)
-        self.GEO_ants = da.asarray(itrf_to_geo(self.ITRF.compute()))
+        self.ITRF = da.asarray(self.ITRF)  # type: ignore
+        self.GEO_ants = da.asarray(itrf_to_geo(self.ITRF.compute()))  # type: ignore
 
 
 class Observation(Telescope):
@@ -474,7 +473,7 @@ Number of stationary RFI :  {n_stat}"""
         dec: array (n_src,)
             Declination of the sources in degrees.
         """
-        I = da.atleast_2d(I)
+        I = da.atleast_2d(I)  # type: ignore
         if I.ndim == 2:
             I = da.expand_dims(I, axis=0)
         I = I * da.ones(
@@ -530,7 +529,7 @@ Number of stationary RFI :  {n_stat}"""
         dec: Array (n_src,)
             Declination of the sources in degrees.
         """
-        I = da.atleast_2d(I)
+        I = da.atleast_2d(I)  # type: ignore
         if I.ndim == 2:
             I = da.expand_dims(I, axis=0)
         I = I * da.ones(
@@ -718,7 +717,7 @@ Number of stationary RFI :  {n_stat}"""
         tles: Array (n_src, 2)
             TLEs of the satellites corresponding to the NORAD IDs.
         """
-        Pv = da.atleast_2d(Pv)
+        Pv = da.atleast_2d(Pv)  # type: ignore
         if Pv.ndim == 2:
             Pv = da.expand_dims(Pv, axis=0)
         Pv = (
@@ -728,10 +727,11 @@ Number of stationary RFI :  {n_stat}"""
             )
         ).rechunk((-1, self.time_fine_chunk, self.freq_chunk))
         norad_ids = da.asarray(da.atleast_1d(norad_ids), chunks=(-1,))
+        n_src = len(norad_ids)
 
         rfi_xyz = da.asarray(
             get_satellite_positions(tles, mjd_to_jd(self.times_mjd_fine.compute())),
-            chunks=(-1, self.time_fine_chunk, 3),
+            chunks=(n_src, self.time_fine_chunk, 3),
         )
         # from tabsim.jax.coordinates import kepler_orbit_many
         # from tabsim.tle import
@@ -743,7 +743,7 @@ Number of stationary RFI :  {n_stat}"""
         # self.ants_xyz is shape (n_time_fine,n_ant,3)
         distances = da.linalg.norm(
             self.ants_xyz[None, :, :, :] - rfi_xyz[:, :, None, :], axis=-1
-        )
+        )  # .rechunk(n_src, self.time_chunk, self.n_int_samples, self.n_ant)
         # distances = da.asarray(da.linalg.norm(
         #     ants_pos(self.ITRF.compute(), mjd_to_jd(self.times_mjd_fine.compute()))[None, :, :, :] - rfi_xyz[:, :, None, :], axis=-1
         # ), chunks=(-1, self.time_fine_chunk, self.n_ant))
@@ -751,24 +751,39 @@ Number of stationary RFI :  {n_stat}"""
         I = Pv_to_Sv(Pv, distances)
         # I is shape (n_src,n_time_fine,n_ant,n_freq)
 
+        c_distances = (
+            (distances + self.ants_uvw[None, :, :, -1])
+            .reshape((n_src, self.n_time, self.n_int_samples, self.n_ant))
+            .rechunk((n_src, self.time_chunk, self.n_int_samples, self.ant_chunk))
+        )
+
         angular_seps = angular_separation(rfi_xyz, self.ants_xyz, self.ra, self.dec)
 
         # angular_seps is shape (n_src,n_time_fine,n_ant)
         rfi_A_app = da.sqrt(da.abs(I)) * airy_beam(
             angular_seps, self.freqs, self.dish_d
         )
+
+        rfi_A = rfi_A_app.reshape(
+            (n_src, self.n_time, self.n_int_samples, self.n_ant, self.n_freq)
+        ).rechunk(
+            (
+                n_src,
+                self.time_chunk,
+                self.n_int_samples,
+                self.ant_chunk,
+                self.freq_chunk,
+            )
+        )
+
         # rfi_A_app = da.ones((Pv.shape[0], self.n_time_fine, self.n_ant, self.n_freq), chunks=(-1, self.time_fine_chunk, self.n_ant, self.freq_chunk))
         # self.rfi_A_app is shape (n_src,n_time_fine,n_ant,n_freqs)
         # distances is shape (n_src,n_time_fine,n_ant)
         # self.ants_uvw is shape (n_time_fine,n_ant,3)
 
         vis_rfi = rfi_vis(
-            rfi_A_app.reshape(
-                (-1, self.n_time, self.n_int_samples, self.n_ant, self.n_freq)
-            ),
-            (distances + self.ants_uvw[None, :, :, -1]).reshape(
-                (-1, self.n_time, self.n_int_samples, self.n_ant)
-            ),
+            rfi_A,
+            c_distances,
             self.freqs,
             self.a1,
             self.a2,
