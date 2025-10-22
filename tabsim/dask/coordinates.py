@@ -1,5 +1,7 @@
 from tabsim.jax import coordinates as coord
 
+from jax import jit
+
 import dask.array as da
 from dask.delayed import delayed
 from dask.array.core import Array
@@ -22,7 +24,7 @@ def radec_to_lmn(ra: Array, dec: Array, phase_centre: Array) -> Array:
         {
             "lmn": (
                 ["src", "lmn_space"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     shape=(n_src, 3),
                     chunks=(src_chunk, 3),
                     dtype=float,
@@ -32,7 +34,7 @@ def radec_to_lmn(ra: Array, dec: Array, phase_centre: Array) -> Array:
     )
 
     def _radec_to_lmn(ds):
-        lmn = delayed(coord.radec_to_lmn, pure=True)(
+        lmn = delayed(jit(coord.radec_to_lmn), pure=True)(
             ds.ra.data, ds.dec.data, ds.phase_centre.data
         ).compute()
         ds_out = xr.Dataset({"lmn": (["src", "lmn_space"], lmn)})
@@ -61,7 +63,7 @@ def radec_to_XYZ(ra: Array, dec: Array) -> Array:
         {
             "XYZ": (
                 ["src", "space"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     shape=(n_src, 3),
                     chunks=(src_chunk, 3),
                     dtype=float,
@@ -71,7 +73,9 @@ def radec_to_XYZ(ra: Array, dec: Array) -> Array:
     )
 
     def _radec_to_XYZ(ds):
-        XYZ = delayed(coord.radec_to_XYZ, pure=True)(ds.ra.data, ds.dec.data).compute()
+        XYZ = delayed(jit(coord.radec_to_XYZ), pure=True)(
+            ds.ra.data, ds.dec.data
+        ).compute()
         ds_out = xr.Dataset({"XYZ": (["src", "space"], XYZ)})
         return ds_out
 
@@ -98,7 +102,7 @@ def ENU_to_GEO(geo_ref: Array, ENU: Array) -> Array:
         {
             "GEO": (
                 ["bl", "space"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     shape=(n_ant, 3),
                     chunks=(ant_chunk, 3),
                     dtype=float,
@@ -108,7 +112,7 @@ def ENU_to_GEO(geo_ref: Array, ENU: Array) -> Array:
     )
 
     def _ENU_to_GEO(ds):
-        GEO = delayed(coord.ENU_to_GEO, pure=True)(
+        GEO = delayed(jit(coord.ENU_to_GEO), pure=True)(
             ds.geo_ref.data, ds.ENU.data
         ).compute()
         ds_out = xr.Dataset({"GEO": (["ant", "space"], GEO)})
@@ -137,7 +141,7 @@ def GEO_to_XYZ(geo: Array, times: Array) -> Array:
         {
             "XYZ": (
                 ["time", "space"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     shape=(n_time, 3),
                     chunks=(time_chunk, 3),
                     dtype=float,
@@ -147,7 +151,9 @@ def GEO_to_XYZ(geo: Array, times: Array) -> Array:
     )
 
     def _GEO_to_XYZ(ds):
-        XYZ = delayed(coord.GEO_to_XYZ, pure=True)(ds.geo.data, ds.times.data).compute()
+        XYZ = delayed(jit(coord.GEO_to_XYZ), pure=True)(
+            ds.geo.data, ds.times.data
+        ).compute()
         ds_out = xr.Dataset({"XYZ": (["time", "space"], XYZ)})
         return ds_out
 
@@ -175,7 +181,7 @@ def GEO_to_XYZ_vmap0(geo: Array, times: Array) -> Array:
         {
             "XYZ": (
                 ["src", "time", "space"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     shape=(n_src, n_time, 3),
                     chunks=(src_chunk, time_chunk, 3),
                     dtype=float,
@@ -185,7 +191,7 @@ def GEO_to_XYZ_vmap0(geo: Array, times: Array) -> Array:
     )
 
     def _GEO_to_XYZ(ds):
-        XYZ = delayed(coord.GEO_to_XYZ_vmap0, pure=True)(
+        XYZ = delayed(jit(coord.GEO_to_XYZ_vmap0), pure=True)(
             ds.geo.data, ds.times.data
         ).compute()
         ds_out = xr.Dataset({"XYZ": (["src", "time", "space"], XYZ)})
@@ -214,7 +220,7 @@ def GEO_to_XYZ_vmap1(geo: Array, times: Array) -> Array:
         {
             "XYZ": (
                 ["time", "ant", "space"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     shape=(n_time, n_ant, 3),
                     chunks=(time_chunk, ant_chunk, 3),
                     dtype=float,
@@ -224,7 +230,7 @@ def GEO_to_XYZ_vmap1(geo: Array, times: Array) -> Array:
     )
 
     def _GEO_to_XYZ(ds):
-        XYZ = delayed(coord.GEO_to_XYZ_vmap1, pure=True)(
+        XYZ = delayed(jit(coord.GEO_to_XYZ_vmap1), pure=True)(
             ds.geo.data, ds.times.data
         ).compute()
         ds_out = xr.Dataset({"XYZ": (["time", "ant", "space"], XYZ)})
@@ -255,7 +261,7 @@ def ITRF_to_XYZ(itrf: Array, gsa: Array) -> Array:
         {
             "xyz": (
                 ["time", "ant", "space"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     shape=(n_time, n_ant, 3),
                     chunks=(time_chunk, ant_chunk, 3),
                     dtype=float,
@@ -265,7 +271,9 @@ def ITRF_to_XYZ(itrf: Array, gsa: Array) -> Array:
     )
 
     def _ITRF_to_XYZ(ds):
-        XYZ = delayed(coord.itrf_to_xyz, pure=True)(ds.itrf.data, ds.gsa.data).compute()
+        XYZ = delayed(jit(coord.itrf_to_xyz), pure=True)(
+            ds.itrf.data, ds.gsa.data
+        ).compute()
         ds_out = xr.Dataset({"xyz": (["time", "ant", "space"], XYZ)})
         return ds_out
 
@@ -294,7 +302,7 @@ def ENU_to_ITRF(ENU: Array, lat: Array, lon: Array, el: Array) -> Array:
         {
             "ITRF": (
                 ["ant", "space"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     shape=(n_ant, 3),
                     chunks=(ant_chunk, 3),
                     dtype=float,
@@ -304,7 +312,7 @@ def ENU_to_ITRF(ENU: Array, lat: Array, lon: Array, el: Array) -> Array:
     )
 
     def _ENU_to_ITRF(ds):
-        ITRF = delayed(coord.enu_to_itrf, pure=True)(
+        ITRF = delayed(jit(coord.enu_to_itrf), pure=True)(
             ds.ENU.data,
             ds.lat.data,
             ds.lon.data,
@@ -335,8 +343,8 @@ def ITRF_to_UVW(
     input = xr.Dataset(
         {
             "itrf": (["ant", "space"], itrf),
-            "h0": (["time"], da.atleast_1d(h0)),
-            "dec": (["cel_space_1"], da.atleast_1d(dec)),
+            "h0": (["time"], da.atleast_1d(h0)),  # type: ignore
+            "dec": (["cel_space_1"], da.atleast_1d(dec)),  # type: ignore
         }
     )
 
@@ -344,7 +352,7 @@ def ITRF_to_UVW(
         {
             "uvw": (
                 ["time", "ant", "space"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     shape=(n_time, n_ant, 3),
                     chunks=(time_chunk, ant_chunk, 3),
                     dtype=float,
@@ -354,7 +362,7 @@ def ITRF_to_UVW(
     )
 
     def _ITRF_to_UVW(ds):
-        uvw = delayed(coord.itrf_to_uvw, pure=True)(
+        uvw = delayed(jit(coord.itrf_to_uvw), pure=True)(
             ds.itrf.data,
             ds.h0.data,
             ds.dec.data,
@@ -381,8 +389,8 @@ def angular_separation(rfi_xyz: Array, ants_xyz: Array, ra: Array, dec: Array) -
         {
             "rfi_xyz": (["src", "time", "space"], rfi_xyz),
             "ants_xyz": (["time", "ant", "space"], ants_xyz),
-            "ra": (["cel_space_0"], da.from_array([ra])),
-            "dec": (["cel_space_1"], da.from_array([dec])),
+            "ra": (["cel_space_0"], da.from_array([ra])),  # type: ignore
+            "dec": (["cel_space_1"], da.from_array([dec])),  # type: ignore
         }
     )
 
@@ -390,7 +398,7 @@ def angular_separation(rfi_xyz: Array, ants_xyz: Array, ra: Array, dec: Array) -
         {
             "sep": (
                 ["src", "time", "ant"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     shape=(n_src, n_time, n_ant),
                     chunks=(src_chunk, time_chunk, ant_chunk),
                     dtype=float,
@@ -400,7 +408,7 @@ def angular_separation(rfi_xyz: Array, ants_xyz: Array, ra: Array, dec: Array) -
     )
 
     def _angular_separation(ds):
-        sep = delayed(coord.angular_separation, pure=True)(
+        sep = delayed(jit(coord.angular_separation), pure=True)(
             ds.rfi_xyz.data, ds.ants_xyz.data, ds.ra.data, ds.dec.data
         ).compute()
         ds_out = xr.Dataset({"sep": (["src", "time", "ant"], sep)})
@@ -441,7 +449,7 @@ def orbit_vmap(
         {
             "orbit": (
                 ["src", "time", "space"],
-                da.zeros(
+                da.zeros(  # type: ignore
                     shape=(n_src, n_time, 3),
                     chunks=(src_chunk, time_chunk, 3),
                     dtype=float,
@@ -451,7 +459,7 @@ def orbit_vmap(
     )
 
     def _orbit_vmap(ds):
-        orbit = delayed(coord.orbit_vmap, pure=True)(
+        orbit = delayed(jit(coord.orbit_vmap), pure=True)(
             ds.times.data,
             ds.elevation.data,
             ds.inclination.data,

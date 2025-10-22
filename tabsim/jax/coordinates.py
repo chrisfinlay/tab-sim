@@ -1,9 +1,6 @@
 import jax.numpy as jnp
-from jax import jit, vmap, jacrev, config, Array
-from tabsim.jax.utils import jit_with_doc
+from jax import vmap, jacrev, Array
 from jax.lax import scan
-
-config.update("jax_enable_x64", True)
 
 # Constants
 G = 6.67408e-11  # Gravitational constant in m^3/kg/s^2
@@ -25,7 +22,6 @@ def days_to_secs(days):
     return days * DAY_SECS
 
 
-@jit_with_doc
 def radec_to_lmn(ra: Array, dec: Array, phase_centre: Array) -> Array:
     """
     Convert right-ascension and declination positions of a set of sources to
@@ -63,7 +59,6 @@ def radec_to_lmn(ra: Array, dec: Array, phase_centre: Array) -> Array:
     return jnp.array([l, m, n]).T
 
 
-@jit_with_doc
 def radec_to_XYZ(ra: Array, dec: Array) -> Array:
     """
     Convert Right ascension and Declination to unit vector in ECI coordinates.
@@ -90,7 +85,7 @@ def radec_to_XYZ(ra: Array, dec: Array) -> Array:
     return jnp.array([x, y, z]).T
 
 
-# @jit_with_doc
+#
 # def radec_to_altaz(ra: float, dec: float, latitude: float, longitude: float, times: Array) -> Array:
 #     """
 #     !! Do not use this function - Needs to be checked !!
@@ -139,7 +134,6 @@ def radec_to_XYZ(ra: Array, dec: Array) -> Array:
 #     return jnp.rad2deg(jnp.array([alt, az]).T)
 
 
-@jit_with_doc
 def ENU_to_GEO(geo_ref: Array, enu: Array) -> Array:
     """
     Convert a set of points in ENU co-ordinates to geographic coordinates i.e.
@@ -160,7 +154,7 @@ def ENU_to_GEO(geo_ref: Array, enu: Array) -> Array:
     """
     geo_ref = jnp.asarray(geo_ref)
     enu = jnp.asarray(enu)
-    R_e = earth_radius(geo_ref[0])
+    R_e = earth_radius(geo_ref[0])  # type: ignore
     d_lon = jnp.rad2deg(
         jnp.arcsin(enu[:, 1] / (R_e * jnp.cos(jnp.deg2rad(geo_ref[0]))))
     )
@@ -170,7 +164,6 @@ def ENU_to_GEO(geo_ref: Array, enu: Array) -> Array:
     return geo_ants
 
 
-@jit_with_doc
 def GEO_to_XYZ(geo: Array, times: Array) -> Array:
     """
     Convert geographic coordinates to an Earth Centred Inertial (ECI)
@@ -209,7 +202,6 @@ def GEO_to_XYZ(geo: Array, times: Array) -> Array:
     return jnp.array([x, y, z]).T
 
 
-@jit_with_doc
 def GEO_to_XYZ_vmap0(geo: Array, times: Array) -> Array:
     """
     Convert geographic coordinates to an Earth Centred Inertial (ECI)
@@ -235,7 +227,6 @@ def GEO_to_XYZ_vmap0(geo: Array, times: Array) -> Array:
     return vmap(GEO_to_XYZ, in_axes=(0, None), out_axes=0)(geo, times)
 
 
-@jit_with_doc
 def GEO_to_XYZ_vmap1(geo: Array, times: Array) -> Array:
     """
     Convert geographic coordinates to an Earth Centred Inertial (ECI)
@@ -261,7 +252,6 @@ def GEO_to_XYZ_vmap1(geo: Array, times: Array) -> Array:
     return vmap(GEO_to_XYZ, in_axes=(1, None), out_axes=1)(geo, times)
 
 
-@jit_with_doc
 def alt_az_of_source(lsa: Array, lat: float, ra: float, dec: float) -> Array:
     """Calculate the altitude and azimuth of a given source direction over time.
     Taken from https://astronomy.stackexchange.com/questions/14492/need-simple-equation-for-rise-transit-and-set-time
@@ -297,7 +287,6 @@ def alt_az_of_source(lsa: Array, lat: float, ra: float, dec: float) -> Array:
     return jnp.array([alt, az]).T
 
 
-@jit_with_doc
 def rise_and_set_of_source(lat: float, ra: float, dec: float) -> Array:
 
     lat, dec = jnp.deg2rad(jnp.array([lat, dec]))
@@ -307,7 +296,6 @@ def rise_and_set_of_source(lat: float, ra: float, dec: float) -> Array:
     return jnp.array([ra - a, ra + a])
 
 
-@jit_with_doc
 def lst_deg2sec(lst: Array) -> Array:
     """Convert a sidereal time in degrees to seconds.
 
@@ -325,7 +313,6 @@ def lst_deg2sec(lst: Array) -> Array:
     return lst / 360 * T_s
 
 
-@jit_with_doc
 def lst_sec2deg(lst: Array) -> Array:
     """Convert a sidereal time from seconds to degrees.
 
@@ -470,7 +457,6 @@ def time_above_horizon(lat: float, dec: float) -> float:
     return H
 
 
-@jit_with_doc
 def transit_altitude(lat: float, dec: float) -> float:
     """Calculate the altitude of a source at transit given an observer's latitude.
 
@@ -492,7 +478,6 @@ def transit_altitude(lat: float, dec: float) -> float:
     return alt
 
 
-@jit_with_doc
 def earth_radius(lat: float) -> float:
     """Calculate the earth radius according to the ellipsoidal model at a given latitude.
 
@@ -508,7 +493,7 @@ def earth_radius(lat: float) -> float:
     """
     a = 6378137.0  # equitorial radius
     b = 6356752.3  # polar radius
-    lat = jnp.deg2rad(lat)
+    lat = jnp.deg2rad(lat)  # type: ignore
     cos = jnp.cos(lat)
     sin = jnp.sin(lat)
     r = jnp.sqrt(
@@ -518,7 +503,6 @@ def earth_radius(lat: float) -> float:
     return r
 
 
-@jit_with_doc
 def enu_to_itrf(enu: Array, lat: float, lon: float, el: float) -> Array:
     """
     Calculate ITRF coordinates from ENU coordinates of antennas given the
@@ -578,7 +562,6 @@ def enu_to_xyz_local(enu, lat):
     return jnp.dot(enu, R.T)
 
 
-@jit_with_doc
 def itrf_to_geo(itrf: Array) -> Array:
     """Convert ITRF coordinates to geodetic coordinates.
 
@@ -602,7 +585,6 @@ def itrf_to_geo(itrf: Array) -> Array:
     return jnp.array([lat, lon, el]).T
 
 
-@jit_with_doc
 def itrf_to_xyz(itrf: Array, gsa: Array) -> Array:
     """Transform coordinates from the ITRF (ECEF) frame to an ECI frame that aligns with the celestial sphere.
 
@@ -627,7 +609,6 @@ def itrf_to_xyz(itrf: Array, gsa: Array) -> Array:
     return xyz
 
 
-@jit_with_doc
 def xyz_to_itrf(xyz: Array, gsa: Array) -> Array:
     """Transform coordinates from the ECI frame to the ITRF (ECEF) frame that is fixed with the Earth.
 
@@ -652,7 +633,6 @@ def xyz_to_itrf(xyz: Array, gsa: Array) -> Array:
     return itrf
 
 
-@jit_with_doc
 def itrf_to_uvw(itrf: Array, h0: Array, dec: float) -> Array:
     """
     Calculate uvw coordinates from ITRF/ECEF coordinates,
@@ -682,7 +662,7 @@ def itrf_to_uvw(itrf: Array, h0: Array, dec: float) -> Array:
     itrf = itrf - itrf[0, None, :]
 
     h0 = jnp.deg2rad(jnp.atleast_1d(h0))
-    dec = jnp.deg2rad(jnp.asarray(dec))
+    dec = jnp.deg2rad(jnp.asarray(dec))  # type: ignore
     ones = jnp.ones_like(h0)
 
     R = jnp.array(
@@ -706,7 +686,6 @@ def itrf_to_uvw(itrf: Array, h0: Array, dec: float) -> Array:
     return uvw
 
 
-@jit_with_doc
 def calculate_fringe_frequency(
     times_mjd: Array,
     freq: float,
@@ -740,10 +719,10 @@ def calculate_fringe_frequency(
 
     lam = C / freq
     # Should change this to astropy.time.Time
-    gsa = gmsa_from_jd(mjd_to_jd(times_mjd))
+    gsa = gmsa_from_jd(mjd_to_jd(times_mjd))  # type: ignore
     times = (times_mjd - times_mjd[0]) * 24 * 3600
 
-    r_ecef = xyz_to_itrf(rfi_xyz, gsa)
+    r_ecef = xyz_to_itrf(rfi_xyz, gsa)  # type: ignore
     s_ecef = r_ecef - jnp.mean(ants_itrf, axis=0)
     s_hat_ecef = s_ecef / jnp.linalg.norm(s_ecef, axis=-1, keepdims=True)
     s_hat_dot = jnp.gradient(s_hat_ecef, jnp.diff(times[:2])[0], axis=0)
@@ -759,7 +738,6 @@ def calculate_fringe_frequency(
     return fringe_freq
 
 
-@jit_with_doc
 def calculate_sat_corr_time(
     sat_xyz: Array,
     ants_xyz: Array,
@@ -802,7 +780,6 @@ def calculate_sat_corr_time(
     return l
 
 
-@jit_with_doc
 def angular_separation(rfi_xyz: Array, ants_xyz: Array, ra: float, dec: float) -> Array:
     """
     Calculate the angular separation between the pointing direction of each
@@ -838,7 +815,6 @@ def angular_separation(rfi_xyz: Array, ants_xyz: Array, ra: float, dec: float) -
     return angles
 
 
-@jit_with_doc
 def Rotx(theta: float) -> Array:
     """
     Define a rotation matrix about the 'x-axis' by an angle theta, in degrees.
@@ -861,7 +837,6 @@ def Rotx(theta: float) -> Array:
     return Rx
 
 
-@jit_with_doc
 def Rotz(theta: float) -> Array:
     """
     Define a rotation matrix about the 'z-axis' by an angle theta, in degrees.
@@ -884,7 +859,6 @@ def Rotz(theta: float) -> Array:
     return Rz
 
 
-@jit_with_doc
 def orbit(
     times: Array,
     elevation: float,
@@ -967,7 +941,6 @@ def orbit_vmap(
     )
 
 
-@jit_with_doc
 def orbit_velocity(
     times: Array,
     elevation: float,
@@ -1011,7 +984,6 @@ def orbit_velocity(
     return velocity
 
 
-@jit_with_doc
 def R_uvw(
     times: Array,
     elevation: float,
@@ -1061,7 +1033,6 @@ def R_uvw(
     return R
 
 
-@jit_with_doc
 def RIC_dev(
     times: Array,
     true_orbit_params: Array,
@@ -1100,7 +1071,6 @@ def RIC_dev(
     return est_uvw - true_uvw
 
 
-@jit_with_doc
 def orbit_fisher(times: Array, orbit_params: Array, RIC_std: Array) -> Array:
     """
     Calculate the inverse covariance (Fisher) matrix in orbital elements
