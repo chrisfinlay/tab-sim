@@ -11,6 +11,7 @@ from tabsim.dask.coordinates import (
     ENU_to_GEO,
     GEO_to_XYZ_vmap0,
     ITRF_to_XYZ,
+    itrs_to_gcrs_sf,
     orbit_vmap,
     radec_to_lmn,
     angular_separation,
@@ -329,7 +330,8 @@ class Observation(Telescope):
         self.mag_uvw = da.linalg.norm(self.bl_uvw[0], axis=-1)
         self.syn_bw = beam_size(self.mag_uvw.max().compute(), freqs.max())
 
-        self.ants_xyz = ITRF_to_XYZ(self.ITRF, self.gsa)
+        # self.ants_xyz = ITRF_to_XYZ(self.ITRF, self.gsa)
+        self.ants_xyz = da.asarray(itrs_to_gcrs_sf(np.asarray(self.ITRF), np.asarray(mjd_to_jd(self.times_mjd_fine.compute()))))
         self.vis_rfi = da.zeros(
             shape=(self.n_time, self.n_bl, self.n_freq),
             chunks=(self.time_chunk, self.bl_chunk, self.freq_chunk),
