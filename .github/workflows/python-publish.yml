@@ -1,29 +1,21 @@
-# This workflow will upload a Python Package to PyPI when a release is created
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python#publishing-to-package-registries
-
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-
+# Upload Python Package to PyPI on tag push or release
 name: Upload Python Package
-
-# on:
-#   release:
-#     types: [published]
 
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
+  release:
+    types: [published]
 
+# Required for OIDC / Trusted Publishing flows
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   release-build:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -33,7 +25,7 @@ jobs:
 
       - name: Build release distributions
         run: |
-          # NOTE: put your own distribution build steps here.
+          python -m pip install --upgrade pip
           python -m pip install build
           python -m build
 
@@ -45,24 +37,7 @@ jobs:
 
   pypi-publish:
     runs-on: ubuntu-latest
-    needs:
-      - release-build
-    # permissions:
-      # IMPORTANT: this permission is mandatory for trusted publishing
-      # id-token: write
-
-    # Dedicated environments with protections for publishing are strongly recommended.
-    # For more information, see: https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment#deployment-protection-rules
-    # environment:
-    #   name: pypi
-      # OPTIONAL: uncomment and update to include your PyPI project URL in the deployment status:
-      # url: https://pypi.org/p/YOURPROJECT
-      #
-      # ALTERNATIVE: if your GitHub Release name is the PyPI project version string
-      # ALTERNATIVE: exactly, uncomment the following line instead:
-      # url: https://pypi.org/project/YOURPROJECT/${{ github.event.release.name }}
-      # A change
-
+    needs: release-build
     steps:
       - name: Retrieve release distributions
         uses: actions/download-artifact@v4
@@ -70,8 +45,20 @@ jobs:
           name: release-dists
           path: dist/
 
-      - name: Publish release distributions to PyPI
+      # If you still have a PYPI_API_TOKEN secret, use it (classic token-based publish)
+      - name: Publish with PYPI_API_TOKEN
+        if: ${{ secrets.PYPI_API_TOKEN != '' }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
           packages-dir: dist/
+
+      # Otherwise use GitHub OIDC / Trusted Publishing (no static token)
+      - name: Publish using GitHub Trusted Publishing (OIDC)
+        if: ${{ secrets.PYPI_API_TOKEN == '' }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # no password => action will use OIDC / trusted publishing flow when PyPI is configured
+          packages-dir: dist/
+          # optionally enable attestations if your PyPI project is configured to accept them:
+          # attestations: true
