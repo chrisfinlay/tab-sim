@@ -330,8 +330,18 @@ class Observation(Telescope):
         self.mag_uvw = da.linalg.norm(self.bl_uvw[0], axis=-1)
         self.syn_bw = beam_size(self.mag_uvw.max().compute(), freqs.max())
 
+        # The following calculation of antenna positions in the GCRS frame does not take nutation
+        # into consideration. This leads to a small offset in the antenna positions compared to reality.
         # self.ants_xyz = ITRF_to_XYZ(self.ITRF, self.gsa)
-        self.ants_xyz = da.asarray(itrs_to_gcrs_sf(np.asarray(self.ITRF), np.asarray(mjd_to_jd(self.times_mjd_fine.compute()))))
+        # The following calculation using skyfield takes nutation into consideration and leads to more
+        # accurate antenna positions.
+        self.ants_xyz = da.asarray(
+            itrs_to_gcrs_sf(
+                np.asarray(self.ITRF),
+                np.asarray(mjd_to_jd(self.times_mjd_fine.compute())),
+            )
+        ).rechunk((self.time_fine_chunk, self.n_ant, 3))
+
         self.vis_rfi = da.zeros(
             shape=(self.n_time, self.n_bl, self.n_freq),
             chunks=(self.time_chunk, self.bl_chunk, self.freq_chunk),
