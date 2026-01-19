@@ -37,20 +37,48 @@ from tabsim.tle import (
 
 @pytest.fixture(scope="module")
 def spacetrack_credentials():
-    """Load Space-Track credentials from YAML file."""
-    # Look for credentials in TABASCAL root directory
+    """Load Space-Track credentials from YAML file or environment variable.
+
+    This fixture supports both:
+    1. GitHub Actions: SPACETRACK_LOGIN environment variable with YAML content
+    2. Local development: spacetrack_login.yaml file in multiple locations
+    """
+    # First, check for environment variable (GitHub Actions)
+    spacetrack_login_env = os.environ.get('SPACETRACK_LOGIN')
+
+    if spacetrack_login_env:
+        # Parse YAML from environment variable
+        creds = yaml.safe_load(spacetrack_login_env)
+        return creds['username'], creds['password']
+
+    # Fall back to file-based credentials for local development
     current_file = os.path.abspath(__file__)
-    # Go up from tests/ -> tab-sim/ -> TABASCAL/
-    tabascal_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
-    cred_path = os.path.join(tabascal_root, "spacetrack_login.yaml")
 
-    if not os.path.exists(cred_path):
-        pytest.skip(f"Space-Track credentials file not found at {cred_path}")
+    # Try multiple locations in order of preference
+    test_dir = os.path.dirname(current_file)
+    tabsim_root = os.path.dirname(test_dir)
+    home_dir = os.path.expanduser("~")
 
-    with open(cred_path, 'r') as f:
-        creds = yaml.safe_load(f)
+    possible_paths = [
+        # Location used by GitHub Actions workflow (examples/test/)
+        os.path.join(tabsim_root, "examples", "test", "spacetrack_login.yaml"),
+        # Default location for local development ($HOME/.credentials/)
+        os.path.join(home_dir, ".credentials", "spacetrack_login.yaml"),
+        # Same directory as test file
+        os.path.join(test_dir, "spacetrack_login.yaml"),
+    ]
 
-    return creds['username'], creds['password']
+    for cred_path in possible_paths:
+        if os.path.exists(cred_path):
+            with open(cred_path, 'r') as f:
+                creds = yaml.safe_load(f)
+            return creds['username'], creds['password']
+
+    # No credentials found
+    pytest.skip(
+        "Space-Track credentials not found. Set SPACETRACK_LOGIN environment variable "
+        f"or create spacetrack_login.yaml in one of: {possible_paths}"
+    )
 
 
 @pytest.fixture
