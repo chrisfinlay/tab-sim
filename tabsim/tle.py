@@ -14,6 +14,7 @@ from tqdm import tqdm
 
 import os
 import ast
+import json
 import string
 import random
 
@@ -71,10 +72,10 @@ def fetch_tle_data(
     date_range = op.inclusive_range(start_time, end_time)
 
     try:
-        raw_data = st_client.tle(
+        raw_data = st_client.gp_history(
             norad_cat_id=norad_ids, epoch=date_range, limit=limit, format="json"
         )
-        return pd.DataFrame(ast.literal_eval(raw_data))
+        return pd.DataFrame(json.loads(raw_data))
     except Exception as e:
         print(f"Error fetching TLE data: {str(e)}")
         raise
@@ -194,8 +195,8 @@ def get_tles_by_name(
             local_ids += len(tle["NORAD_CAT_ID"].unique())
         else:
             tle = pd.DataFrame(
-                ast.literal_eval(
-                    st.tle(
+                json.loads(
+                    st.gp_history(
                         object_name=names_op[i],
                         epoch=drange,
                         limit=limit,
@@ -230,7 +231,9 @@ def spacetrack_time_to_isot(spacetrack_time: str) -> str:
     Parameters
     ----------
     spacetrack_time : str
-        SpaceTrack formatted time.
+        SpaceTrack formatted time. Can be either:
+        - Old format: "YYYY-MM-DD HH:MM:SS"
+        - New format: "YYYY-MM-DDTHH:MM:SS.ffffff"
 
     Returns
     -------
@@ -238,10 +241,18 @@ def spacetrack_time_to_isot(spacetrack_time: str) -> str:
         ISOT formatted time.
     """
 
-    dt = datetime.strptime(spacetrack_time, "%Y-%m-%d %H:%M:%S")
-    isot = dt.strftime("%Y-%m-%dT%H:%M:%S.000")
-
-    return isot
+    # Check if already in ISO format (contains 'T')
+    if 'T' in spacetrack_time:
+        # Already in ISO format, just ensure it has milliseconds
+        if '.' not in spacetrack_time:
+            return spacetrack_time + ".000"
+        else:
+            return spacetrack_time
+    else:
+        # Old format, convert to ISO
+        dt = datetime.strptime(spacetrack_time, "%Y-%m-%d %H:%M:%S")
+        isot = dt.strftime("%Y-%m-%dT%H:%M:%S.000")
+        return isot
 
 
 def get_closest_times(
@@ -401,9 +412,14 @@ def type_cast_tles(tles: pd.DataFrame) -> pd.DataFrame:
         "PERIGEE",
     ]
 
+    # Only cast columns that actually exist in the DataFrame
     for col in numeric_cols:
-        tles[col] = pd.to_numeric(tles[col])
-    tles["DECAYED"] = pd.to_numeric(tles["DECAYED"]).astype(bool)
+        if col in tles.columns:
+            tles[col] = pd.to_numeric(tles[col])
+
+    # Cast DECAYED column if it exists
+    if "DECAYED" in tles.columns:
+        tles["DECAYED"] = pd.to_numeric(tles["DECAYED"]).astype(bool)
 
     return tles
 
