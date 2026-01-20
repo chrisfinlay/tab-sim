@@ -14,6 +14,7 @@ from tqdm import tqdm
 
 import os
 import ast
+import json
 import string
 import random
 
@@ -22,6 +23,7 @@ from glob import glob
 from importlib.resources import files
 
 from typing import Optional
+import yaml
 
 
 def make_tle_dir(tle_dir: Optional[str]):
@@ -34,6 +36,43 @@ def make_tle_dir(tle_dir: Optional[str]):
     os.makedirs(tle_dir, exist_ok=True)
 
     return tle_dir
+
+
+def load_spacetrack_credentials(tle_dir: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+    """
+    Load SpaceTrack credentials from YAML file.
+
+    Searches for spacetrack_login.yaml in the following locations (in order):
+    1. Specified tle_dir
+    2. Default TLE data directory (tabsim/data/rfi/tles/)
+    3. ~/.credentials/
+    4. Current working directory
+
+    Returns:
+        tuple: (username, password) or (None, None) if credentials not found
+
+    To set up credentials, run: tabsim-setup-spacetrack
+    """
+    tle_dir_path = make_tle_dir(tle_dir)
+
+    # Search paths in priority order
+    search_paths = [
+        os.path.join(tle_dir_path, "spacetrack_login.yaml"),  # Data directory (preferred)
+        os.path.join(os.path.expanduser("~"), ".credentials", "spacetrack_login.yaml"),  # Home directory
+        os.path.join(os.getcwd(), "spacetrack_login.yaml"),  # Current directory
+    ]
+
+    for cred_path in search_paths:
+        if os.path.exists(cred_path):
+            try:
+                with open(cred_path, 'r') as f:
+                    creds = yaml.safe_load(f)
+                return creds.get('username'), creds.get('password')
+            except Exception as e:
+                print(f"Warning: Could not load credentials from {cred_path}: {e}")
+                continue
+
+    return None, None
 
 
 def get_space_track_client(username, password):
@@ -71,10 +110,10 @@ def fetch_tle_data(
     date_range = op.inclusive_range(start_time, end_time)
 
     try:
-        raw_data = st_client.tle(
+        raw_data = st_client.gp_history(
             norad_cat_id=norad_ids, epoch=date_range, limit=limit, format="json"
         )
-        return pd.DataFrame(ast.literal_eval(raw_data))
+        return pd.DataFrame(json.loads(raw_data))
     except Exception as e:
         print(f"Error fetching TLE data: {str(e)}")
         raise
@@ -188,14 +227,21 @@ def get_tles_by_name(
     tles = [0] * len(names)
     for i, name in enumerate(names):
         tle_path = os.path.join(tle_dir, f"{epoch_str}-{name}.json")
+        # Try loading from cache first
+        loaded_from_cache = False
         if os.path.isfile(tle_path):
             tle = pd.read_json(tle_path)
-            tles[i] = tle
-            local_ids += len(tle["NORAD_CAT_ID"].unique())
-        else:
+            # Check if cached file has valid data
+            if "NORAD_CAT_ID" in tle.columns and len(tle) > 0:
+                tles[i] = tle
+                local_ids += len(tle["NORAD_CAT_ID"].unique())
+                loaded_from_cache = True
+
+        # Fetch from API if not loaded from cache
+        if not loaded_from_cache:
             tle = pd.DataFrame(
-                ast.literal_eval(
-                    st.tle(
+                json.loads(
+                    st.gp_history(
                         object_name=names_op[i],
                         epoch=drange,
                         limit=limit,
@@ -203,25 +249,35 @@ def get_tles_by_name(
                     )
                 )
             )
-            tle["Fetch_Timestamp"] = Time.now().strftime("%Y-%m-%d %H:%M:%S")
-            tles[i] = tle
-            if len(tle) > 0:
-                remote_ids += len(tle["NORAD_CAT_ID"].unique())
-                tles[i].to_json(tle_path)
+            # Check if API returned an error (no TLE data found)
+            if "error" in tle.columns or "NORAD_CAT_ID" not in tle.columns:
+                # API returned error or no data - create empty DataFrame
+                tles[i] = pd.DataFrame()
+            else:
+                tle["Fetch_Timestamp"] = Time.now().strftime("%Y-%m-%d %H:%M:%S")
+                tles[i] = tle
+                if len(tle) > 0:
+                    remote_ids += len(tle["NORAD_CAT_ID"].unique())
+                    tles[i].to_json(tle_path)
 
     print(f"Local TLEs loaded   : {local_ids}")
     print(f"Remote TLEs loaded  : {remote_ids}")
 
-    tles = pd.concat(tles)
+    # Filter out empty DataFrames before concatenating
+    tles = [tle for tle in tles if len(tle) > 0]
+
     if len(tles) > 0:
+        tles = pd.concat(tles)
         tles.reset_index(drop=True, inplace=True)
         tles["EPOCH_JD"] = tles["EPOCH"].apply(
             lambda x: Time(spacetrack_time_to_isot(x)).jd
         )
         tles = type_cast_tles(tles)
         tles = get_closest_times(tles, epoch_jd)
-
-    return tles
+        return tles
+    else:
+        # No TLEs found at all - return empty DataFrame with Fetch_Timestamp column
+        return pd.DataFrame({"Fetch_Timestamp": []})
 
 
 def spacetrack_time_to_isot(spacetrack_time: str) -> str:
@@ -230,7 +286,9 @@ def spacetrack_time_to_isot(spacetrack_time: str) -> str:
     Parameters
     ----------
     spacetrack_time : str
-        SpaceTrack formatted time.
+        SpaceTrack formatted time. Can be either:
+        - Old format: "YYYY-MM-DD HH:MM:SS"
+        - New format: "YYYY-MM-DDTHH:MM:SS.ffffff"
 
     Returns
     -------
@@ -238,10 +296,18 @@ def spacetrack_time_to_isot(spacetrack_time: str) -> str:
         ISOT formatted time.
     """
 
-    dt = datetime.strptime(spacetrack_time, "%Y-%m-%d %H:%M:%S")
-    isot = dt.strftime("%Y-%m-%dT%H:%M:%S.000")
-
-    return isot
+    # Check if already in ISO format (contains 'T')
+    if 'T' in spacetrack_time:
+        # Already in ISO format, just ensure it has milliseconds
+        if '.' not in spacetrack_time:
+            return spacetrack_time + ".000"
+        else:
+            return spacetrack_time
+    else:
+        # Old format, convert to ISO
+        dt = datetime.strptime(spacetrack_time, "%Y-%m-%d %H:%M:%S")
+        isot = dt.strftime("%Y-%m-%dT%H:%M:%S.000")
+        return isot
 
 
 def get_closest_times(
@@ -401,9 +467,14 @@ def type_cast_tles(tles: pd.DataFrame) -> pd.DataFrame:
         "PERIGEE",
     ]
 
+    # Only cast columns that actually exist in the DataFrame
     for col in numeric_cols:
-        tles[col] = pd.to_numeric(tles[col])
-    tles["DECAYED"] = pd.to_numeric(tles["DECAYED"]).astype(bool)
+        if col in tles.columns:
+            tles[col] = pd.to_numeric(tles[col])
+
+    # Cast DECAYED column if it exists
+    if "DECAYED" in tles.columns:
+        tles["DECAYED"] = pd.to_numeric(tles["DECAYED"]).astype(bool)
 
     return tles
 
