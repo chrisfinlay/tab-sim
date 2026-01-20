@@ -23,6 +23,7 @@ from glob import glob
 from importlib.resources import files
 
 from typing import Optional
+import yaml
 
 
 def make_tle_dir(tle_dir: Optional[str]):
@@ -35,6 +36,43 @@ def make_tle_dir(tle_dir: Optional[str]):
     os.makedirs(tle_dir, exist_ok=True)
 
     return tle_dir
+
+
+def load_spacetrack_credentials(tle_dir: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+    """
+    Load SpaceTrack credentials from YAML file.
+
+    Searches for spacetrack_login.yaml in the following locations (in order):
+    1. Specified tle_dir
+    2. Default TLE data directory (tabsim/data/rfi/tles/)
+    3. ~/.credentials/
+    4. Current working directory
+
+    Returns:
+        tuple: (username, password) or (None, None) if credentials not found
+
+    To set up credentials, run: tabsim-setup-spacetrack
+    """
+    tle_dir_path = make_tle_dir(tle_dir)
+
+    # Search paths in priority order
+    search_paths = [
+        os.path.join(tle_dir_path, "spacetrack_login.yaml"),  # Data directory (preferred)
+        os.path.join(os.path.expanduser("~"), ".credentials", "spacetrack_login.yaml"),  # Home directory
+        os.path.join(os.getcwd(), "spacetrack_login.yaml"),  # Current directory
+    ]
+
+    for cred_path in search_paths:
+        if os.path.exists(cred_path):
+            try:
+                with open(cred_path, 'r') as f:
+                    creds = yaml.safe_load(f)
+                return creds.get('username'), creds.get('password')
+            except Exception as e:
+                print(f"Warning: Could not load credentials from {cred_path}: {e}")
+                continue
+
+    return None, None
 
 
 def get_space_track_client(username, password):

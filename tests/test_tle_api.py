@@ -19,7 +19,7 @@ import shutil
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from astropy.time import Time
+from astropy.time import Time, TimeDelta
 from astropy import units as u
 
 from tabsim.tle import (
@@ -32,6 +32,7 @@ from tabsim.tle import (
     spacetrack_time_to_isot,
     get_closest_times,
     type_cast_tles,
+    load_spacetrack_credentials,
 )
 
 
@@ -41,7 +42,15 @@ def spacetrack_credentials():
 
     This fixture supports both:
     1. GitHub Actions: SPACETRACK_LOGIN environment variable with YAML content
-    2. Local development: spacetrack_login.yaml file in multiple locations
+    2. Local development: spacetrack_login.yaml file (use tabsim-setup-spacetrack to create)
+
+    Credentials are searched in order:
+    1. SPACETRACK_LOGIN environment variable
+    2. tabsim/data/rfi/tles/spacetrack_login.yaml (preferred location)
+    3. ~/.credentials/spacetrack_login.yaml
+    4. examples/test/spacetrack_login.yaml (for legacy compatibility)
+
+    If no credentials are found, tests will be skipped.
     """
     # First, check for environment variable (GitHub Actions)
     spacetrack_login_env = os.environ.get('SPACETRACK_LOGIN')
@@ -51,33 +60,28 @@ def spacetrack_credentials():
         creds = yaml.safe_load(spacetrack_login_env)
         return creds['username'], creds['password']
 
-    # Fall back to file-based credentials for local development
-    current_file = os.path.abspath(__file__)
+    # Try loading from file using the standard function
+    username, password = load_spacetrack_credentials()
 
-    # Try multiple locations in order of preference
+    if username and password:
+        return username, password
+
+    # Legacy fallback: check examples/test/ directory (for GitHub Actions compatibility)
+    current_file = os.path.abspath(__file__)
     test_dir = os.path.dirname(current_file)
     tabsim_root = os.path.dirname(test_dir)
-    home_dir = os.path.expanduser("~")
+    legacy_path = os.path.join(tabsim_root, "examples", "test", "spacetrack_login.yaml")
 
-    possible_paths = [
-        # Location used by GitHub Actions workflow (examples/test/)
-        os.path.join(tabsim_root, "examples", "test", "spacetrack_login.yaml"),
-        # Default location for local development ($HOME/.credentials/)
-        os.path.join(home_dir, ".credentials", "spacetrack_login.yaml"),
-        # Same directory as test file
-        os.path.join(test_dir, "spacetrack_login.yaml"),
-    ]
+    if os.path.exists(legacy_path):
+        with open(legacy_path, 'r') as f:
+            creds = yaml.safe_load(f)
+        return creds['username'], creds['password']
 
-    for cred_path in possible_paths:
-        if os.path.exists(cred_path):
-            with open(cred_path, 'r') as f:
-                creds = yaml.safe_load(f)
-            return creds['username'], creds['password']
-
-    # No credentials found
+    # No credentials found - skip tests
     pytest.skip(
-        "Space-Track credentials not found. Set SPACETRACK_LOGIN environment variable "
-        f"or create spacetrack_login.yaml in one of: {possible_paths}"
+        "Space-Track credentials not found. To set up credentials, run:\n"
+        "  tabsim-setup-spacetrack\n\n"
+        "Or set the SPACETRACK_LOGIN environment variable."
     )
 
 
@@ -488,7 +492,7 @@ class TestGetVisibleSatelliteTLEs:
         target_dec = -5.39
 
         start_time = Time("2024-01-15T20:00:00", format="isot", scale="ut1")
-        times = start_time + np.linspace(0, 3600, 60) / 86400.0
+        times = start_time + np.linspace(0, 1, 60) * u.hour
 
         norad_ids, tles = get_visible_satellite_tles(
             username,
