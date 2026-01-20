@@ -526,12 +526,21 @@ def add_tle_satellite_sources(
     ]
     if np.any(tle_cond):
 
-        if spacetrack_path:
+        # Load SpaceTrack credentials
+        if spacetrack_path and os.path.exists(spacetrack_path):
+            # Load from specified path if file exists
             st_ = yaml_load(spacetrack_path)
+            username = st_["username"]
+            password = st_["password"]
         else:
-            raise ValueError(
-                "Space-Track login details must be given to simulate TLE based satellites"
-            )
+            # Try loading from standard locations
+            from tabsim.tle import load_spacetrack_credentials
+            username, password = load_spacetrack_credentials()
+
+            if username is None or password is None:
+                print("Warning: No SpaceTrack credentials found. Skipping TLE satellite sources.")
+                print("To set up credentials, run: tabsim-setup-spacetrack")
+                return
 
         if sat_["norad_ids_path"] is None:
             norad_ids = sat_["norad_ids"]
@@ -549,8 +558,8 @@ def add_tle_satellite_sources(
         )
 
         norad_ids, tles = get_visible_satellite_tles(
-            st_["username"],
-            st_["password"],
+            username,
+            password,
             times_check,
             obs.latitude,
             obs.longitude,
