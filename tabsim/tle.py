@@ -189,11 +189,18 @@ def get_tles_by_name(
     tles = [0] * len(names)
     for i, name in enumerate(names):
         tle_path = os.path.join(tle_dir, f"{epoch_str}-{name}.json")
+        # Try loading from cache first
+        loaded_from_cache = False
         if os.path.isfile(tle_path):
             tle = pd.read_json(tle_path)
-            tles[i] = tle
-            local_ids += len(tle["NORAD_CAT_ID"].unique())
-        else:
+            # Check if cached file has valid data
+            if "NORAD_CAT_ID" in tle.columns and len(tle) > 0:
+                tles[i] = tle
+                local_ids += len(tle["NORAD_CAT_ID"].unique())
+                loaded_from_cache = True
+
+        # Fetch from API if not loaded from cache
+        if not loaded_from_cache:
             tle = pd.DataFrame(
                 json.loads(
                     st.gp_history(
@@ -204,25 +211,35 @@ def get_tles_by_name(
                     )
                 )
             )
-            tle["Fetch_Timestamp"] = Time.now().strftime("%Y-%m-%d %H:%M:%S")
-            tles[i] = tle
-            if len(tle) > 0:
-                remote_ids += len(tle["NORAD_CAT_ID"].unique())
-                tles[i].to_json(tle_path)
+            # Check if API returned an error (no TLE data found)
+            if "error" in tle.columns or "NORAD_CAT_ID" not in tle.columns:
+                # API returned error or no data - create empty DataFrame
+                tles[i] = pd.DataFrame()
+            else:
+                tle["Fetch_Timestamp"] = Time.now().strftime("%Y-%m-%d %H:%M:%S")
+                tles[i] = tle
+                if len(tle) > 0:
+                    remote_ids += len(tle["NORAD_CAT_ID"].unique())
+                    tles[i].to_json(tle_path)
 
     print(f"Local TLEs loaded   : {local_ids}")
     print(f"Remote TLEs loaded  : {remote_ids}")
 
-    tles = pd.concat(tles)
+    # Filter out empty DataFrames before concatenating
+    tles = [tle for tle in tles if len(tle) > 0]
+
     if len(tles) > 0:
+        tles = pd.concat(tles)
         tles.reset_index(drop=True, inplace=True)
         tles["EPOCH_JD"] = tles["EPOCH"].apply(
             lambda x: Time(spacetrack_time_to_isot(x)).jd
         )
         tles = type_cast_tles(tles)
         tles = get_closest_times(tles, epoch_jd)
-
-    return tles
+        return tles
+    else:
+        # No TLEs found at all - return empty DataFrame with Fetch_Timestamp column
+        return pd.DataFrame({"Fetch_Timestamp": []})
 
 
 def spacetrack_time_to_isot(spacetrack_time: str) -> str:
