@@ -16,4 +16,51 @@ eda2:
 
 mwa:
   name: MWA
+  latitude: -26.70331940
+  longitude: 116.67081524
+  elevation: 377.827
+  dish_d: 5.0
   itrf_path: MWA.itrf.txt
+
+ska-low-aa0.5:
+  name: SKA-Low-AA0.5
+  latitude: -26.824722
+  longitude: 116.764448
+  dish_d: 39.0
+  itrf_path: SKA-Low-AA0.5.itrf.txt
+
+ska-low-aa1:
+  name: SKA-Low-AA1
+  latitude: -26.824722
+  longitude: 116.764448
+  dish_d: 39.0
+  itrf_path: SKA-Low-AA1.itrf.txt
+
+ska-low-aa2:
+  name: SKA-Low-AA2
+  latitude: -26.824722
+  longitude: 116.764448
+  dish_d: 39.0
+  itrf_path: SKA-Low-AA2.itrf.txt
+
+ska-low-aa*-phase-1:
+  name: SKA-Low-AA*-Phase-1
+  latitude: -26.824722
+  longitude: 116.764448
+  dish_d: 39.0
+  itrf_path: SKA-Low-AA*-Phase-1.itrf.txt
+
+ska-low-aa*:
+  name: SKA-Low-AA*
+  latitude: -26.824722
+  longitude: 116.764448
+  dish_d: 39.0
+  itrf_path: SKA-Low-AA*.itrf.txt
+
+ska-low-aa4:
+  name: SKA-Low-AA4
+  latitude: -26.824722
+  longitude: 116.764448
+  dish_d: 39.0
+  itrf_path: SKA-Low-AA4.itrf.txt
+
