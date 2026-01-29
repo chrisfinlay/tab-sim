@@ -30,6 +30,11 @@ def main():
         help="File path to the observation config file.",
     )
     parser.add_argument(
+        "-sp",
+        "--save_path",
+        help="Output directory path of simulation files.",
+    )
+    parser.add_argument(
         "-r",
         "--rfi_amp",
         default=1.0,
@@ -72,6 +77,7 @@ def main():
     rfi_amp = args.rfi_amp
     spacetrack_path = args.spacetrack
     config_path = Path(args.config_path)
+    save_path = Path(args.save_path)
 
     if not config_path.is_file():
         print(f"Error: config file not found: {config_path}", file=sys.stderr)
@@ -80,69 +86,71 @@ def main():
     config_path = os.path.abspath(args.config_path)
     work_dir = os.path.split(config_path)[0]
 
-    obs_spec = load_config(config_path, config_type="sim")
+    sim_config = load_config(config_path, config_type="sim")
+
+    sim_config["output"]["path"] = save_path
 
     if args.ra is not None:
-        obs_spec["observation"]["ra"] = args.ra
+        sim_config["observation"]["ra"] = args.ra
 
-    config_st_path = obs_spec["rfi_sources"]["tle_satellite"]["spacetrack_path"]
+    config_st_path = sim_config["rfi_sources"]["tle_satellite"]["spacetrack_path"]
     if spacetrack_path:
-        obs_spec["rfi_sources"]["tle_satellite"]["spacetrack_path"] = os.path.abspath(
+        sim_config["rfi_sources"]["tle_satellite"]["spacetrack_path"] = os.path.abspath(
             os.path.join(work_dir, spacetrack_path)
         )
     elif config_st_path:
         config_st_path = get_abs_path(config_st_path, work_dir)
-        obs_spec["rfi_sources"]["tle_satellite"]["spacetrack_path"] = config_st_path
+        sim_config["rfi_sources"]["tle_satellite"]["spacetrack_path"] = config_st_path
         spacetrack_path = config_st_path
 
-    obs_spec["rfi_sources"]["tle_satellite"]["power_scale"] *= rfi_amp
-    obs_spec["rfi_sources"]["satellite"]["power_scale"] *= rfi_amp
-    obs_spec["rfi_sources"]["stationary"]["power_scale"] *= rfi_amp
+    sim_config["rfi_sources"]["tle_satellite"]["power_scale"] *= rfi_amp
+    sim_config["rfi_sources"]["satellite"]["power_scale"] *= rfi_amp
+    sim_config["rfi_sources"]["stationary"]["power_scale"] *= rfi_amp
 
-    obs_spec["output"]["overwrite"] = args.overwrite
+    sim_config["output"]["overwrite"] = args.overwrite
 
     if args.n_ant is not None:
-        obs_spec["telescope"]["n_ant"] = args.n_ant
+        sim_config["telescope"]["n_ant"] = args.n_ant
 
     if args.n_int is not None:
-        obs_spec["observation"]["n_int"] = args.n_int
+        sim_config["observation"]["n_int"] = args.n_int
 
-    suffix = obs_spec["output"]["suffix"]
+    suffix = sim_config["output"]["suffix"]
     if suffix:
         suffix = f"{rfi_amp:.1e}RFI_" + suffix
     else:
         suffix = f"_{rfi_amp:.1e}RFI"
-        obs_spec["output"]["suffix"] = f"{rfi_amp:.1e}RFI"
+        sim_config["output"]["suffix"] = f"{rfi_amp:.1e}RFI"
 
     if args.SEFD is not None:
-        obs_spec["observation"]["SEFD"] = args.SEFD
+        sim_config["observation"]["SEFD"] = args.SEFD
 
     if args.int_time is not None:
-        obs_spec["observation"]["int_time"] = args.int_time
+        sim_config["observation"]["int_time"] = args.int_time
 
     if args.n_time is not None:
-        obs_spec["observation"]["n_time"] = args.n_time
+        sim_config["observation"]["n_time"] = args.n_time
 
     for ast in ["exp", "gauss", "point", "pow_spec"]:
-        obs_spec["ast_sources"][ast]["path"] = get_abs_path(
-            obs_spec["ast_sources"][ast]["path"], work_dir
+        sim_config["ast_sources"][ast]["path"] = get_abs_path(
+            sim_config["ast_sources"][ast]["path"], work_dir
         )
 
-    obs_spec["output"]["path"] = get_abs_path(obs_spec["output"]["path"], work_dir)
-    obs_spec["rfi_sources"]["tle_satellite"]["norad_ids_path"] = get_abs_path(
-        obs_spec["rfi_sources"]["tle_satellite"]["norad_ids_path"], work_dir
+    sim_config["output"]["path"] = get_abs_path(sim_config["output"]["path"], work_dir)
+    sim_config["rfi_sources"]["tle_satellite"]["norad_ids_path"] = get_abs_path(
+        sim_config["rfi_sources"]["tle_satellite"]["norad_ids_path"], work_dir
     )
-    obs_spec["rfi_sources"]["tle_satellite"]["norad_spec_model"] = get_abs_path(
-        obs_spec["rfi_sources"]["tle_satellite"]["norad_spec_model"], work_dir
+    sim_config["rfi_sources"]["tle_satellite"]["norad_spec_model"] = get_abs_path(
+        sim_config["rfi_sources"]["tle_satellite"]["norad_spec_model"], work_dir
     )
-    obs_spec["telescope"]["enu_path"] = get_abs_path(
-        obs_spec["telescope"]["enu_path"], work_dir
+    sim_config["telescope"]["enu_path"] = get_abs_path(
+        sim_config["telescope"]["enu_path"], work_dir
     )
-    obs_spec["telescope"]["itrf_path"] = get_abs_path(
-        obs_spec["telescope"]["itrf_path"], work_dir
+    sim_config["telescope"]["itrf_path"] = get_abs_path(
+        sim_config["telescope"]["itrf_path"], work_dir
     )
 
-    return run_sim_config(obs_spec=obs_spec, spacetrack_path=spacetrack_path)
+    return run_sim_config(sim_config=sim_config, spacetrack_path=spacetrack_path)
 
 
 if __name__ == "__main__":
