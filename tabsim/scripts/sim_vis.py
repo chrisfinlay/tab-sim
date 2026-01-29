@@ -77,7 +77,6 @@ def main():
     rfi_amp = args.rfi_amp
     spacetrack_path = args.spacetrack
     config_path = Path(args.config_path)
-    save_path = Path(args.save_path)
 
     if not config_path.is_file():
         print(f"Error: config file not found: {config_path}", file=sys.stderr)
@@ -88,7 +87,9 @@ def main():
 
     sim_config = load_config(config_path, config_type="sim")
 
-    sim_config["output"]["path"] = save_path
+    if args.save_path:
+        save_path = Path(args.save_path)
+        sim_config["output"]["path"] = save_path
 
     if args.ra is not None:
         sim_config["observation"]["ra"] = args.ra
