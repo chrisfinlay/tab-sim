@@ -48,12 +48,19 @@ def load_spacetrack_credentials(tle_dir: Optional[str] = None) -> tuple[Optional
     3. ~/.credentials/
     4. Current working directory
 
+    Parameters:
+    -----------
+    tle_dir: Optional[str]
+        Directory containing TLE json files and Space-Track credentials YAML file.
+
     Returns:
+    --------
         tuple: (username, password) or (None, None) if credentials not found
 
     To set up credentials, run: tabsim-setup-spacetrack
     """
     tle_dir_path = make_tle_dir(tle_dir)
+    print(f"TLE directory path : {tle_dir_path}")
 
     # Search paths in priority order
     search_paths = [
@@ -67,16 +74,62 @@ def load_spacetrack_credentials(tle_dir: Optional[str] = None) -> tuple[Optional
             try:
                 with open(cred_path, 'r') as f:
                     creds = yaml.safe_load(f)
-                return creds.get('username'), creds.get('password')
-            except Exception as e:
-                print(f"Warning: Could not load credentials from {cred_path}: {e}")
+                print(f"Space-Track credentials loaded from : {cred_path}")
+                username, password = creds.get('username'), creds.get('password')
+                check_space_track_credentials(username, password)
+                return username, password
+            except:
+                print(f"Warning: Could not load credentials from {cred_path}")
                 continue
 
+    print("No Space-Track credentials loaded.")
     return None, None
 
 
-def get_space_track_client(username, password):
+def get_space_track_client(username: str, password: str) -> SpaceTrackClient:
+    """Load the Space-Track client from login details.
+
+    Parameters
+    ----------
+    username : str
+        Space-Track username.
+    password : str
+        Space-Track password.
+
+    Returns
+    -------
+    SpaceTrackClient
+        SpaceTrackClient object with credentials authenticated.
+    """
+
+    check_space_track_credentials(username, password)
+
     return SpaceTrackClient(identity=username, password=password)
+ 
+def check_space_track_credentials(username: str, password: str):
+    """
+    Check Space-Track login credentials.
+
+    Parameters:
+    -----------
+    username : str
+        Space-Track username.
+    password : str
+        Space-Track password.
+    """    
+
+    try:
+        # Authenticate
+        st_client = SpaceTrackClient(identity=username, password=password)
+        # Test authentication by making a simple request
+        st_client.authenticate()
+        print("Authentication successful!")
+        
+    except:
+        print("Authentication failed")
+        print("Please check your Space-Track credentials.")
+        import sys
+        sys.exit(1)
 
 
 def fetch_tle_data(
