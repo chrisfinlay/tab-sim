@@ -21,7 +21,7 @@ requires-python = ">=3.9"
 dependencies = [
     "jax", "dask", "xarray", "zarr<3.0.0",
     "dask-ms>=0.2.21", "scipy", "tqdm", "matplotlib",
-    "astropy", "spacetrack", "skyfield", "numpy", "pyyaml",
+    "astropy", "skyfield", "sgp4", "platformdirs", "numpy", "pyyaml", "pandas",
 ]
 
 [project.optional-dependencies]
@@ -52,5 +52,4 @@ ast-region = "tabsim.scripts.ast_region:main"
 flag-data = "tabsim.scripts.flag_data:main"
 sim-vis = "tabsim.scripts.sim_vis:main"
 write-config = "tabsim.scripts.write_config_from_ms:main"
-tabsim-setup-spacetrack = "tabsim.scripts.setup_spacetrack_login:main"
 tabsim-import-tles = "tabsim.scripts.import_tle_files:main"

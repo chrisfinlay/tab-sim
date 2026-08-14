@@ -3,7 +3,10 @@
 Import TLE text files and convert them to JSON format for tabsim.
 
 This script reads TLE files in standard 3-line format and converts them to JSON
-files compatible with tabsim's TLE caching system.
+files that tabsim reads as an ``extra_orbit_dir``: point
+``rfi_sources.tle_satellite.extra_orbit_dir`` (or ``sim-vis --extra_orbit_dir``)
+at the output directory and those records are used ahead of the managed cache and
+SatChecker, for the satellites they cover.
 
 Standard TLE format (3-line):
     SATELLITE NAME
@@ -18,8 +21,8 @@ Or if installed as a package:
     tabsim-import-tles <tle_file1> [tle_file2 ...]
     tabsim-import-tles --directory <dir>
 
-The script will process the TLE files and save them to the tabsim data directory
-with filenames based on the epoch date and satellite names.
+Output goes to ./orbits by default, with filenames based on the epoch date and
+satellite names; use --output-dir to choose another directory.
 """
 
 import os
@@ -32,26 +35,13 @@ from astropy.time import Time
 
 
 def get_data_directory():
-    """Get the tabsim TLE data directory path."""
-    try:
-        from importlib.resources import files
-        data_dir = files("tabsim.data").joinpath("rfi/tles")
-        return str(data_dir)
-    except (ImportError, AttributeError):
-        # Fallback for older Python or if package not installed
-        script_dir = Path(__file__).parent
-        possible_paths = [
-            script_dir.parent / "tabsim" / "data" / "rfi" / "tles",
-            Path.cwd() / "tabsim" / "data" / "rfi" / "tles",
-        ]
-        for path in possible_paths:
-            if path.exists():
-                return str(path)
+    """Default output directory: ./orbits, alongside whatever the user is running.
 
-        # If not found, create in current directory
-        data_dir = Path.cwd() / "tabsim" / "data" / "rfi" / "tles"
-        data_dir.mkdir(parents=True, exist_ok=True)
-        return str(data_dir)
+    Writing into the installed package (as this used to) put user data somewhere
+    a reinstall would discard and no config pointed at. An ``extra_orbit_dir`` is
+    named explicitly, so the natural default is a directory beside the work.
+    """
+    return str(Path.cwd() / "orbits")
 
 
 def parse_tle_epoch(tle_line1):
@@ -247,7 +237,7 @@ def main():
 
     parser.add_argument(
         '--output-dir', '-o',
-        help='Output directory (default: tabsim data directory)'
+        help='Output directory, usable as an extra_orbit_dir (default: ./orbits)'
     )
 
     args = parser.parse_args()

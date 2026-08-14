@@ -21,6 +21,8 @@ from tabsim.sky import generate_random_sky
 from tabsim.write import write_ms, mk_obs_name, mk_obs_dir
 from tabsim.jax.coordinates import calculate_fringe_frequency, jd_to_mjd
 from tabsim.tle import get_visible_satellite_tles, id_generator
+from tabsim.orbit import save_orbits_for_reuse
+from tabsim.orbit_config import normalise_orbit_config
 
 from daskms import xds_from_ms
 
@@ -158,7 +160,6 @@ def get_rfi_definitions():
 
     rfi_def = {
         "tle_satellite": {
-            "tle_dir": os.path.join(rfi_dir, "tles"),
             "norad_spec_model": os.path.join(rfi_dir, "norad_satellite.rfimodel"),
         },
         "stationary": {
@@ -512,80 +513,63 @@ def add_satellite_sources(obs: Observation, sim_config: dict) -> None:
             print("No 'sat_ids' matching in 'spec_model' file given.")
 
 
-def add_tle_satellite_sources(
-    obs: Observation, sim_config: dict, spacetrack_path: str
-) -> None:
+def add_tle_satellite_sources(obs: Observation, sim_config: dict) -> None:
 
     sat_ = sim_config["rfi_sources"]["tle_satellite"]
 
-    # TLE path based Satellites
-    tle_cond = [
-        sat_["norad_ids_path"],
-        len(sat_["norad_ids"]) > 0,
-        len(sat_["sat_names"]) > 0,
-    ]
-    if np.any(tle_cond):
-        
-        from tabsim.tle import load_spacetrack_credentials
-        username, password = load_spacetrack_credentials()
+    orbit_config = normalise_orbit_config(sat_)
 
-        if sat_["norad_ids_path"] is None:
-            norad_ids = sat_["norad_ids"]
-        else:
-            norad_ids = np.concatenate(
-                [sat_["norad_ids"], np.loadtxt(sat_["norad_ids_path"], usecols=0)]
+    if not (orbit_config.norad_ids or orbit_config.sat_names):
+        return
+
+    from astropy.time import Time
+
+    jd_step = sat_["vis_step"] / (24 * 60)
+    times_check = Time(
+        np.arange(obs.times_mjd[0], obs.times_mjd[-1] + jd_step, jd_step),
+        format="mjd",
+    )
+
+    norad_ids, records = get_visible_satellite_tles(
+        times_check,
+        obs.latitude,
+        obs.longitude,
+        obs.elevation,
+        obs.ra,
+        obs.dec,
+        sat_["max_ang_sep"],
+        sat_["min_alt"],
+        names=orbit_config.sat_names,
+        norad_ids=orbit_config.norad_ids,
+        extra_orbit_dir=orbit_config.extra_orbit_dir,
+        extra_orbit_max_age_days=orbit_config.extra_orbit_max_age_days,
+        remote_max_age_days=orbit_config.remote_max_age_days,
+        cache_reuse_max_age_days=orbit_config.cache_reuse_max_age_days,
+    )
+
+    print(f"NORAD IDs included : {list(norad_ids)}")
+
+    records_by_id = dict(zip([int(nid) for nid in norad_ids], records))
+
+    sat_spec = pd.read_csv(sat_["norad_spec_model"])
+    sat_spec = sat_spec[sat_spec["norad_id"].isin(norad_ids)]
+
+    print(f"Spectral models for {len(sat_spec)} TLE satellites found.")
+
+    if len(sat_spec) > 0:
+        print()
+        print("Adding TLE-based satellite RFI sources ...")
+        ids, spectra = generate_spectra(sat_spec, obs.freqs, "norad_id")
+        uids = np.unique(ids)
+        for uid in tqdm(uids[: sat_["max_n_sat"]]):
+            Pv = (
+                sat_["power_scale"]
+                * da.sum(spectra[ids == uid], axis=0)[None, None, :]
+                * da.ones((1, 1, obs.n_freq))
             )
-
-        from astropy.time import Time
-
-        jd_step = sat_["vis_step"] / (24 * 60)
-        times_check = Time(
-            np.arange(obs.times_mjd[0], obs.times_mjd[-1] + jd_step, jd_step),
-            format="mjd",
-        )
-
-        norad_ids, tles = get_visible_satellite_tles(
-            username,
-            password,
-            times_check,
-            obs.latitude,
-            obs.longitude,
-            obs.elevation,
-            obs.ra,
-            obs.dec,
-            sat_["max_ang_sep"],
-            sat_["min_alt"],
-            sat_["sat_names"],
-            norad_ids,
-            sat_["tle_dir"],
-        )
-
-        print(f"NORAD IDs includeed : {norad_ids}")
-
-        sat_spec = pd.read_csv(sat_["norad_spec_model"])
-        sat_spec = sat_spec[sat_spec["norad_id"].isin(norad_ids)]
-
-        print(f"Spectral models for {len(sat_spec)} TLE satellites found.")
-
-        if len(sat_spec) > 0:
-            print()
-            print("Adding TLE-based satellite RFI sources ...")
-            ids, spectra = generate_spectra(sat_spec, obs.freqs, "norad_id")
-            uids = np.unique(ids)
-            for uid in tqdm(uids[: sat_["max_n_sat"]]):
-                Pv = (
-                    sat_["power_scale"]
-                    * da.sum(spectra[ids == uid], axis=0)[None, None, :]
-                    * da.ones((1, 1, obs.n_freq))
-                )
-                tle = tles[norad_ids == uid]
-                if len(tle) == 1:
-                    obs.addTLESatelliteRFI(Pv, [uid], tle)
-                else:
-                    print()
-                    print(f"norad_id: {uid} multiply-defined.")
-        else:
-            print("No NORAD IDs matching in 'norad_spec_model' file given.")
+            obs.addTLESatelliteRFI(Pv, [uid], [records_by_id[int(uid)]])
+    else:
+        print("No NORAD IDs matching in 'norad_spec_model' file given.")
 
 
 def add_stationary_sources(obs: Observation, sim_config: dict) -> None:
@@ -778,6 +762,18 @@ def save_inputs(obs: Observation, sim_config: dict, save_path: str) -> None:
 
     np.savetxt(os.path.join(save_path, "norad_ids.yaml"), obs.norad_ids, fmt="%i")
 
+    # The orbit records this run actually propagated, in extra_orbit_dir format.
+    # Pointing a later run's extra_orbit_dir at this directory reproduces these
+    # trajectories exactly, independently of the shared cache, of the remote age
+    # ceiling, and of what SatChecker serves by then.
+    used_orbits = save_orbits_for_reuse(
+        os.path.join(save_path, "used_orbits.json"),
+        np.concatenate(obs.norad_ids).compute() if len(obs.norad_ids) > 0 else [],
+        obs.orbit_records,
+    )
+    if used_orbits:
+        print(f"Orbit records used written to : {used_orbits}")
+
     with open(os.path.join(save_path, "sim_config.yaml"), "w") as fp:
         yaml.dump(sim_config, fp)
 
@@ -878,7 +874,6 @@ def check_telescope_defintion(tel_def: dict):
 def run_sim_config(
     sim_config: Optional[dict] = None,
     config_path: Optional[str] = None,
-    spacetrack_path: Optional[str] = None,
 ) -> Tuple[Observation, str]:
 
     from tabsim.tle import id_generator
@@ -906,8 +901,8 @@ def run_sim_config(
     obs = load_obs(sim_config)
     add_astro_sources(obs, sim_config)
     add_satellite_sources(obs, sim_config)
-    if sim_config["rfi_sources"]["tle_satellite"]["max_n_sat"] != 0 and spacetrack_path:
-        add_tle_satellite_sources(obs, sim_config, spacetrack_path)
+    if sim_config["rfi_sources"]["tle_satellite"]["max_n_sat"] != 0:
+        add_tle_satellite_sources(obs, sim_config)
     add_stationary_sources(obs, sim_config)
     add_gains(obs, sim_config)
 

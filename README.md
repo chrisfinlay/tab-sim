@@ -92,19 +92,43 @@ To enable GPU compute you need the GPU version of `jaxlib` installed. The easies
 
 ### Including TLE-based satelllites
 
-You will need to provide [Space-Track](https://www.space-track.org/auth/login) login details as a YAML file. The filename can be `spacetrack_login.yaml` for example and should look like 
+Orbital records come from the [IAU CPS SatChecker](https://satchecker.cps.iau.org/)
+service. **No account or credentials are required** — the previous Space-Track login
+file is no longer used, and the `spacetrack` dependency is gone.
+
+Name the satellites you want in the config, either by NORAD catalogue ID or by name:
 
 ```yaml
-username: user@email.com
-password: password123
+rfi_sources:
+  tle_satellite:
+    norad_ids: [25544]        # every listed ID must resolve, or the run stops
+    sat_names: [navstar]      # substring match against the catalogue
 ```
+
+SatChecker serves two record formats from two archives that do not overlap: TLEs up
+to 2026-07-11, and OMM (Orbit Mean-Elements Message) element sets from 2026-07-12
+onward. `tab-sim` handles both and picks the archive your observation epoch falls
+in, so nothing about the configuration changes across the boundary.
+
+Records are cached per satellite under the platform user-cache directory
+(`~/.cache/orbit-cache`, `~/Library/Caches/orbit-cache`); set `ORBIT_CACHE_DIR` to
+put it elsewhere. Each simulation also writes the records it actually used to
+`input_data/used_orbits.json`; pointing a later run's `extra_orbit_dir` at that
+directory reproduces the same satellite trajectories exactly.
+
+```bash
+sim-vis -c sim_target_16A.yaml -eod path/to/previous/input_data
+```
+
+You can supply your own TLE files instead — convert them with `tabsim-import-tles`
+and point `extra_orbit_dir` at the output directory.
 
 ### Running a simulation
 
 To run a simulation of a target field with 100 randomly distributed point sources and some GPS satellites simply run 
 
 ```bash
-sim-vis -c sim_target_16A.yaml -st spacetrack_login.yaml
+sim-vis -c sim_target_16A.yaml
 ```
 
 You can run the help function to see what other command line options there are.

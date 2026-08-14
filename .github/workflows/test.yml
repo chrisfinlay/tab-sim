@@ -54,13 +54,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install --no-cache-dir .[test]
 
-      - name: Restore spacetrack login file
-        env:
-          SPACETRACK_LOGIN: ${{ secrets.SPACETRACK_LOGIN || env.SPACETRACK_LOGIN }}
-        run: |
-          echo "$SPACETRACK_LOGIN" > examples/test/spacetrack_login.yaml
-
+      # Orbital records come from IAU CPS SatChecker, which needs no credentials,
+      # so there is nothing to restore here any more.
       - name: Run tests
-        env:
-          SPACETRACK_LOGIN: ${{ secrets.SPACETRACK_LOGIN || env.SPACETRACK_LOGIN }}
         run: pytest

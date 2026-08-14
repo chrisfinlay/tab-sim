@@ -36,7 +36,7 @@ Simulations are defined by YAML config files and can be launched using:
 
 .. code-block:: bash
 
-   sim-vis -c path/to/config.yaml -st spacetrack_login.yaml
+   sim-vis -c path/to/config.yaml
 
 For help:
 

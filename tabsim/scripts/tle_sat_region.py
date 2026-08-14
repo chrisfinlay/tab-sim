@@ -14,21 +14,21 @@ import os
 import matplotlib.colors as mcolors
 
 from tabsim.config import yaml_load
-from tabsim.tle import get_tles_by_id, get_satellite_positions
+from tabsim.tle import earth_satellite, get_tles_by_id, get_satellite_positions
 from tabsim.jax.coordinates import itrf_to_xyz, mjd_to_jd
 
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
 
-from skyfield.api import load, EarthSatellite, wgs84
+from skyfield.api import load, wgs84
 
 
-def sat_radec(tle: list[str], times_jd: np.ndarray, obs_xyz: np.ndarray) -> np.ndarray:
+def sat_radec(record, times_jd: np.ndarray, obs_xyz: np.ndarray) -> np.ndarray:
 
     ts = load.timescale()
     t = ts.ut1_jd(times_jd)
 
-    satellite = EarthSatellite(tle[0], tle[1], ts=ts)
+    satellite = earth_satellite(record, ts)
     location = EarthLocation(x=obs_xyz[0], y=obs_xyz[1], z=obs_xyz[2], unit="m")
     observer = wgs84.latlon(
         location.lat.degree, location.lon.degree, location.height.value
@@ -60,11 +60,6 @@ def main():
         help="Maximum angular distance from phase centre (in degrees) of the satellite path to include.",
     )
     parser.add_argument(
-        "-st",
-        "--spacetrack",
-        help="Path to YAML config file containing Space-Track login details with 'username' and 'password'.",
-    )
-    parser.add_argument(
         "-ni", "--norad_ids", help="NORAD IDs of satellites to include."
     )
     parser.add_argument(
@@ -73,7 +68,10 @@ def main():
         help="Path to YAML config file containing list of norad_ids.",
     )
     parser.add_argument(
-        "-td", "--tle_dir", default="./tles", help="Path to directory containing TLEs."
+        "-eod",
+        "--extra_orbit_dir",
+        help="Directory of local orbit files (TLE or OMM) to use before the "
+        "managed cache and SatChecker.",
     )
     parser.add_argument(
         "-s",
@@ -86,8 +84,6 @@ def main():
     args = parser.parse_args()
     ms_path = args.ms_path
     max_d = args.max_d
-    spacetrack = yaml_load(args.spacetrack)
-    tle_dir = args.tle_dir
     norad_ids = []
     if args.norad_ids:
         norad_ids += [int(x) for x in np.atleast_1d(args.norad_ids.split(","))]
@@ -95,8 +91,6 @@ def main():
         norad_ids += [
             int(x) for x in np.atleast_1d(str(yaml_load(args.norad_path)).split())
         ]
-
-    os.makedirs(tle_dir, exist_ok=True)
 
     if ms_path[-1] == "/":
         ms_path = ms_path[:-1]
@@ -119,21 +113,19 @@ def main():
     times_jd = mjd_to_jd(np.linspace(np.min(times_mjd), np.max(times_mjd), 10))
     epoch_jd = mjd_to_jd(np.mean(times_mjd))
 
-    tles_df = get_tles_by_id(
-        spacetrack["username"],
-        spacetrack["password"],
+    orbits_df = get_tles_by_id(
         norad_ids,
         epoch_jd,
-        tle_dir=tle_dir,
+        extra_orbit_dir=args.extra_orbit_dir,
     )
-    if len(tles_df) == 0:
-        raise ValueError("No TLEs found.")
+    if len(orbits_df) == 0:
+        raise ValueError("No orbit records found.")
 
-    tles = np.atleast_2d(tles_df[["TLE_LINE1", "TLE_LINE2"]].values)
-    ids = np.atleast_1d(tles_df["NORAD_CAT_ID"].values)
-    n_tles = len(tles)
+    orbits = [row for _, row in orbits_df.iterrows()]
+    ids = np.atleast_1d(orbits_df["NORAD_CAT_ID"].values)
+    n_tles = len(orbits)
 
-    print(f"Found {n_tles} matching TLEs.")
+    print(f"Found {n_tles} matching orbit records.")
 
     if n_tles > 0:
 
@@ -150,11 +142,13 @@ def main():
                 Time(times_jd, format="jd").sidereal_time("mean", "greenwich").hour
                 * 15,
             )[:, 0]
-            rfi_xyz = get_satellite_positions(tles, times_jd)
+            rfi_xyz = get_satellite_positions(orbits, times_jd)
             xyz = rfi_xyz - ants_xyz[None, :, :]
             radec = xyz_to_radec(xyz)
         else:
-            radec = np.array([sat_radec(tle, times_jd, ants_itrf[0]) for tle in tles])
+            radec = np.array(
+                [sat_radec(orbit, times_jd, ants_itrf[0]) for orbit in orbits]
+            )
 
         c0 = SkyCoord(ra, dec, unit="deg", frame="fk5")
         c = SkyCoord(radec[:, :, 0], radec[:, :, 1], unit="deg", frame="fk5")

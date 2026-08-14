@@ -68,14 +68,17 @@ def main():
         help="Overwrite existing observation.",
     )
     parser.add_argument(
-        "-st", "--spacetrack", help="Path to Space-Track login details."
+        "-eod",
+        "--extra_orbit_dir",
+        help="Directory of local orbit files (TLE or OMM) to use before the "
+        "managed cache and SatChecker. Point it at a previous simulation's "
+        "'input_data' directory to reproduce that run's satellite trajectories.",
     )
     parser.add_argument(
         "-ra", "--ra", type=float, help="Right Ascension of the observation."
     )
     args = parser.parse_args()
     rfi_amp = args.rfi_amp
-    spacetrack_path = args.spacetrack
     config_path = Path(args.config_path)
 
     if not config_path.is_file():
@@ -94,15 +97,16 @@ def main():
     if args.ra is not None:
         sim_config["observation"]["ra"] = args.ra
 
-    config_st_path = sim_config["rfi_sources"]["tle_satellite"]["spacetrack_path"]
-    if spacetrack_path:
-        sim_config["rfi_sources"]["tle_satellite"]["spacetrack_path"] = os.path.abspath(
-            os.path.join(work_dir, spacetrack_path)
+    # A path typed on the command line is relative to where it was typed; one
+    # written in the config is relative to the config, like every other path here.
+    if args.extra_orbit_dir:
+        sim_config["rfi_sources"]["tle_satellite"]["extra_orbit_dir"] = os.path.abspath(
+            args.extra_orbit_dir
         )
-    elif config_st_path:
-        config_st_path = get_abs_path(config_st_path, work_dir)
-        sim_config["rfi_sources"]["tle_satellite"]["spacetrack_path"] = config_st_path
-        spacetrack_path = config_st_path
+    else:
+        sim_config["rfi_sources"]["tle_satellite"]["extra_orbit_dir"] = get_abs_path(
+            sim_config["rfi_sources"]["tle_satellite"]["extra_orbit_dir"], work_dir
+        )
 
     sim_config["rfi_sources"]["tle_satellite"]["power_scale"] *= rfi_amp
     sim_config["rfi_sources"]["satellite"]["power_scale"] *= rfi_amp
@@ -151,7 +155,7 @@ def main():
         sim_config["telescope"]["itrf_path"], work_dir
     )
 
-    return run_sim_config(sim_config=sim_config, spacetrack_path=spacetrack_path)
+    return run_sim_config(sim_config=sim_config)
 
 
 if __name__ == "__main__":
