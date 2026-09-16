@@ -69,10 +69,42 @@ def main():
     )
     parser.add_argument(
         "-eod",
+        "--extra-orbit-dir",
         "--extra_orbit_dir",
-        help="Directory of local orbit files (TLE or OMM) to use before the "
-        "managed cache and SatChecker. Point it at a previous simulation's "
-        "'input_data' directory to reproduce that run's satellite trajectories.",
+        dest="extra_orbit_dir",
+        help="Directory of local orbit files (TLE or OMM) to use, per NORAD ID, "
+        "before the managed cache and SatChecker. This is ordinary source "
+        "precedence: the run still chooses its own satellites, from its own names, "
+        "NORAD IDs, visibility cuts and max_n_sat. To reproduce a previous run's "
+        "selection as well as its trajectories, use --replay-orbit-dir.",
+    )
+    parser.add_argument(
+        "--replay-orbit-dir",
+        "--replay_orbit_dir",
+        dest="replay_orbit_dir",
+        help="A previous simulation's 'input_data' directory. Its saved NORAD IDs "
+        "and orbit records are the selection: no catalogue search, no cache, no "
+        "SatChecker request, no visibility reselection and no max_n_sat. Cannot be "
+        "combined with --extra-orbit-dir.",
+    )
+    parser.add_argument(
+        "--offline",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+        help="Forbid every SatChecker request. Cached catalogue searches are "
+        "reused whatever their age; cached orbit records still have to satisfy "
+        "remote_max_age_days. Omitted, the config's own 'offline' is left alone.",
+    )
+    parser.add_argument(
+        "--allow-missing-checksum",
+        "--allow_missing_checksum",
+        dest="allow_missing_checksum",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+        help="Accept TLE lines that reached us without their checksum digit — "
+        "roughly 2001-2018 in SatChecker's archive — and carry them as "
+        "unverified. Applies to remote records, local files and replay alike. "
+        "Omitted, the config's own 'allow_missing_checksum' is left alone.",
     )
     parser.add_argument(
         "-ra", "--ra", type=float, help="Right Ascension of the observation."
@@ -99,14 +131,22 @@ def main():
 
     # A path typed on the command line is relative to where it was typed; one
     # written in the config is relative to the config, like every other path here.
-    if args.extra_orbit_dir:
-        sim_config["rfi_sources"]["tle_satellite"]["extra_orbit_dir"] = os.path.abspath(
-            args.extra_orbit_dir
+    satellites = sim_config["rfi_sources"]["tle_satellite"]
+    for key, typed in (
+        ("extra_orbit_dir", args.extra_orbit_dir),
+        ("replay_orbit_dir", args.replay_orbit_dir),
+    ):
+        satellites[key] = (
+            os.path.abspath(typed) if typed else get_abs_path(satellites.get(key), work_dir)
         )
-    else:
-        sim_config["rfi_sources"]["tle_satellite"]["extra_orbit_dir"] = get_abs_path(
-            sim_config["rfi_sources"]["tle_satellite"]["extra_orbit_dir"], work_dir
-        )
+
+    # A boolean flag defaults to None, so omitting it is not an instruction to
+    # turn anything off: a deliberate `offline: true` in the config survives a
+    # command line that says nothing about it.
+    if args.offline is not None:
+        satellites["offline"] = args.offline
+    if args.allow_missing_checksum is not None:
+        satellites["allow_missing_checksum"] = args.allow_missing_checksum
 
     sim_config["rfi_sources"]["tle_satellite"]["power_scale"] *= rfi_amp
     sim_config["rfi_sources"]["satellite"]["power_scale"] *= rfi_amp

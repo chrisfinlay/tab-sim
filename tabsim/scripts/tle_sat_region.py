@@ -69,9 +69,27 @@ def main():
     )
     parser.add_argument(
         "-eod",
+        "--extra-orbit-dir",
         "--extra_orbit_dir",
-        help="Directory of local orbit files (TLE or OMM) to use before the "
-        "managed cache and SatChecker.",
+        dest="extra_orbit_dir",
+        help="Directory of local orbit files (TLE or OMM) to use, per NORAD ID, "
+        "before the managed cache and SatChecker.",
+    )
+    parser.add_argument(
+        "--offline",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+        help="Forbid every SatChecker request; use only local orbit files and the "
+        "managed cache, within the same age ceiling.",
+    )
+    parser.add_argument(
+        "--allow-missing-checksum",
+        "--allow_missing_checksum",
+        dest="allow_missing_checksum",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+        help="Accept TLE lines that reached us without their checksum digit, and "
+        "carry them as unverified.",
     )
     parser.add_argument(
         "-s",
@@ -113,10 +131,14 @@ def main():
     times_jd = mjd_to_jd(np.linspace(np.min(times_mjd), np.max(times_mjd), 10))
     epoch_jd = mjd_to_jd(np.mean(times_mjd))
 
+    # Forwarded rather than re-defaulted: a region file drawn from records the
+    # simulation would have refused is a region file for a different run.
     orbits_df = get_tles_by_id(
         norad_ids,
         epoch_jd,
         extra_orbit_dir=args.extra_orbit_dir,
+        offline=bool(args.offline),
+        allow_missing_checksum=bool(args.allow_missing_checksum),
     )
     if len(orbits_df) == 0:
         raise ValueError("No orbit records found.")
