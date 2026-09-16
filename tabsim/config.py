@@ -534,9 +534,9 @@ def add_tle_satellite_sources(obs: Observation, sim_config: dict) -> None:
                 ("sat_names", orbit_config.sat_names),
                 ("norad_ids", orbit_config.norad_ids),
                 ("norad_ids_path", sat_.get("norad_ids_path")),
-                ("max_n_sat", sat_["max_n_sat"]),
-                ("max_ang_sep", sat_["max_ang_sep"]),
-                ("min_alt", sat_["min_alt"]),
+                ("max_n_sat", sat_.get("max_n_sat")),
+                ("max_ang_sep", sat_.get("max_ang_sep")),
+                ("min_alt", sat_.get("min_alt")),
             )
             if value
         ]

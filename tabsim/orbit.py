@@ -1372,8 +1372,8 @@ def save_orbits_for_reuse(path, norad_ids, records) -> str:
     # which is a *different* double. Either way a replayed trajectory silently
     # stops matching the run it claims to reproduce. json.dump writes a float
     # through repr, the shortest representation that reads back identically.
-    # Column-oriented, so pandas.read_json (and therefore read_legacy_tle_records)
-    # reads it back unchanged.
+    # Column-oriented, one of the two shapes read_orbit_file reads, and the one
+    # read_legacy_tle_records also accepts — so an older consumer can still read it.
     columns: list[str] = []
     for row in projected:
         columns += [column for column in row if column not in columns]
@@ -1518,4 +1518,17 @@ def load_replay_orbits(
                 "rfi_sources.tle_satellite.allow_missing_checksum: true, or pass "
                 "--allow-missing-checksum."
             ) from e
+
+    unverified = [
+        int(record["NORAD_CAT_ID"])
+        for record in records
+        if record.get(CHECKSUM_STATUS_FIELD) == CHECKSUM_UNVERIFIED_MISSING
+    ]
+    if unverified:
+        print(
+            f"  Unverified TLE: missing checksum for {len(unverified)} replayed "
+            f"satellite(s) — {_id_list(unverified)}. The original run accepted "
+            "lines the archive served without their checksum digit, and the status "
+            "travels with the record: nothing has verified these, then or now."
+        )
     return norad_ids, records
