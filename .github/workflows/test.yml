@@ -10,6 +10,11 @@ on:
       - "examples/**"
       - "tabsim/**"
       - "tests/**"
+      # The satchecker-client requirement lives here, so a change to it changes
+      # what the suite runs against; and a change to the workflow has to run
+      # itself before it can be trusted.
+      - "pyproject.toml"
+      - ".github/workflows/**"
 
 jobs:
   test:

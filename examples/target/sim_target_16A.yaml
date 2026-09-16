@@ -34,12 +34,19 @@ ast_sources:
 rfi_sources:
   tle_satellite:
     # norad_ids: []
-    sat_names: [navstar]
+    sat_names: [navstar]              # substring match; the catalogue is upper case, so the query is upper-cased for you
     # max_n_sat: 1
     power_scale: 1e-2
     max_ang_sep: 30  # degrees
     min_alt: 0       # degrees
     vis_step: 1      # minutes
+    # Records come from IAU CPS SatChecker; no credentials needed. Defaults:
+    #   remote_max_age_days: 3        # hard ceiling on |record epoch - observation epoch|
+    #   search_cache_max_age_days: 1  # how stale a cached catalogue search may be
+    #   offline: false                # true forbids every request (--offline)
+    #   allow_missing_checksum: false # true accepts TLE lines with no checksum digit
+    # To reproduce a previous run's satellites and trajectories exactly:
+    #   sim-vis -c this_config.yaml --replay-orbit-dir <previous run>/input_data
 
 gains:
   G0_mean: 1.0

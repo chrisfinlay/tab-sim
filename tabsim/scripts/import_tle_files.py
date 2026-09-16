@@ -4,9 +4,15 @@ Import TLE text files and convert them to JSON format for tabsim.
 
 This script reads TLE files in standard 3-line format and converts them to JSON
 files that tabsim reads as an ``extra_orbit_dir``: point
-``rfi_sources.tle_satellite.extra_orbit_dir`` (or ``sim-vis --extra_orbit_dir``)
+``rfi_sources.tle_satellite.extra_orbit_dir`` (or ``sim-vis --extra-orbit-dir``)
 at the output directory and those records are used ahead of the managed cache and
 SatChecker, for the satellites they cover.
+
+What it does *not* do is vouch for them. Lines are copied through as they are —
+nothing is repaired and no checksum digit is invented — and every record is
+validated where it is used, by the same parser a record from the service goes
+through. A line whose checksum is missing is refused there unless
+``allow_missing_checksum`` is set, and is then carried as unverified.
 
 Standard TLE format (3-line):
     SATELLITE NAME
