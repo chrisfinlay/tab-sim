@@ -36,7 +36,7 @@ from tabsim.orbit import (  # noqa: F401  OrbitError re-exported for callers
     resolve_names,
     resolve_orbits,
 )
-from tabsim.satchecker.records import KIND_TLE, record_elements, record_kind
+from satchecker_client.records import KIND_TLE, record_elements, record_kind
 
 
 #: Julian Date of 1949 December 31 00:00 UT, the epoch SGP4 counts days from.

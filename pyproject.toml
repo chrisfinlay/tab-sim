@@ -17,11 +17,17 @@ maintainers = [
 ]
 description = "Trajectory-based Radio Frequency Interference (RFI) simulations for radio interferometeric data."
 
-requires-python = ">=3.9"
+requires-python = ">=3.10"  # satchecker-client floor
 dependencies = [
     "jax", "dask", "xarray", "zarr<3.0.0",
     "dask-ms>=0.2.21", "scipy", "tqdm", "matplotlib",
     "astropy", "skyfield", "sgp4", "platformdirs", "numpy", "pyyaml", "pandas",
+    # IAU CPS SatChecker client; credential-free orbit records. Shared with tabascal.
+    # 0.1.2 is the floor, not 0.1.0: earlier releases read replay files through
+    # pandas' imprecise JSON float parser, which rounds an OMM eccentricity to a
+    # different double and makes a replayed trajectory disagree with the run it
+    # reproduces. tests/test_orbit.py guards this.
+    "satchecker-client>=0.1.2",
 ]
 
 [project.optional-dependencies]

@@ -1,7 +1,7 @@
 """Resolution policy, propagation and configuration validation for orbit records.
 
-Everything here runs offline. The vendored :mod:`tabsim.satchecker` package is
-covered by TABASCAL's own suite; what these tests exercise is the tabsim side of
+Everything here runs offline. The :mod:`satchecker_client` dependency is covered
+by its own repository's suite; what these tests exercise is the tabsim side of
 the seam — the source precedence and age policy in :mod:`tabsim.orbit`, the
 configuration normalisation in :mod:`tabsim.orbit_config`, the name lookup in
 :mod:`tabsim.satchecker_names`, and the propagation of both record kinds in
@@ -29,9 +29,9 @@ from tabsim.orbit_config import (
     read_norad_ids_file,
     validate_age_days,
 )
-from tabsim.satchecker import client
-from tabsim.satchecker.cache import TextOrbitCache, read_legacy_tle_records
-from tabsim.satchecker.records import KIND_FIELD, KIND_OMM, KIND_TLE
+from satchecker_client import client
+from satchecker_client.cache import TextOrbitCache, read_legacy_tle_records
+from satchecker_client.records import KIND_FIELD, KIND_OMM, KIND_TLE
 from tabsim.tle import (
     as_record,
     get_satellite_positions,

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from tabsim.satchecker.records import KIND_FIELD, KIND_OMM, KIND_TLE
-from tabsim.satchecker.tle_parse import parse_tle_elements
-from tabsim.satchecker._time import jd_to_datetime
+from satchecker_client.records import KIND_FIELD, KIND_OMM, KIND_TLE
+from satchecker_client.tle_parse import parse_tle_elements
+from satchecker_client._time import jd_to_datetime
 
 
 #: A real, checksum-valid ISS TLE. NORAD 25544, epoch 2023-02-24 13:44:58 UTC.

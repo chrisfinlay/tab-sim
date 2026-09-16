@@ -1,15 +1,15 @@
-"""Satellite-name lookup against SatChecker, kept outside the vendored package.
+"""Satellite-name lookup against SatChecker, which satchecker-client does not provide.
 
 tabsim lets an observation name its RFI satellites (``sat_names``) instead of
 listing catalogue numbers, which TABASCAL does not — so the endpoint that turns a
-name into NORAD IDs has no counterpart in :mod:`tabsim.satchecker`. It lives here
-rather than being added there so that package stays a byte-comparable copy of
-TABASCAL's, and a fix on either side still transplants without a merge.
+name into NORAD IDs has no counterpart in :mod:`satchecker_client`, and lives here.
 
-It is built on the vendored client's transport, so it inherits its timeout, its
+It is built on that client's transport, so it inherits its timeout, its
 ``User-Agent``, and its error contract: :class:`SatCheckerResponseError` for a
 reply that cannot be used, :class:`SatCheckerTransportError` (or
-:class:`SatCheckerRateLimitError`) for a service that cannot be reached.
+:class:`SatCheckerRateLimitError`) for a service that cannot be reached. Two of
+the helpers it uses, ``_http_get`` and ``_load_json``, are private to
+satchecker-client, so a release of that package can rename them without notice.
 
 **Matching semantics.** ``search-satellites`` matches the query *anywhere* in a
 catalogue name, so ``"navstar"`` finds all 80 ``NAVSTAR nn (USA nnn)`` entries and
@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import urllib.parse
 
-from .satchecker.client import (
+from satchecker_client.client import (
     BASE_URL,
     SatCheckerResponseError,
     _http_get,
@@ -43,8 +43,8 @@ from .satchecker.client import (
 )
 
 
-#: SatChecker's substring name search. Distinct from the ``get-`` tools the
-#: vendored client uses, and unversioned in the same way.
+#: SatChecker's substring name search. Distinct from the ``get-`` tools
+#: satchecker-client uses, and unversioned in the same way.
 SEARCH_ENDPOINT = "search-satellites"
 
 

@@ -35,7 +35,7 @@ from typing import Optional
 
 import numpy as np
 
-from tabsim.satchecker import SatCheckerError as TLEError
+from satchecker_client import SatCheckerError as TLEError
 
 
 # ---------------------------------------------------------------------------
@@ -56,7 +56,7 @@ DEFAULT_CACHE_REUSE_MAX_AGE_DAYS = 1.0
 class TLEConfigurationError(TLEError, ValueError):
     """An orbit-related configuration value is missing, malformed or out of range.
 
-    Subclasses :class:`~tabsim.satchecker.client.SatCheckerError` so a caller
+    Subclasses :class:`~satchecker_client.client.SatCheckerError` so a caller
     catching "the orbit records could not be obtained" catches a bad
     configuration too, and :class:`ValueError` because that is what a bad
     argument to these helpers has always raised.

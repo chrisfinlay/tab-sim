@@ -1,7 +1,7 @@
 """tabsim orbit-record orchestration and local orbital-element derivation.
 
 Records are sourced from the IAU CPS SatChecker service via
-:mod:`tabsim.satchecker` — no account or credentials are required. This module is
+:mod:`satchecker_client` — no account or credentials are required. This module is
 the tabsim adapter: it resolves each requested NORAD ID against an ordered set of
 sources, applies the configurable age policies, drives the per-satellite cache,
 and derives the orbital elements locally.
@@ -9,7 +9,7 @@ and derives the orbital elements locally.
 SatChecker serves two record formats from two non-overlapping archives — TLEs up
 to 2026-07-11, OMM from 2026-07-12 — and a run near that boundary may need
 either. Nothing in this module branches on which: every format question is
-answered by :mod:`tabsim.satchecker.records`, so the policy below works off an
+answered by :mod:`satchecker_client.records`, so the policy below works off an
 epoch and an opaque record.
 
 Source precedence is resolved **independently per NORAD ID**:
@@ -44,6 +44,7 @@ tabsim has: simulation is single-process and builds its own time grid.
 
 from __future__ import annotations
 
+import importlib.metadata as _metadata
 import json
 import os
 from dataclasses import dataclass, field
@@ -55,20 +56,20 @@ from platformdirs import user_cache_path
 import numpy as np
 import pandas as pd
 
-from tabsim import satchecker
-from tabsim.satchecker import (
+import satchecker_client as satchecker
+from satchecker_client import (
     TextOrbitCache,
     read_legacy_tle_records,
 )
-from tabsim.satchecker import SatCheckerError as OrbitError
+from satchecker_client import SatCheckerError as OrbitError
 
 #: Historical name, from when every record was a TLE.
 TLEError = OrbitError
 
-# The TLE parser lives in tabsim.satchecker.tle_parse so cache validation and
+# The TLE parser lives in satchecker_client.tle_parse so cache validation and
 # element extraction exercise the *same* code; re-exported here under this
 # module's historical names.
-from tabsim.satchecker.tle_parse import (  # noqa: E402
+from satchecker_client.tle_parse import (  # noqa: E402
     parse_tle_elements,  # noqa: F401  re-export
     tle_epoch_jd,  # noqa: F401  re-export
     validate_tle_pair,  # noqa: F401  re-export
@@ -76,7 +77,7 @@ from tabsim.satchecker.tle_parse import (  # noqa: E402
 # Format dispatch. Nothing below this line asks whether a record is a TLE or an
 # OMM: it asks for its epoch, its elements, or whether it is valid, and these
 # three answer for either kind.
-from tabsim.satchecker.records import (  # noqa: E402
+from satchecker_client.records import (  # noqa: E402
     KIND_FIELD,
     KIND_OMM,
     KIND_TLE,
@@ -86,7 +87,7 @@ from tabsim.satchecker.records import (  # noqa: E402
     record_kind,
     validate_record,
 )
-from tabsim.satchecker._time import jd_to_datetime  # noqa: E402
+from satchecker_client._time import jd_to_datetime  # noqa: E402
 from tabsim.orbit_config import (  # noqa: E402,F401  re-exported for callers
     DEFAULT_CACHE_REUSE_MAX_AGE_DAYS,
     DEFAULT_REMOTE_MAX_AGE_DAYS,
@@ -99,6 +100,17 @@ from tabsim.orbit_config import (  # noqa: E402,F401  re-exported for callers
     validate_age_days,
 )
 from tabsim.satchecker_names import norad_ids_from_names  # noqa: E402
+
+# Name tabsim in the shared client's outgoing User-Agent. SatChecker is run as a
+# courtesy to the community, so traffic from here should be attributable to
+# tabsim rather than to the client library every application shares.
+try:
+    _TABSIM_VERSION = _metadata.version("tabsim")
+except _metadata.PackageNotFoundError:  # a checkout on sys.path, not an install
+    _TABSIM_VERSION = "unknown"
+satchecker.set_client_identifier(
+    f"tabsim/{_TABSIM_VERSION} (+https://github.com/chrisfinlay/tab-sim)"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -356,7 +368,7 @@ def _select_from_records(
     The service may legitimately carry several distinct records for one NORAD
     ID. When it does, the one whose epoch is nearest *reference_epoch_jd* is
     chosen, so the selection is deterministic and independent of row order. The
-    epoch comes from :func:`~tabsim.satchecker.records.record_epoch_jd`, which is
+    epoch comes from :func:`~satchecker_client.records.record_epoch_jd`, which is
     a row-wise call rather than a column map because a frame may mix kinds for
     one satellite around the archive handover.
     """
@@ -406,7 +418,7 @@ def _accept_remote(
 ) -> set[int]:
     """Apply the remote age ceiling to *candidates*, updating accept/reject maps.
 
-    The epoch comes from :func:`~tabsim.satchecker.records.record_epoch_jd` and
+    The epoch comes from :func:`~satchecker_client.records.record_epoch_jd` and
     is compared against the actual mean observation epoch. For a TLE that means
     re-deriving it from line 1 — a provider's own ``epoch`` field is never
     trusted. An OMM record has no lines to re-derive from, so its ``EPOCH`` is
@@ -999,7 +1011,7 @@ def save_orbits_for_reuse(path, norad_ids, records) -> Optional[str]:
     """Write the orbit records a run used to *path* in ``extra_orbit_dir`` format.
 
     The file is a pandas-oriented JSON carrying, per record, exactly what
-    :func:`~tabsim.satchecker.cache.read_legacy_tle_records` needs to read it back
+    :func:`~satchecker_client.cache.read_legacy_tle_records` needs to read it back
     as the same record — a TLE's two lines, or an OMM's epoch and elements. A
     later run reproduces this run's trajectories by pointing ``extra_orbit_dir``
     at the file's directory (with the default unlimited
