@@ -21,8 +21,8 @@ from tabsim.sky import generate_random_sky
 from tabsim.write import write_ms, mk_obs_name, mk_obs_dir
 from tabsim.jax.coordinates import calculate_fringe_frequency, jd_to_mjd
 from tabsim.tle import get_visible_satellite_tles, id_generator
-from tabsim.orbit import save_orbits_for_reuse
-from tabsim.orbit_config import normalise_orbit_config
+from tabsim.orbit import OrbitError, load_replay_orbits, save_orbits_for_reuse
+from tabsim.orbit_config import normalise_orbit_config, reject_obsolete_keys
 
 from daskms import xds_from_ms
 
@@ -519,49 +519,107 @@ def add_tle_satellite_sources(obs: Observation, sim_config: dict) -> None:
 
     orbit_config = normalise_orbit_config(sat_)
 
-    if not (orbit_config.norad_ids or orbit_config.sat_names):
+    # A frozen replay is selected first and answers on its own. Its saved IDs are
+    # the previous run's *final* selection, so re-running the discovery, the
+    # visibility cuts or max_n_sat that produced them could only change them —
+    # which is the one thing a replay exists to prevent.
+    if orbit_config.replay_orbit_dir:
+        norad_ids, records = load_replay_orbits(
+            orbit_config.replay_orbit_dir,
+            allow_missing_checksum=orbit_config.allow_missing_checksum,
+        )
+        overridden = [
+            f"{name}={value!r}"
+            for name, value in (
+                ("sat_names", orbit_config.sat_names),
+                ("norad_ids", orbit_config.norad_ids),
+                ("norad_ids_path", sat_.get("norad_ids_path")),
+                ("max_n_sat", sat_["max_n_sat"]),
+                ("max_ang_sep", sat_["max_ang_sep"]),
+                ("min_alt", sat_["min_alt"]),
+            )
+            if value
+        ]
+        print()
+        print(
+            f"Frozen orbit replay    : {len(norad_ids)} saved satellite(s) from "
+            f"{orbit_config.replay_orbit_dir}"
+        )
+        print(
+            "  the saved NORAD IDs and records are authoritative; this run's own "
+            "satellite selection is overridden"
+            + (f" ({', '.join(overridden)})" if overridden else "")
+        )
+    elif not (orbit_config.norad_ids or orbit_config.sat_names):
         return
+    else:
+        from astropy.time import Time
 
-    from astropy.time import Time
+        jd_step = sat_["vis_step"] / (24 * 60)
+        times_check = Time(
+            np.arange(obs.times_mjd[0], obs.times_mjd[-1] + jd_step, jd_step),
+            format="mjd",
+        )
 
-    jd_step = sat_["vis_step"] / (24 * 60)
-    times_check = Time(
-        np.arange(obs.times_mjd[0], obs.times_mjd[-1] + jd_step, jd_step),
-        format="mjd",
-    )
-
-    norad_ids, records = get_visible_satellite_tles(
-        times_check,
-        obs.latitude,
-        obs.longitude,
-        obs.elevation,
-        obs.ra,
-        obs.dec,
-        sat_["max_ang_sep"],
-        sat_["min_alt"],
-        names=orbit_config.sat_names,
-        norad_ids=orbit_config.norad_ids,
-        extra_orbit_dir=orbit_config.extra_orbit_dir,
-        extra_orbit_max_age_days=orbit_config.extra_orbit_max_age_days,
-        remote_max_age_days=orbit_config.remote_max_age_days,
-        cache_reuse_max_age_days=orbit_config.cache_reuse_max_age_days,
-    )
+        norad_ids, records = get_visible_satellite_tles(
+            times_check,
+            obs.latitude,
+            obs.longitude,
+            obs.elevation,
+            obs.ra,
+            obs.dec,
+            sat_["max_ang_sep"],
+            sat_["min_alt"],
+            names=orbit_config.sat_names,
+            norad_ids=orbit_config.norad_ids,
+            extra_orbit_dir=orbit_config.extra_orbit_dir,
+            extra_orbit_max_age_days=orbit_config.extra_orbit_max_age_days,
+            remote_max_age_days=orbit_config.remote_max_age_days,
+            cache_reuse_max_age_days=orbit_config.cache_reuse_max_age_days,
+            search_cache_max_age_days=orbit_config.search_cache_max_age_days,
+            offline=orbit_config.offline,
+            allow_missing_checksum=orbit_config.allow_missing_checksum,
+        )
 
     print(f"NORAD IDs included : {list(norad_ids)}")
 
     records_by_id = dict(zip([int(nid) for nid in norad_ids], records))
 
     sat_spec = pd.read_csv(sat_["norad_spec_model"])
-    sat_spec = sat_spec[sat_spec["norad_id"].isin(norad_ids)]
+    sat_spec = sat_spec[sat_spec["norad_id"].isin([int(nid) for nid in norad_ids])]
 
     print(f"Spectral models for {len(sat_spec)} TLE satellites found.")
+
+    if orbit_config.replay_orbit_dir:
+        # A saved satellite with no spectrum is a broken replay, not a smaller
+        # one: dropping it would reproduce a different sky than the run claims.
+        modelled = set(sat_spec["norad_id"].astype(int))
+        unmodelled = [int(nid) for nid in norad_ids if int(nid) not in modelled]
+        if unmodelled:
+            raise OrbitError(
+                f"Frozen orbit replay from {orbit_config.replay_orbit_dir} saved "
+                f"{len(norad_ids)} satellite(s), but "
+                f"{sat_['norad_spec_model']} has no spectral model for "
+                f"{unmodelled}. A replay reproduces the run it was saved from, so "
+                "a satellite it cannot model stops it rather than being silently "
+                "left out. Add these norad_id rows to the spectral-model file, or "
+                "replay a run whose satellites it covers."
+            )
+        # Saved order, and no max_n_sat: the limit was an acquisition-time control
+        # for the original run and has already had its effect on what was saved.
+        selected = [int(nid) for nid in norad_ids]
+    else:
+        selected = None
 
     if len(sat_spec) > 0:
         print()
         print("Adding TLE-based satellite RFI sources ...")
         ids, spectra = generate_spectra(sat_spec, obs.freqs, "norad_id")
-        uids = np.unique(ids)
-        for uid in tqdm(uids[: sat_["max_n_sat"]]):
+        if selected is None:
+            uids = np.unique(ids)[: sat_["max_n_sat"]]
+        else:
+            uids = np.asarray(selected, dtype=int)
+        for uid in tqdm(uids):
             Pv = (
                 sat_["power_scale"]
                 * da.sum(spectra[ids == uid], axis=0)[None, None, :]
@@ -760,19 +818,31 @@ def save_inputs(obs: Observation, sim_config: dict, save_path: str) -> None:
         if path is not None:
             shutil.copy(path, save_path)
 
-    np.savetxt(os.path.join(save_path, "norad_ids.yaml"), obs.norad_ids, fmt="%i")
+    # The satellites this observation actually propagated, flattened once and used
+    # for both replay files so the IDs and the records cannot disagree. Written
+    # even when empty: "this run modelled no satellites" is a fact a later replay
+    # needs, and a missing file cannot state it.
+    final_ids = (
+        [int(nid) for nid in np.concatenate(obs.norad_ids).compute()]
+        if len(obs.norad_ids) > 0
+        else []
+    )
+    np.savetxt(
+        os.path.join(save_path, "norad_ids.yaml"),
+        np.asarray(final_ids, dtype=int),
+        fmt="%i",
+    )
 
-    # The orbit records this run actually propagated, in extra_orbit_dir format.
-    # Pointing a later run's extra_orbit_dir at this directory reproduces these
-    # trajectories exactly, independently of the shared cache, of the remote age
-    # ceiling, and of what SatChecker serves by then.
+    # The orbit records this run propagated, with their checksum provenance.
+    # `sim-vis --replay-orbit-dir <this directory>` reproduces exactly this
+    # selection and these trajectories, independently of the shared cache, of the
+    # remote age ceiling, and of what SatChecker serves by then.
     used_orbits = save_orbits_for_reuse(
         os.path.join(save_path, "used_orbits.json"),
-        np.concatenate(obs.norad_ids).compute() if len(obs.norad_ids) > 0 else [],
+        final_ids,
         obs.orbit_records,
     )
-    if used_orbits:
-        print(f"Orbit records used written to : {used_orbits}")
+    print(f"Orbit records used written to : {used_orbits}")
 
     with open(os.path.join(save_path, "sim_config.yaml"), "w") as fp:
         yaml.dump(sim_config, fp)
@@ -882,7 +952,24 @@ def run_sim_config(
     log = open(log_path, "w")
     backup = sys.stdout
     sys.stdout = Tee(sys.stdout, log)
+    # A fatal configuration or orbit error must not leave the rest of the process
+    # writing into this run's log file, which the paths below can now raise from
+    # before a single visibility is computed.
+    try:
+        return _run_sim_config(sim_config, config_path, log, log_path)
+    finally:
+        sys.stdout = backup
+        if not log.closed:
+            log.close()
 
+
+def _run_sim_config(
+    sim_config: Optional[dict],
+    config_path: Optional[str],
+    log,
+    log_path: str,
+) -> Tuple[Observation, str]:
+    """:func:`run_sim_config` with the log file already opened around it."""
     start = datetime.now()
     print(datetime.now())
 
@@ -894,6 +981,13 @@ def run_sim_config(
     rfi_def = get_rfi_definitions()
     sim_config["rfi_sources"] = deep_update(sim_config["rfi_sources"], rfi_def)
 
+    # Before the observation is built and before any request goes out: an obsolete
+    # orbit key changes nothing now, so a run that keeps one has to stop rather
+    # than quietly model different satellites than its configuration describes.
+    # Checked even when satellite simulation is off, since that is the one run
+    # where nothing downstream would ever read the section.
+    reject_obsolete_keys(sim_config["rfi_sources"]["tle_satellite"])
+
     if not check_telescope_defintion(sim_config["telescope"]):
         tel_def = get_telescope_definitions(sim_config["telescope"]["name"])
         sim_config["telescope"] = deep_update(sim_config["telescope"], tel_def)
@@ -901,7 +995,11 @@ def run_sim_config(
     obs = load_obs(sim_config)
     add_astro_sources(obs, sim_config)
     add_satellite_sources(obs, sim_config)
-    if sim_config["rfi_sources"]["tle_satellite"]["max_n_sat"] != 0:
+    # max_n_sat is a limit on *this* run's acquisition, so it cannot discard a
+    # frozen replay: the saved selection has already been through whatever limit
+    # the original run applied.
+    sat_ = sim_config["rfi_sources"]["tle_satellite"]
+    if sat_["max_n_sat"] != 0 or sat_.get("replay_orbit_dir"):
         add_tle_satellite_sources(obs, sim_config)
     add_stationary_sources(obs, sim_config)
     add_gains(obs, sim_config)
@@ -958,7 +1056,6 @@ def run_sim_config(
     log.close()
     shutil.copy(log_path, save_path)
     os.remove(log_path)
-    sys.stdout = backup
 
     if (
         not sim_config["output"]["keep_sim"]
