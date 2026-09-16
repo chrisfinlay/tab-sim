@@ -170,7 +170,10 @@ def search_satellites(
                 )
             )
             return snapshot.found
-        if age <= max_age_days:
+        # Strictly positive, so `search_cache_max_age_days: 0` means what it says —
+        # refresh on every online lookup — rather than reusing a snapshot whose age
+        # happens to round to zero.
+        if max_age_days > 0 and age <= max_age_days:
             log(
                 _reuse_message(
                     query,
