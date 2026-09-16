@@ -37,14 +37,29 @@ For an ordinary run, source precedence is resolved **independently per NORAD ID*
      remaining IDs, against the archive the observation epoch falls in, with the
      other archive as a fallback (see :func:`_fetch_from_service`). Valid
      responses are merged into the per-NORAD cache and may serve nearby
-     observations later.
+     observations later. ``offline`` skips this step entirely without relaxing the
+     age ceiling: offline is about what can be reached, not about what an
+     acceptable record is.
 
-**Complete coverage.** Every explicitly requested NORAD ID must end up with an
-accepted record, and :func:`require_complete_coverage` raises :class:`OrbitError`
-naming each failure and its remedies if one does not. Satellites named rather
-than numbered (``sat_names``) are a catalogue *query* — an unrecognised name
-resolves to no IDs at all and is reported by :func:`resolve_names`, since there
-is no satellite to be missing a record for.
+**Checksums.** A TLE line whose checksum is present and wrong is refused under
+every setting. ``allow_missing_checksum`` decides only what happens to a line that
+arrived without its checksum digit at all, as some of SatChecker's 2001–2018
+archive did, and it decides it the same way on every route — remote, local file
+and replay — because a default that rejected them remotely and accepted them from
+a file would advertise strictness whose workaround is to save the record once.
+Accepted ones carry :data:`CHECKSUM_STATUS_FIELD` for the rest of their lives and
+stay out of the shared cache, which other applications also read.
+
+**Coverage.** Every explicitly requested NORAD ID must end up with an accepted
+record, and :func:`require_complete_coverage` raises :class:`OrbitError` naming
+each failure and its remedies if one does not. Satellites named rather than
+numbered (``sat_names``) are a catalogue *query*, so an unrecognised name, a
+genuinely empty reply or a record rejected on age excludes that satellite with its
+reason — :func:`report_named_coverage`. What neither route tolerates is not
+*knowing*: an unresolved request, response or validation failure, and running out
+of local state offline, are fatal on both, through the same error. Reporting an
+outage as an absent satellite is how a SatChecker failure used to become a
+complete-looking observation with no satellite RFI in it.
 
 Ported from ``tabascal/orbit.py`` (epfl-radio-astro/tabascal#92), less the
 multi-process broadcast and the Measurement Set preflight, neither of which
