@@ -688,6 +688,15 @@ def _coverage_error(resolution: OrbitResolution, named: bool = False) -> OrbitEr
             lines.append(
                 f"      SatChecker could not be asked for a closer one — {failure}"
             )
+        elif resolution.offline:
+            # The rejection above is the whole of the local evidence, and it is
+            # about this machine, not about the catalogue: nothing was asked for
+            # something nearer.
+            lines.append(
+                "      offline: true, so nothing was asked for a closer one. This "
+                "is the local state being insufficient, not SatChecker lacking a "
+                "nearer record"
+            )
 
     limit = resolution.remote_max_age_days
     lines += [
@@ -1124,6 +1133,14 @@ def report_named_coverage(
     local state offline is the same kind of not-knowing. Both are fatal on this
     route exactly as they are for a numbered satellite, and through the same
     error, so the two routes cannot drift apart.
+
+    Offline, *every* unresolved candidate is that second kind, an age-rejected
+    local record included: a ten-day-old cached record is a fact about this
+    machine, not an answer from the catalogue, and nothing asked for a nearer
+    one. Excluding the satellite on that basis reported an exclusion the
+    catalogue never made, and let a satellite-free simulation stand as the
+    result. The age detail stays in the error — it is what says which limit to
+    change, or which records to fetch.
     """
     if not resolution.requested:
         return resolution
@@ -1134,9 +1151,7 @@ def report_named_coverage(
     unknown_locally = [
         nid
         for nid in resolution.missing
-        if resolution.offline
-        and nid not in resolution.service_errors
-        and nid not in resolution.rejected
+        if resolution.offline and nid not in resolution.service_errors
     ]
     if unanswered or unknown_locally:
         raise _coverage_error(resolution, named=True)

@@ -710,6 +710,52 @@ class TestCoverage:
         assert str(norad_id) in message
         assert "offline" in message.lower()
 
+    @pytest.mark.parametrize("source", ["cache", "extra_orbit_dir"])
+    def test_offline_named_age_rejection_is_insufficient_local_state(
+        self, monkeypatch, isolated_cache, tmp_path, source
+    ):
+        """An over-age local record is not evidence that nothing closer exists.
+
+        Offline, an age rejection excluded the named satellite as though the
+        catalogue had been asked and had nothing near the observation. Nothing was
+        asked: a ten-day-old cached record says only that this machine holds a
+        ten-day-old record. The exclusion made a satellite-free simulation look
+        like a legitimate answer, which is what offline running must never do.
+        """
+        norad_id = 7003
+        cache = TextOrbitCache(isolated_cache)
+        cache.store_search(
+            "THING",
+            search_frame([search_row(norad_id, "THING ONE")]),
+            fetched_at=datetime.now(UTC),
+        )
+        stale = tle_record_at(norad_id, ISS_EPOCH_JD - 10.0)
+        policy = {}
+        if source == "cache":
+            cache.store(norad_id, pd.DataFrame([stale]))
+        else:
+            pd.DataFrame([stale]).to_json(tmp_path / "old.json")
+            policy = {
+                "extra_orbit_dir": str(tmp_path),
+                "extra_orbit_max_age_days": 3.0,
+            }
+
+        with pytest.raises(orbit.OrbitError) as excinfo:
+            tle_module.get_tles_by_name(
+                ["thing"],
+                ISS_EPOCH_JD,
+                remote_max_age_days=3.0,
+                cache_reuse_max_age_days=1.0,
+                offline=True,
+                **policy,
+            )
+
+        message = str(excinfo.value)
+        assert str(norad_id) in message
+        assert "offline" in message.lower()
+        # ...and the age detail survives into the insufficient-local-state error.
+        assert "10.000 d" in message
+
     # -- historical epochs ---------------------------------------------------
 
     @pytest.mark.parametrize(

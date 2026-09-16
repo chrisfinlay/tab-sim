@@ -12,6 +12,7 @@ assertions below are about the satellites being *there*.
 """
 
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -20,7 +21,7 @@ import pandas as pd
 import pytest
 
 from satchecker_client import client
-from satchecker_client.cache import read_legacy_tle_records
+from satchecker_client.cache import TextOrbitCache, read_legacy_tle_records
 
 from tabsim import orbit
 from tabsim.orbit_config import read_norad_ids_file
@@ -33,6 +34,7 @@ from orbit_helpers import (
     forbidden,
     omm_record_at,
     restored_stdout,
+    search_frame,
     search_row,
     serve_search,
     tle_record_at,
@@ -41,7 +43,8 @@ from orbit_helpers import (
 
 
 #: Both satellites carry a spectral model in the shipped
-#: ``norad_satellite.rfimodel``, which ``run_sim_config`` always substitutes.
+#: ``norad_satellite.rfimodel``, which these configurations leave
+#: ``norad_spec_model`` unset for, so the packaged table is what fills it in.
 SIM_IDS = [ISS_NORAD_ID, GPS_NORAD_ID]
 
 
@@ -279,4 +282,38 @@ def test_sim_vis_named_outage_does_not_write_successful_observation(
         run_sim_vis(config_path)
 
     assert str(ISS_NORAD_ID) in str(excinfo.value)
+    assert list(output_path.glob("**/*.zarr")) == []
+
+
+def test_sim_vis_offline_over_age_record_does_not_silently_drop_a_satellite(
+    tmp_path, isolated_cache
+):
+    """Offline, an over-age cached record must stop the run, not exclude the satellite.
+
+    The cached catalogue search says this satellite exists; the cached orbit
+    record is ten days from the observation and nothing was asked for a closer
+    one. Treating that as "the catalogue has nothing acceptable" wrote a complete
+    observation with no satellite RFI in it.
+    """
+    cache = TextOrbitCache(isolated_cache)
+    cache.store_search(
+        "THING",
+        search_frame([search_row(ISS_NORAD_ID, "THING ONE")]),
+        fetched_at=datetime.now(timezone.utc),
+    )
+    cache.store(
+        ISS_NORAD_ID, pd.DataFrame([tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD - 10.0)])
+    )
+
+    output_path = tmp_path / "out"
+    config_path = tiny_sim_config(
+        tmp_path / "sim.yaml", output_path, sat_names=["thing"], offline=True
+    )
+
+    with pytest.raises(orbit.OrbitError) as excinfo:
+        run_sim_vis(config_path)
+
+    message = str(excinfo.value)
+    assert str(ISS_NORAD_ID) in message
+    assert "offline" in message.lower()
     assert list(output_path.glob("**/*.zarr")) == []
