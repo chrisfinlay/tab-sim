@@ -413,14 +413,18 @@ class TestReplay:
     def test_omm_elements_survive_the_file_bit_for_bit(self, tmp_path):
         """The written float must read back as the *same* double, not a near one.
 
-        ``DataFrame.to_json`` formats to a fixed number of decimal places: its
-        default 10 rounds this eccentricity away, and its maximum 15 writes it as
-        0.006663499999999999, which is a different double. Both make a replayed
-        trajectory quietly disagree with the run it reproduces.
+        Either half can break it. On the way out, ``DataFrame.to_json`` formats
+        to a fixed number of decimal places: its default 10 rounds this
+        eccentricity away, and its maximum 15 writes it as 0.006663499999999999,
+        a different double. On the way in, satchecker-client before 0.1.2 parsed
+        with pandas' imprecise float parser, which reads the eccentricity back as
+        that same wrong double and a BSTAR of 3.2e-05 as 3.2000000000000005e-05.
+        Either makes a replayed trajectory quietly disagree with the run it
+        reproduces.
         """
         awkward = omm_record_from_tle()
         awkward["ECCENTRICITY"] = 0.0066635
-        awkward["MEAN_MOTION"] = 1.8959772500000001
+        awkward["BSTAR"] = 3.2e-05
 
         orbit.save_orbits_for_reuse(
             tmp_path / "used_orbits.json", [ISS_NORAD_ID], [awkward]
@@ -428,7 +432,7 @@ class TestReplay:
         back = read_legacy_tle_records(tmp_path).iloc[0]
 
         assert back["ECCENTRICITY"] == awkward["ECCENTRICITY"]
-        assert back["MEAN_MOTION"] == awkward["MEAN_MOTION"]
+        assert back["BSTAR"] == awkward["BSTAR"]
 
     def test_mixed_kinds_in_one_file_stay_valid_json(self, tmp_path):
         """A TLE row has no MEAN_MOTION; that must be null, not a bare NaN."""
