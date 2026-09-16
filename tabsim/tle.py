@@ -30,8 +30,10 @@ from typing import Optional
 from tabsim.orbit import (  # noqa: F401  OrbitError re-exported for callers
     DEFAULT_CACHE_REUSE_MAX_AGE_DAYS,
     DEFAULT_REMOTE_MAX_AGE_DAYS,
+    DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS,
     OrbitError,
     get_orbits_by_id,
+    report_named_coverage,
     require_complete_coverage,
     resolve_names,
     resolve_orbits,
@@ -234,6 +236,8 @@ def get_tles_by_id(
     extra_orbit_max_age_days: Optional[float] = None,
     remote_max_age_days: Optional[float] = DEFAULT_REMOTE_MAX_AGE_DAYS,
     cache_reuse_max_age_days: Optional[float] = DEFAULT_CACHE_REUSE_MAX_AGE_DAYS,
+    offline: bool = False,
+    allow_missing_checksum: bool = False,
 ) -> pd.DataFrame:
     """Orbit records for *norad_ids* nearest *epoch_jd*, one row per requested ID.
 
@@ -247,6 +251,8 @@ def get_tles_by_id(
         extra_orbit_max_age_days=extra_orbit_max_age_days,
         remote_max_age_days=remote_max_age_days,
         cache_reuse_max_age_days=cache_reuse_max_age_days,
+        offline=offline,
+        allow_missing_checksum=allow_missing_checksum,
     )
 
 
@@ -257,25 +263,41 @@ def get_tles_by_name(
     extra_orbit_max_age_days: Optional[float] = None,
     remote_max_age_days: Optional[float] = DEFAULT_REMOTE_MAX_AGE_DAYS,
     cache_reuse_max_age_days: Optional[float] = DEFAULT_CACHE_REUSE_MAX_AGE_DAYS,
+    search_cache_max_age_days: Optional[float] = DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS,
+    offline: bool = False,
+    allow_missing_checksum: bool = False,
 ) -> pd.DataFrame:
     """Orbit records for satellites *named* in the catalogue, nearest *epoch_jd*.
 
-    Names are matched whole and case-insensitively against SatChecker's name
-    index; a name matching nothing contributes no satellites and is reported. An
-    empty frame is returned when no name matches at all, rather than an error —
-    the caller is asking the catalogue a question, and "nothing" is an answer.
+    Names are matched as **substrings** of a catalogue written in upper case, and
+    the query is upper-cased for it — not whole-name, and not case-insensitively
+    in general; see :mod:`tabsim.satchecker_names`. A name the catalogue genuinely
+    does not know contributes no satellites and is reported, and an empty frame
+    comes back rather than an error: the caller is asking the catalogue a question
+    and "nothing" is an answer. A search or an acquisition that *failed* is not an
+    answer and raises — :func:`~tabsim.orbit.report_named_coverage`, the same
+    policy the simulation's selection uses.
     """
-    norad_ids = resolve_names(names)
+    norad_ids = resolve_names(
+        names,
+        epoch_jd,
+        search_cache_max_age_days=search_cache_max_age_days,
+        offline=offline,
+    )
     if not norad_ids:
         return pd.DataFrame()
-    return get_orbits_by_id(
-        norad_ids,
-        epoch_jd,
-        extra_orbit_dir=extra_orbit_dir,
-        extra_orbit_max_age_days=extra_orbit_max_age_days,
-        remote_max_age_days=remote_max_age_days,
-        cache_reuse_max_age_days=cache_reuse_max_age_days,
-    )
+    return report_named_coverage(
+        resolve_orbits(
+            norad_ids,
+            epoch_jd,
+            extra_orbit_dir=extra_orbit_dir,
+            extra_orbit_max_age_days=extra_orbit_max_age_days,
+            remote_max_age_days=remote_max_age_days,
+            cache_reuse_max_age_days=cache_reuse_max_age_days,
+            offline=offline,
+            allow_missing_checksum=allow_missing_checksum,
+        )
+    ).frame()
 
 
 def get_visible_satellite_tles(
@@ -293,6 +315,9 @@ def get_visible_satellite_tles(
     extra_orbit_max_age_days: Optional[float] = None,
     remote_max_age_days: Optional[float] = DEFAULT_REMOTE_MAX_AGE_DAYS,
     cache_reuse_max_age_days: Optional[float] = DEFAULT_CACHE_REUSE_MAX_AGE_DAYS,
+    search_cache_max_age_days: Optional[float] = DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS,
+    offline: bool = False,
+    allow_missing_checksum: bool = False,
 ) -> tuple:
     """Get the orbit records of satellites that satisfy the conditions given.
 
@@ -316,7 +341,8 @@ def get_visible_satellite_tles(
         Minimum elevation, in degrees, above the horizon to accept the satellite
         pass.
     names : ArrayLike
-        Satellite names to consider. Matched whole and case-insensitively.
+        Satellite names to consider. Matched as **substrings** of an upper-case
+        catalogue; see :mod:`tabsim.satchecker_names`.
     norad_ids : ArrayLike
         NORAD IDs to consider. Every one of these must resolve to an acceptable
         record or :class:`~tabsim.orbit.OrbitError` is raised.
@@ -330,6 +356,15 @@ def get_visible_satellite_tles(
         Age ceiling for records accepted from SatChecker or its managed cache.
     cache_reuse_max_age_days : float, optional
         A cached record this close to the observation avoids a network request.
+    search_cache_max_age_days : float, optional
+        Wall-clock age below which a cached catalogue search is reused instead of
+        repeated. ``None`` reuses indefinitely.
+    offline : bool, optional
+        Forbid every SatChecker request. Cached searches are reused whatever their
+        age; cached orbit records still have to satisfy ``remote_max_age_days``.
+    allow_missing_checksum : bool, optional
+        Accept TLE lines with no checksum digit, on every route, carrying them as
+        unverified for the life of the record.
 
     Returns
     -------
@@ -348,6 +383,8 @@ def get_visible_satellite_tles(
         extra_orbit_max_age_days=extra_orbit_max_age_days,
         remote_max_age_days=remote_max_age_days,
         cache_reuse_max_age_days=cache_reuse_max_age_days,
+        offline=offline,
+        allow_missing_checksum=allow_missing_checksum,
     )
     # Numbered satellites were asked for individually, so every one has to be
     # accounted for before any of them is filtered on visibility: a satellite
@@ -358,10 +395,21 @@ def get_visible_satellite_tles(
     ids = list(resolution.norad_ids())
     records = list(resolution.records())
 
-    named_ids = [nid for nid in resolve_names(names) if nid not in set(ids)]
+    # De-duplicated against everything asked for by number, not merely against
+    # what resolved: the numbered route has already had its say about those, and
+    # one satellite named as well as numbered is not two satellites.
+    already_requested = set(resolution.requested) | set(ids)
+    named_ids = [
+        nid
+        for nid in resolve_names(
+            names,
+            epoch_jd,
+            search_cache_max_age_days=search_cache_max_age_days,
+            offline=offline,
+        )
+        if nid not in already_requested
+    ]
     if named_ids:
-        # Named satellites are a catalogue query: one whose record cannot be
-        # obtained is reported and skipped, not fatal.
         by_name = resolve_orbits(
             named_ids,
             epoch_jd,
@@ -369,12 +417,14 @@ def get_visible_satellite_tles(
             extra_orbit_max_age_days=extra_orbit_max_age_days,
             remote_max_age_days=remote_max_age_days,
             cache_reuse_max_age_days=cache_reuse_max_age_days,
+            offline=offline,
+            allow_missing_checksum=allow_missing_checksum,
         )
-        if by_name.missing:
-            print(
-                f"  warning: {len(by_name.missing)} named satellite(s) have no "
-                f"acceptable orbit record and are excluded: {by_name.missing}"
-            )
+        # A named satellite with no acceptable record is excluded, with its
+        # reason; one whose record could not be *obtained* stops the run, exactly
+        # as a numbered one does. Same policy object for both routes, so they
+        # cannot drift apart.
+        report_named_coverage(by_name)
         ids += by_name.norad_ids()
         records += by_name.records()
 

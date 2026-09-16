@@ -12,14 +12,23 @@ either. Nothing in this module branches on which: every format question is
 answered by :mod:`satchecker_client.records`, so the policy below works off an
 epoch and an opaque record.
 
-Source precedence is resolved **independently per NORAD ID**:
+``replay_orbit_dir`` is not part of that ordering at all: a frozen replay
+(:func:`load_replay_orbits`) *replaces* the selection with a previous run's saved
+IDs and records, reading nothing else — no discovery, no cache, no network. It is
+selected before anything below, by :func:`tabsim.config.add_tle_satellite_sources`.
 
-  1. ``extra_orbit_dir`` — user-supplied local files, of either kind. The record
-     whose epoch is closest to the observation epoch is chosen; it is accepted
-     only if within ``extra_orbit_max_age_days`` (``None`` = unlimited). An
-     accepted record wins outright — later sources are not consulted for that ID.
-     This is *your* data: the remote service's age policy never applies to it, so
-     exact replay of a previous run's ``used_orbits.json`` is always possible.
+For an ordinary run, source precedence is resolved **independently per NORAD ID**:
+
+  1. ``extra_orbit_dir`` — user-supplied local files, of either kind, read
+     strictly: a file that is not a readable orbit table stops the run naming
+     itself, rather than falling through to the service and quietly modelling
+     records the user said not to use. The record whose epoch is closest to the
+     observation epoch is chosen; it is accepted only if within
+     ``extra_orbit_max_age_days`` (``None`` = unlimited). An accepted record wins
+     outright — later sources are not consulted for that ID. This is *your* data:
+     the remote service's age policy never applies to it. Note that this is
+     ordinary per-ID precedence and freezes nothing: the run's own names, ID list,
+     visibility cuts and ``max_n_sat`` still choose the satellites.
   2. Per-satellite cache — the cached record whose epoch is closest to the
      observation. If it is within ``cache_reuse_max_age_days``, it avoids a
      network request. An older record within the hard ceiling remains an offline
@@ -44,6 +53,7 @@ tabsim has: simulation is single-process and builds its own time grid.
 
 from __future__ import annotations
 
+import functools
 import importlib.metadata as _metadata
 import json
 import os
@@ -51,16 +61,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from platformdirs import user_cache_path
-
 import numpy as np
 import pandas as pd
 
 import satchecker_client as satchecker
 from satchecker_client import (
+    CacheValidationError,
     TextOrbitCache,
-    read_legacy_tle_records,
+    read_orbit_file,
 )
+from satchecker_client.cache import REQUIRED_COLUMNS_BY_KIND
 from satchecker_client import SatCheckerError as OrbitError
 
 #: Historical name, from when every record was a TLE.
@@ -78,6 +88,8 @@ from satchecker_client.tle_parse import (  # noqa: E402
 # OMM: it asks for its epoch, its elements, or whether it is valid, and these
 # three answer for either kind.
 from satchecker_client.records import (  # noqa: E402
+    CHECKSUM_STATUS_FIELD,
+    CHECKSUM_UNVERIFIED_MISSING,
     KIND_FIELD,
     KIND_OMM,
     KIND_TLE,
@@ -85,14 +97,17 @@ from satchecker_client.records import (  # noqa: E402
     record_elements,
     record_epoch_jd,
     record_kind,
-    validate_record,
+    validate_record,  # noqa: F401  re-export
+    validated_record,
 )
 from satchecker_client._time import jd_to_datetime  # noqa: E402
 from tabsim.orbit_config import (  # noqa: E402,F401  re-exported for callers
     DEFAULT_CACHE_REUSE_MAX_AGE_DAYS,
     DEFAULT_REMOTE_MAX_AGE_DAYS,
+    DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS,
     OrbitConfig,
     TLEConfigurationError,
+    orbit_cache_dir,
     validate_remote_ages,
     normalise_norad_ids,
     normalise_orbit_config,
@@ -135,32 +150,6 @@ _SRC_CACHE = "managed per-satellite cache"
 # Qualified with the endpoint that answered, so a log or a coverage error says
 # which of the two archives a record came from.
 _SRC_SATCHECKER = "SatChecker"
-
-
-# ---------------------------------------------------------------------------
-# Cache directory
-# ---------------------------------------------------------------------------
-
-def orbit_cache_dir() -> Path:
-    """Return the managed orbit cache directory, creating it if possible.
-
-    The directory is resolved in priority order:
-
-    1. ``ORBIT_CACHE_DIR`` environment variable (if set).
-    2. The platform user-cache directory (e.g. ``~/.cache/orbit-cache`` on Linux,
-       ``~/Library/Caches/orbit-cache`` on macOS).
-
-    A directory that cannot be created (read-only filesystem, no permission,
-    quota) is *not* an error here: the path is returned regardless, reads then
-    miss and writes are reported and skipped, so a run with a valid fetch is
-    never lost to an unusable cache location.
-    """
-    p = Path(os.environ.get("ORBIT_CACHE_DIR") or user_cache_path("orbit-cache"))
-    try:
-        p.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        pass
-    return p
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +208,15 @@ class OrbitResolution:
     #: during an outage reads as "this satellite does not exist", which is a
     #: different problem with different remedies.
     service_errors: dict[int, Exception] = field(default_factory=dict)
+    #: Why a *refresh* failed for an ID that stayed resolved anyway — from an
+    #: acceptable cached record, or from the other archive. Kept apart from
+    #: ``service_errors`` so a fatal-coverage decision never sees it: the run can
+    #: continue, but it is not quite the run that was asked for, and the log is
+    #: the only place that can say so.
+    refresh_errors: dict[int, Exception] = field(default_factory=dict)
+    #: True when acquisition was forbidden, so an unresolved ID means "not held
+    #: locally", never "SatChecker has no record".
+    offline: bool = False
 
     @property
     def missing(self) -> list[int]:
@@ -278,11 +276,57 @@ def _finalise_records(records: list[dict]) -> pd.DataFrame:
 # Per-ID source resolution
 # ---------------------------------------------------------------------------
 
+def read_extra_orbit_dir(extra_orbit_dir) -> pd.DataFrame:
+    """Every orbit table in *extra_orbit_dir*, read strictly, concatenated.
+
+    An explicit directory is *named* by the user, so "cannot be read" must never
+    be indistinguishable from "has no record for this satellite": the latter falls
+    through to the managed cache and the service, which would build the simulation
+    from exactly the records the user said not to use, with nothing in the log to
+    say the file they pointed at was never read. So every ``*.json`` here is read
+    through :func:`satchecker_client.read_orbit_file` and anything it refuses —
+    unreadable, malformed, not a table — raises :class:`OrbitError` naming the
+    file. So does a non-empty table carrying neither record kind's columns: an
+    explicitly supplied file that is not an orbit table at all is a mistake worth
+    stopping for. An explicitly *empty* table is fine — that is a completed run
+    stating it selected no satellites.
+    """
+    directory = Path(extra_orbit_dir)
+    frames = []
+    for path in sorted(directory.glob("*.json")):
+        try:
+            frame = read_orbit_file(path)
+        except (CacheValidationError, OSError, ValueError) as e:
+            raise OrbitError(
+                f"extra_orbit_dir file {path} could not be read as an orbit "
+                f"table: {e}\n"
+                "An explicitly supplied orbit file is not skipped: the run stops "
+                "rather than silently falling back to the managed cache or "
+                "SatChecker for the satellites this file was meant to supply. "
+                "Fix or remove the file, or point extra_orbit_dir elsewhere."
+            ) from e
+        if not len(frame):
+            continue
+        if not any(
+            all(column in frame.columns for column in required)
+            for required in REQUIRED_COLUMNS_BY_KIND.values()
+        ):
+            raise OrbitError(
+                f"extra_orbit_dir file {path} is not an orbit table: it carries "
+                f"neither a TLE's {list(REQUIRED_COLUMNS_BY_KIND[KIND_TLE])} nor "
+                f"an OMM's {list(REQUIRED_COLUMNS_BY_KIND[KIND_OMM])}. Move "
+                "non-orbit JSON out of the directory extra_orbit_dir points at."
+            )
+        frames.append(frame)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
 def _select_from_extra_dir(
     extra_orbit_dir: str,
     wanted: set[int],
     obs_epoch_jd: float,
     max_age_days: Optional[float],
+    allow_missing_checksum: bool = False,
 ) -> tuple[dict[int, ResolvedOrbit], dict[int, RejectedOrbit]]:
     """Resolve IDs from ``extra_orbit_dir`` with per-ID nearest + age policy.
 
@@ -290,10 +334,16 @@ def _select_from_extra_dir(
     *obs_epoch_jd* (``None`` = unlimited), plus the rejected near-misses. The age
     is measured from the record's own epoch — a TLE's line-1 field, an OMM's
     ``EPOCH`` — never from the filename or the file modification time.
+
+    Accepted records go through
+    :func:`~satchecker_client.records.validated_record`, the same normalisation
+    the remote route uses, so the checksum policy is one policy and a repaired
+    line is repaired *on the record* — not merely tolerated by the validator while
+    the defective line goes on to the propagator and the saved replay file.
     """
     resolved: dict[int, ResolvedOrbit] = {}
     rejected: dict[int, RejectedOrbit] = {}
-    records = read_legacy_tle_records(extra_orbit_dir)
+    records = read_extra_orbit_dir(extra_orbit_dir)
     if not len(records):
         return resolved, rejected
     records = records.copy()
@@ -310,18 +360,15 @@ def _select_from_extra_dir(
     for _, row in records.iterrows():
         nid = int(row["NORAD_CAT_ID"])
         try:
-            embedded_id = validate_record(row)
-            if embedded_id != nid:
-                raise ValueError(
-                    f"record belongs to satellite {embedded_id}, not {nid}"
-                )
-            epoch_jd = record_epoch_jd(row)
+            record = validated_record(
+                row, allow_missing_checksum=allow_missing_checksum
+            )
+            epoch_jd = record_epoch_jd(record)
         except (ValueError, TypeError) as e:
             print(f"  {nid}: invalid extra_orbit_dir record rejected — {e}")
             continue
-        valid_row = row.copy()
-        valid_row["EPOCH_JD"] = epoch_jd
-        valid_rows.append(valid_row)
+        record["EPOCH_JD"] = epoch_jd
+        valid_rows.append(record)
     if not valid_rows:
         return resolved, rejected
     records = pd.DataFrame(valid_rows)
@@ -330,7 +377,11 @@ def _select_from_extra_dir(
         best = group.loc[(group["EPOCH_JD"] - obs_epoch_jd).abs().idxmin()]
         epoch_jd = float(best["EPOCH_JD"])
         offset = epoch_jd - obs_epoch_jd
-        record = {k: v for k, v in best.to_dict().items() if k != "EPOCH_JD"}
+        record = {
+            k: v
+            for k, v in best.to_dict().items()
+            if k != "EPOCH_JD" and not (v is None or (isinstance(v, float) and v != v))
+        }
         if max_age_days is None or abs(offset) <= max_age_days + _AGE_TOL_DAYS:
             resolved[int(nid)] = ResolvedOrbit(
                 norad_id=int(nid),
@@ -415,6 +466,7 @@ def _accept_remote(
     max_age_days: Optional[float],
     resolved: dict[int, ResolvedOrbit],
     rejected: dict[int, RejectedOrbit],
+    allow_missing_checksum: bool = False,
 ) -> set[int]:
     """Apply the remote age ceiling to *candidates*, updating accept/reject maps.
 
@@ -446,6 +498,12 @@ def _accept_remote(
         provider = record.get("DATA_SOURCE") or None
         incumbent = resolved.get(nid)
         try:
+            # The same normalisation the explicit-file route uses: canonical
+            # lines, a checked identity, and an explicit checksum status carried
+            # on the record for the rest of its life.
+            record = validated_record(
+                record, allow_missing_checksum=allow_missing_checksum
+            )
             epoch_jd = record_epoch_jd(record)
         except (KeyError, ValueError, TypeError) as e:
             # Never displace a rejection that carries a real epoch and offset:
@@ -505,6 +563,22 @@ def _detail_requested() -> bool:
     )
 
 
+def _id_list(norad_ids) -> str:
+    """IDs for a log line, truncated unless ``TABSIM_TLE_LOG_DETAIL`` is set.
+
+    Truncated, never summarised away: a report about specific satellites has to
+    name enough of them to act on, and the full list stays one environment
+    variable away.
+    """
+    ids = sorted(int(nid) for nid in norad_ids)
+    if _detail_requested() or len(ids) <= _GROUPED_LOG_THRESHOLD:
+        return str(ids)
+    return (
+        f"{ids[:_GROUPED_LOG_THRESHOLD]} and {len(ids) - _GROUPED_LOG_THRESHOLD} "
+        f"more (set {_LOG_DETAIL_ENV}=1 for the full list)"
+    )
+
+
 def _describe(entry: ResolvedOrbit) -> str:
     provider = f" [{entry.provider}]" if entry.provider else ""
     return (
@@ -554,7 +628,7 @@ def _report_remote_selection(resolution: OrbitResolution) -> None:
     print(f"  (set {_LOG_DETAIL_ENV}=1 for a per-satellite listing)")
 
 
-def _coverage_error(resolution: OrbitResolution) -> OrbitError:
+def _coverage_error(resolution: OrbitResolution, named: bool = False) -> OrbitError:
     """Build the actionable error raised when some configured ID has no record."""
     missing = resolution.missing
     lines = [
@@ -568,6 +642,16 @@ def _coverage_error(resolution: OrbitResolution) -> OrbitError:
         if bad is None:
             if failure is not None:
                 lines.append(f"  {nid}: SatChecker could not answer — {failure}")
+            elif resolution.offline:
+                # Not "SatChecker has no record": nothing asked it. A cached
+                # catalogue search can say a satellite exists without saying
+                # anything about why no orbit record for it is held here.
+                lines.append(
+                    f"  {nid}: offline: true, and no acceptable record for it is "
+                    f"held locally — neither in extra_orbit_dir nor in the managed "
+                    f"per-satellite cache. This says nothing about whether "
+                    f"SatChecker has one"
+                )
             else:
                 lines.append(
                     f"  {nid}: no record found in extra_orbit_dir, the managed "
@@ -620,13 +704,23 @@ def _coverage_error(resolution: OrbitResolution) -> OrbitError:
             f"{len(resolution.service_errors)} of these.{when} Re-run when the "
             "service is reachable; nothing about the configuration need change"
         )
+    if resolution.offline:
+        lines.append(
+            "  - run once without rfi_sources.tle_satellite.offline (or without "
+            "--offline) so the records can be fetched and cached, or replay a "
+            "previous run with --replay-orbit-dir <run>/input_data"
+        )
     lines += [
         "  - put an acceptable record for these satellites in a directory and set "
         "rfi_sources.tle_satellite.extra_orbit_dir (or pass --extra-orbit-dir)",
         "  - deliberately change rfi_sources.tle_satellite.remote_max_age_days "
         "(null removes the ceiling entirely; this is an expert opt-out, not a "
         "default)",
-        "  - remove these NORAD IDs from norad_ids / norad_ids_path",
+        (
+            "  - drop the names that select these satellites from sat_names"
+            if named
+            else "  - remove these NORAD IDs from norad_ids / norad_ids_path"
+        ),
         "",
         "tabsim will not silently omit a configured satellite from the simulated "
         "RFI: the run stops here rather than writing an observation that is "
@@ -646,6 +740,7 @@ def _fetch_from_service(
     cache,
     resolution: OrbitResolution,
     max_workers: int,
+    allow_missing_checksum: bool = False,
 ) -> None:
     """Ask SatChecker for *to_fetch*, falling back to its other archive.
 
@@ -678,9 +773,19 @@ def _fetch_from_service(
     Each pass merges its valid records into the cache before they are judged, so
     a record rejected on age is still available offline to a later run whose
     epoch it does suit.
+
+    Every request opts in to strict response parsing. Without it, an HTTP-200
+    error envelope — which is how SatChecker has been observed to report its own
+    failures — normalises to an empty frame, so an outage becomes "this satellite
+    has no record": the satellite is dropped and the log says nothing was
+    available. ``strict_response`` is a keyword, and the batch layer calls
+    ``fetch(norad_id, epoch_jd)``, so a partial carries it in.
     """
     remaining = list(to_fetch)
-    endpoints = satchecker.nearest_endpoints_for(obs_epoch_jd)
+    endpoints = [
+        (endpoint, functools.partial(fetch_nearest, strict_response=True))
+        for endpoint, fetch_nearest in satchecker.nearest_endpoints_for(obs_epoch_jd)
+    ]
 
     for attempt, (endpoint, fetch_nearest) in enumerate(endpoints):
         if not remaining:
@@ -705,9 +810,16 @@ def _fetch_from_service(
             fetch_nearest=fetch_nearest,
             endpoint=endpoint,
             max_workers=max_workers,
+            allow_missing_checksum=allow_missing_checksum,
         )
         served: set[int] = set()
         if not batch.records.empty:
+            # The cache leaves out any TLE whose checksum digit is missing, by
+            # its own rule: every application sharing these files reads them at
+            # whatever version it is on, and an older client rejects a whole file
+            # on meeting a line it cannot validate. So a permissively accepted
+            # record is used by this run and saved with it, and the shared cache
+            # is left exactly as it was.
             for norad_id, records in batch.records.groupby("NORAD_CAT_ID"):
                 satchecker.store_or_warn(
                     lambda nid=int(norad_id), rows=records: cache.store(nid, rows),
@@ -721,14 +833,20 @@ def _fetch_from_service(
                 remote_max_age,
                 resolution.resolved,
                 resolution.rejected,
+                allow_missing_checksum=allow_missing_checksum,
             )
 
         # Keep why the service could not answer, for the IDs still without a
         # record. Discarding it makes an outage indistinguishable from a
         # satellite that genuinely has no record — the same error text, but
-        # remedies that do not include the only one that works: try again.
+        # remedies that do not include the only one that works: try again. An ID
+        # that *is* resolved — from an acceptable cached record — records the same
+        # failure as a refresh failure instead, which cannot make coverage fatal
+        # but still has to reach the log.
         for norad_id, error in batch.errors.items():
-            if norad_id not in resolution.resolved:
+            if norad_id in resolution.resolved:
+                resolution.refresh_errors[norad_id] = error
+            else:
                 resolution.service_errors[norad_id] = error
 
         if batch.outage is not None:
@@ -738,10 +856,13 @@ def _fetch_from_service(
         # dropping it here would deny it the fallback archive it was fetched for.
         remaining = [nid for nid in remaining if nid not in served]
         # An ID the fallback resolved is no longer a service failure, whatever
-        # the first pass recorded against it.
+        # the first pass recorded against it — but it is still a failed request,
+        # so it is kept as one.
         for norad_id in list(resolution.service_errors):
             if norad_id in resolution.resolved:
-                del resolution.service_errors[norad_id]
+                resolution.refresh_errors[norad_id] = resolution.service_errors.pop(
+                    norad_id
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -756,6 +877,8 @@ def resolve_orbits(
     remote_max_age_days: Optional[float] = DEFAULT_REMOTE_MAX_AGE_DAYS,
     cache_reuse_max_age_days: Optional[float] = DEFAULT_CACHE_REUSE_MAX_AGE_DAYS,
     max_workers: int = satchecker.MAX_WORKERS,
+    offline: bool = False,
+    allow_missing_checksum: bool = False,
 ) -> OrbitResolution:
     """Resolve every requested NORAD ID at *obs_epoch_jd*, without raising on gaps.
 
@@ -763,6 +886,19 @@ def resolve_orbits(
     near-misses and the epochs everything was judged against. Callers decide what
     an incomplete result means; :func:`require_complete_coverage` is the policy
     tabsim simulations use.
+
+    *offline* forbids every SatChecker request. It does **not** relax the age
+    ceiling: offline is about what can be reached, not about what an acceptable
+    record is, so a cached record outside ``remote_max_age_days`` is refused
+    exactly as it would be online.
+
+    *allow_missing_checksum* accepts TLE lines whose checksum digit the archive
+    omitted — the same policy on every route a record can arrive by, because a
+    default that rejects them remotely and accepts them from a file is the worst
+    combination: the strictness is advertised and the way round it is to save the
+    record once. Such records carry
+    :data:`~satchecker_client.records.CHECKSUM_STATUS_FIELD` for the rest of their
+    lives and never enter the shared cache.
     """
     requested = normalise_norad_ids(norad_ids)
     extra_max_age = validate_age_days(
@@ -777,12 +913,23 @@ def resolve_orbits(
         requested=requested,
         obs_epoch_jd=obs_epoch_jd,
         remote_max_age_days=remote_max_age,
+        offline=bool(offline),
     )
     if not requested:
         return resolution
 
     print(f"Orbit requested epoch  : {jd_to_datetime(obs_epoch_jd).isoformat()} UTC")
     print(f"Satellites requested   : {len(requested)}")
+    if offline:
+        print(
+            "Offline                : no SatChecker requests; only "
+            "extra_orbit_dir and the managed cache, within the same age ceiling"
+        )
+    if allow_missing_checksum:
+        print(
+            "Checksum policy        : allow_missing_checksum: true — TLE lines "
+            "with no checksum digit are accepted and carried as unverified"
+        )
 
     wanted = set(requested)
 
@@ -803,7 +950,11 @@ def resolve_orbits(
                 "if you meant to supply your own."
             )
         from_extra, extra_rejected = _select_from_extra_dir(
-            extra_orbit_dir, wanted, obs_epoch_jd, extra_max_age
+            extra_orbit_dir,
+            wanted,
+            obs_epoch_jd,
+            extra_max_age,
+            allow_missing_checksum=allow_missing_checksum,
         )
         resolution.resolved.update(from_extra)
         resolution.rejected.update(extra_rejected)
@@ -829,6 +980,7 @@ def resolve_orbits(
             remote_max_age,
             resolution.resolved,
             resolution.rejected,
+            allow_missing_checksum=allow_missing_checksum,
         )
 
         # Whether to still ask the service is a *separate* question from whether
@@ -849,7 +1001,12 @@ def resolve_orbits(
         # 3. Exact-epoch nearest lookups for cache misses/stale cache candidates,
         # against whichever archive the observation epoch falls in — with the
         # other one as a fallback. See _fetch_from_service.
-        if to_fetch:
+        if to_fetch and offline:
+            print(
+                f"  offline: {len(to_fetch)} ID(s) would have been refreshed from "
+                f"SatChecker and were not — {_id_list(to_fetch)}"
+            )
+        elif to_fetch:
             _fetch_from_service(
                 to_fetch,
                 obs_epoch_jd,
@@ -857,6 +1014,7 @@ def resolve_orbits(
                 cache,
                 resolution,
                 max_workers,
+                allow_missing_checksum=allow_missing_checksum,
             )
 
             # A service failure — or a response no fresher than what we hold —
@@ -874,17 +1032,125 @@ def resolve_orbits(
                     f"  SatChecker did not improve {len(retained)} ID(s); "
                     "continuing with acceptable cached records"
                 )
+            # A refresh that failed for an ID that stays resolved is not fatal,
+            # but the run is then not quite the one that was asked for: it is
+            # modelled from an older record than the one it tried to get.
+            failed_refresh = [
+                nid for nid in to_fetch if nid in resolution.refresh_errors
+            ]
+            if failed_refresh:
+                print(
+                    f"  warning: SatChecker could not be asked for a closer record "
+                    f"for {len(failed_refresh)} ID(s); continuing with the "
+                    f"acceptable cached record(s) already held: "
+                    + "; ".join(
+                        f"{nid} — {resolution.refresh_errors[nid]}"
+                        for nid in failed_refresh[:_GROUPED_LOG_THRESHOLD]
+                    )
+                )
         else:
             print(f"Cache hits             : {len(near_enough_to_reuse)} (no requests sent)")
 
+    _report_unverified(resolution)
     _report_remote_selection(resolution)
     return resolution
 
 
+def _report_unverified(resolution: OrbitResolution) -> None:
+    """Name the accepted records nothing has verified, and what follows from that."""
+    unverified = [
+        nid
+        for nid, entry in resolution.resolved.items()
+        if entry.record.get(CHECKSUM_STATUS_FIELD) == CHECKSUM_UNVERIFIED_MISSING
+    ]
+    if not unverified:
+        return
+    print(
+        f"  warning: Unverified TLE: missing checksum for {len(unverified)} "
+        f"satellite(s) — {_id_list(unverified)}. allow_missing_checksum: true is "
+        "in force, so lines the archive served without their checksum digit were "
+        "accepted; nothing verifies their contents, and the status travels with "
+        "each record for the rest of its life."
+    )
+    print(
+        "  Not stored in the shared orbit cache; saved run records are required "
+        "for offline replay of these satellites — replay this run with "
+        "--replay-orbit-dir <run>/input_data --allow-missing-checksum."
+    )
+
+
 def require_complete_coverage(resolution: OrbitResolution) -> OrbitResolution:
-    """Return *resolution* unchanged, or raise the actionable coverage error."""
+    """Return *resolution* unchanged, or raise the actionable coverage error.
+
+    The policy for satellites asked for **by number**: every one of them must end
+    up with an accepted record. They were named individually, so one dropped for
+    want of a record would be indistinguishable from one that simply never passed
+    the target.
+    """
     if resolution.requested and not resolution.complete:
         raise _coverage_error(resolution)
+    return resolution
+
+
+def report_named_coverage(
+    resolution: OrbitResolution, log=print
+) -> OrbitResolution:
+    """Coverage policy for satellites selected by *name*, sharing the numbered one.
+
+    A name is a catalogue *query*, so "nothing acceptable exists for this
+    satellite near this observation" is an answer: the satellite is excluded and
+    the reason — a genuinely empty reply, or a record rejected on age — is
+    reported.
+
+    "We could not find out" is not an answer. An unresolved request or response
+    failure used to be warned about and dropped here, which turned a SatChecker
+    outage into a complete-looking observation with no satellite RFI in it,
+    indistinguishable from a correct simulation of a quiet sky. Running out of
+    local state offline is the same kind of not-knowing. Both are fatal on this
+    route exactly as they are for a numbered satellite, and through the same
+    error, so the two routes cannot drift apart.
+    """
+    if not resolution.requested:
+        return resolution
+
+    unanswered = [
+        nid for nid in resolution.missing if nid in resolution.service_errors
+    ]
+    unknown_locally = [
+        nid
+        for nid in resolution.missing
+        if resolution.offline
+        and nid not in resolution.service_errors
+        and nid not in resolution.rejected
+    ]
+    if unanswered or unknown_locally:
+        raise _coverage_error(resolution, named=True)
+
+    for nid in resolution.missing:
+        bad = resolution.rejected.get(nid)
+        if bad is None:
+            log(
+                f"  No acceptable record for named satellite {nid}: both "
+                "SatChecker archives answered and neither holds one — excluded "
+                "from the simulation"
+            )
+        elif bad.age_days is None:
+            log(
+                f"  No acceptable record for named satellite {nid}: the best "
+                f"candidate was unusable ({bad.reason}) — excluded"
+            )
+        else:
+            log(
+                f"  No acceptable record for named satellite {nid}: the nearest is "
+                f"{bad.age_days:.3f} d from the observation (epoch "
+                f"{jd_to_datetime(bad.epoch_jd).isoformat()} UTC, from "
+                f"{bad.source}), rejected by {bad.reason} — excluded"
+            )
+    if resolution.missing:
+        log(
+            f"  {len(resolution.missing)} named satellite(s) excluded for want of "
+            f"an acceptable orbit record: {_id_list(resolution.missing)}"
+        )
     return resolution
 
 
@@ -892,43 +1158,41 @@ def require_complete_coverage(resolution: OrbitResolution) -> OrbitResolution:
 # Public orchestration
 # ---------------------------------------------------------------------------
 
-#: A name search returning more than this many satellites is worth a warning
-#: before the requests go out. SatChecker's nearest-record endpoints are
-#: per-satellite, so a broad name — "starlink" matches over twenty thousand
-#: objects — turns into that many requests and that many propagations.
-_WIDE_NAME_MATCH_THRESHOLD = 500
+def resolve_names(
+    names,
+    obs_epoch_jd: float,
+    *,
+    search_cache_max_age_days: Optional[float] = DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS,
+    offline: bool = False,
+    log=print,
+) -> list[int]:
+    """NORAD IDs for satellites named in the configuration, at *obs_epoch_jd*.
 
+    Names are matched as substrings against an upper-case catalogue, reproducing
+    what Space-Track's ``op.like`` did — see :mod:`tabsim.satchecker_names` for the
+    exact semantics and their sharp edges, and for the search-cache and offline
+    policy this forwards.
 
-def resolve_names(names, log=print) -> list[int]:
-    """NORAD IDs for satellites named in the configuration.
+    *obs_epoch_jd* is not optional and not "now": which satellites existed is a
+    question about the observation's date. A satellite that decayed between a 2019
+    observation and today belongs in that simulation; one launched since does not.
 
-    Names are matched as substrings, case-insensitively, reproducing what
-    Space-Track's ``op.like`` did — see :mod:`tabsim.satchecker_names`.
-
-    Unmatched names are reported and skipped rather than raised on: a name is a
-    catalogue *query*, so "nothing called that" means there is no satellite for a
-    record to be missing for, which is a different thing from a configured
-    satellite whose record could not be obtained. Numbered satellites keep the
-    strict coverage rule; see :func:`require_complete_coverage`.
+    A name the catalogue genuinely does not know contributes no satellites and is
+    reported — there is no satellite for a record to be missing for. A search that
+    could not be *run* is a different thing and stops the run; see
+    :func:`tabsim.satchecker_names.search_satellites`.
     """
     names = [str(name).strip() for name in (names or []) if str(name).strip()]
     if not names:
         return []
     log(f"Resolving {len(names)} satellite name(s) against the SatChecker catalogue")
-    norad_ids, unmatched = norad_ids_from_names(names, log=log)
-    if unmatched:
-        log(
-            f"  warning: {len(unmatched)} name(s) matched nothing in orbit and "
-            f"contribute no satellites: {unmatched}"
-        )
-    if len(norad_ids) > _WIDE_NAME_MATCH_THRESHOLD:
-        log(
-            f"  warning: these names match {len(norad_ids)} satellites. SatChecker "
-            "serves one record per request, so this is that many requests on a "
-            "cold cache, followed by that many visibility propagations. Narrow "
-            "the names, or list the NORAD IDs you actually want."
-        )
-    return norad_ids
+    return norad_ids_from_names(
+        names,
+        obs_epoch_jd,
+        search_cache_max_age_days=search_cache_max_age_days,
+        offline=offline,
+        log=log,
+    )
 
 
 def get_orbits_by_id(
@@ -939,6 +1203,8 @@ def get_orbits_by_id(
     remote_max_age_days: Optional[float] = DEFAULT_REMOTE_MAX_AGE_DAYS,
     cache_reuse_max_age_days: Optional[float] = DEFAULT_CACHE_REUSE_MAX_AGE_DAYS,
     max_workers: int = satchecker.MAX_WORKERS,
+    offline: bool = False,
+    allow_missing_checksum: bool = False,
 ) -> pd.DataFrame:
     """Resolve orbital records for *norad_ids* at *epoch_jd*.
 
@@ -955,6 +1221,8 @@ def get_orbits_by_id(
             remote_max_age_days=remote_max_age_days,
             cache_reuse_max_age_days=cache_reuse_max_age_days,
             max_workers=max_workers,
+            offline=offline,
+            allow_missing_checksum=allow_missing_checksum,
         )
     ).frame()
 
@@ -964,12 +1232,37 @@ def get_orbits_by_id(
 # ---------------------------------------------------------------------------
 
 #: What each kind needs written out to be readable back as itself. A TLE needs
-#: only its lines — every element is encoded in them. An OMM needs its epoch and
-#: its seven elements, because nothing else carries them.
+#: only its lines — every element is encoded in them — plus the checksum status,
+#: which is provenance nothing can re-derive: lines accepted without their
+#: checksum digits stay unverified however well they now parse. An OMM needs its
+#: epoch and its seven elements, because nothing else carries them, and gets no
+#: checksum claim because the format has no checksum. Both keep whatever provider
+#: and fetch provenance the record arrived with.
 _REPLAY_COLUMNS = {
-    KIND_TLE: (KIND_FIELD, "OBJECT_NAME", "TLE_LINE1", "TLE_LINE2"),
-    KIND_OMM: (KIND_FIELD, "OBJECT_NAME", "OBJECT_ID", "EPOCH", *OMM_ELEMENT_COLUMNS),
+    KIND_TLE: (
+        KIND_FIELD,
+        "OBJECT_NAME",
+        "TLE_LINE1",
+        "TLE_LINE2",
+        CHECKSUM_STATUS_FIELD,
+        "DATA_SOURCE",
+        "FETCHED_AT",
+    ),
+    KIND_OMM: (
+        KIND_FIELD,
+        "OBJECT_NAME",
+        "OBJECT_ID",
+        "EPOCH",
+        *OMM_ELEMENT_COLUMNS,
+        "DATA_SOURCE",
+        "FETCHED_AT",
+    ),
 }
+
+#: The two files a completed run writes into its ``input_data`` directory, and the
+#: only two a frozen replay reads.
+REPLAY_IDS_FILE = "norad_ids.yaml"
+REPLAY_RECORDS_FILE = "used_orbits.json"
 
 
 def _replay_record(norad_id: int, record: dict) -> dict:
@@ -995,44 +1288,83 @@ def _json_scalar(value):
     that :func:`json.dump` then writes through ``repr`` — the shortest
     representation that reads back as the same double. Missing values become
     ``null`` so a mixed TLE/OMM file stays valid JSON, since ``json`` would
-    otherwise emit a bare ``NaN``.
+    otherwise emit a bare ``NaN``. An infinity is refused outright: ``json`` would
+    write the non-standard ``Infinity`` literal, and no orbital element may be one
+    anyway.
     """
     if value is None or (isinstance(value, float) and value != value):
         return None
     item = getattr(value, "item", None)
     if item is not None and getattr(value, "shape", ()) == ():
         value = item()
-    if isinstance(value, float) and value != value:
-        return None
+    if isinstance(value, float):
+        if value != value:
+            return None
+        if value in (float("inf"), float("-inf")):
+            raise ValueError(
+                f"an orbit record carries {value!r}, which is not a number a "
+                "record may hold and not valid JSON"
+            )
     return value
 
 
-def save_orbits_for_reuse(path, norad_ids, records) -> Optional[str]:
-    """Write the orbit records a run used to *path* in ``extra_orbit_dir`` format.
+def _own_norad_id(record) -> Optional[int]:
+    """The record's own ``NORAD_CAT_ID`` as an int, or ``None`` if it has none."""
+    value = record.get("NORAD_CAT_ID")
+    if value is None or (isinstance(value, float) and value != value):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
-    The file is a pandas-oriented JSON carrying, per record, exactly what
-    :func:`~satchecker_client.cache.read_legacy_tle_records` needs to read it back
-    as the same record — a TLE's two lines, or an OMM's epoch and elements. A
-    later run reproduces this run's trajectories by pointing ``extra_orbit_dir``
-    at the file's directory (with the default unlimited
-    ``extra_orbit_max_age_days``), independent of the shared cache, of what
-    SatChecker serves by then, and of the remote age ceiling.
+
+def save_orbits_for_reuse(path, norad_ids, records) -> str:
+    """Write the orbit records a run used to *path*, as an explicit orbit table.
+
+    The file is a column-oriented JSON carrying, per record, exactly what is
+    needed to read it back as the same record — a TLE's two lines, or an OMM's
+    epoch and elements — plus its checksum provenance and whatever the provider
+    said. ``sim-vis --replay-orbit-dir <this directory>`` then reproduces this
+    run's *selection* and its trajectories, independent of the shared cache, of
+    what SatChecker serves by then, and of the remote age ceiling.
 
     ``RECORD_KIND`` is written explicitly. Inference exists for exports we did not
     write; for a file tabsim produced itself there is no reason to make a later
     reader guess.
 
     ``norad_ids`` and ``records`` are aligned sequences, as produced by
-    :meth:`OrbitResolution.norad_ids` and :meth:`OrbitResolution.records`.
-    Returns the written path, or ``None`` when there is nothing to save.
+    :meth:`OrbitResolution.norad_ids` and :meth:`OrbitResolution.records`, and the
+    alignment is checked rather than assumed: ``zip`` would truncate to the shorter
+    of the two and write a file that reads back cleanly while describing different
+    satellites than the run propagated.
+
+    Always writes, and returns the path — an empty selection included. Writing
+    nothing would make "this run modelled no satellites" and "this directory is
+    not a replay" the same state on disk, so a frozen replay of a legitimately
+    satellite-free run could not be told from a missing file.
     """
     # Not `norad_ids or []`: a dask/NumPy array raises on truth-testing rather
     # than answering "is it empty", which turns a satellite-free run into a crash.
-    ids = [] if norad_ids is None else list(norad_ids)
+    ids = [] if norad_ids is None else [int(nid) for nid in norad_ids]
     rows = [] if records is None else list(records)
-    if not ids or not rows:
-        return None
-    projected = [_replay_record(nid, record) for nid, record in zip(ids, rows)]
+    if len(ids) != len(rows):
+        raise ValueError(
+            f"norad_ids and records must be aligned sequences, got {len(ids)} ID(s) "
+            f"and {len(rows)} record(s). Truncating to the shorter one would write "
+            "a replay file describing different satellites than the run used."
+        )
+    projected = []
+    for nid, record in zip(ids, rows):
+        record = record.to_dict() if hasattr(record, "to_dict") else dict(record)
+        own = _own_norad_id(record)
+        if own is not None and own != nid:
+            raise ValueError(
+                f"record filed against NORAD {nid} carries NORAD_CAT_ID {own}; the "
+                "IDs and the records a run saves must be aligned or the replay "
+                "reproduces the wrong satellites"
+            )
+        projected.append(_replay_record(nid, record))
 
     # Written by hand rather than with DataFrame.to_json, which formats floats to
     # a fixed number of decimal places: the default 10 rounds an OMM element
@@ -1057,3 +1389,133 @@ def save_orbits_for_reuse(path, norad_ids, records) -> Optional[str]:
     with open(path, "w") as handle:
         json.dump(payload, handle)
     return path
+
+
+# ---------------------------------------------------------------------------
+# Frozen replay
+# ---------------------------------------------------------------------------
+
+def _read_replay_ids(path: Path) -> list[int]:
+    """The saved final NORAD IDs, in saved order, with duplicates refused.
+
+    Deliberately not :func:`~tabsim.orbit_config.read_norad_ids_file`, which
+    de-duplicates: this file is a replay's record of what it propagated, so two
+    lines naming one satellite means the file disagrees with itself and cannot be
+    matched one-to-one against the saved records.
+    """
+    try:
+        text = path.read_text()
+    except OSError as e:
+        raise OrbitError(
+            f"frozen orbit replay could not read {path}: {e}. A replay reads only "
+            f"{REPLAY_IDS_FILE} and {REPLAY_RECORDS_FILE} from the directory given, "
+            "and has no other source to fall back to."
+        ) from e
+
+    out: list[int] = []
+    for lineno, raw in enumerate(text.splitlines(), start=1):
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        nid = normalise_norad_ids([line.split()[0]], f"{path}:{lineno}")[0]
+        if nid in out:
+            raise OrbitError(
+                f"{path} lists NORAD {nid} more than once; a frozen replay needs "
+                "exactly one saved record per saved satellite, so the ID list has "
+                "to be unique"
+            )
+        out.append(nid)
+    return out
+
+
+def load_replay_orbits(
+    replay_orbit_dir, *, allow_missing_checksum: bool = False
+) -> tuple[list[int], list[dict]]:
+    """The saved NORAD IDs and records of a previous run, frozen exactly as saved.
+
+    Reads only ``norad_ids.yaml`` and ``used_orbits.json`` from
+    *replay_orbit_dir* and returns ``(norad_ids, records)`` — the saved IDs in
+    saved order, and one aligned record each. An empty saved selection is
+    ``([], [])``: a completed run that modelled no satellites.
+
+    **There is no second source.** No name discovery, no managed cache, no
+    request, no visibility reselection, no ``max_n_sat``, and no age-based
+    replacement: a replay deliberately uses saved records however far their epochs
+    are from the observation, because that is what makes them the same records.
+    Anything short of exact therefore stops the run naming the file or the
+    satellite — skipping a record, taking the first of two, or asking the cache
+    would each silently change the orbital inputs of a run whose whole purpose is
+    to keep them fixed.
+
+    The configured checksum policy still applies, including to provenance: a
+    record saved as ``unverified_missing_checksum`` needs
+    *allow_missing_checksum* on every pass, whatever its lines carry now, so a
+    permissive run cannot be laundered into a strict one by saving it.
+
+    Exact reproduction of the previous run's trajectories and visibilities assumes
+    the same observation, spectral inputs, random seeds and numerical environment;
+    what this freezes is the orbital input.
+    """
+    directory = Path(replay_orbit_dir)
+    ids_path = directory / REPLAY_IDS_FILE
+    records_path = directory / REPLAY_RECORDS_FILE
+
+    norad_ids = _read_replay_ids(ids_path)
+    try:
+        frame = read_orbit_file(records_path)
+    except (CacheValidationError, OSError, ValueError) as e:
+        raise OrbitError(
+            f"frozen orbit replay could not read {records_path}: {e}. A replay has "
+            "no alternative source by design, so the run stops here rather than "
+            "resolving these satellites from somewhere else."
+        ) from e
+
+    rows_by_id: dict[int, list[dict]] = {}
+    for position, row in enumerate(frame.to_dict(orient="records")):
+        nid = _own_norad_id(row)
+        if nid is None:
+            raise OrbitError(
+                f"row {position} of {records_path} has no usable NORAD_CAT_ID, so "
+                "it cannot be matched to a saved satellite"
+            )
+        rows_by_id.setdefault(nid, []).append(row)
+
+    unlisted = sorted(set(rows_by_id) - set(norad_ids))
+    if unlisted:
+        raise OrbitError(
+            f"{records_path} carries record(s) for NORAD {unlisted}, which "
+            f"{ids_path} does not list. The two files describe one selection and "
+            "have to agree about it."
+        )
+
+    records: list[dict] = []
+    for nid in norad_ids:
+        rows = rows_by_id.get(nid, [])
+        if not rows:
+            raise OrbitError(
+                f"{ids_path} lists NORAD {nid} but {records_path} holds no record "
+                "for it. A replay cannot fetch the missing one — that would make it "
+                "a different run — so it stops here."
+            )
+        if len(rows) > 1:
+            raise OrbitError(
+                f"{records_path} holds {len(rows)} records for NORAD {nid}; a "
+                "frozen replay needs exactly one, since choosing between them "
+                "would be reselecting the orbital input it exists to freeze."
+            )
+        try:
+            records.append(
+                validated_record(
+                    rows[0], allow_missing_checksum=allow_missing_checksum
+                )
+            )
+        except (ValueError, TypeError) as e:
+            raise OrbitError(
+                f"the saved record for NORAD {nid} in {records_path} is not "
+                f"acceptable under this run's policy: {e}. If the original run "
+                "accepted TLE lines without their checksum digits, the replay has "
+                "to say so too — set "
+                "rfi_sources.tle_satellite.allow_missing_checksum: true, or pass "
+                "--allow-missing-checksum."
+            ) from e
+    return norad_ids, records
