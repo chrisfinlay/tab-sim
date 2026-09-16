@@ -5,7 +5,7 @@ are acceptable for them, is validated here, so a malformed entry surfaces as
 :class:`TLEConfigurationError` with the key that caused it rather than as a
 ``ValueError`` from somewhere inside pandas several steps later.
 
-Three age settings exist and are deliberately kept distinct:
+Four age settings exist and are deliberately kept distinct:
 
 ``extra_orbit_max_age_days``
     Acceptance of explicit user/replay files (``extra_orbit_dir``). ``null`` by
@@ -16,6 +16,10 @@ Three age settings exist and are deliberately kept distinct:
 ``cache_reuse_max_age_days``
     Age below which a cached SatChecker record avoids a new nearest-record
     request.
+``search_cache_max_age_days``
+    Wall-clock age below which a cached *catalogue search* is reused instead of
+    repeated. Nothing to do with the age of an orbital record: it measures how
+    stale our picture of which satellites exist is allowed to be.
 
 Ported from ``tabascal/orbit_config.py`` (epfl-radio-astro/tabascal#92), less the
 Measurement Set epoch derivation and the model-component introspection, neither
@@ -27,6 +31,7 @@ than implied by a trajectory component.
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from numbers import Integral, Real
@@ -34,6 +39,7 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from platformdirs import user_cache_path
 
 from satchecker_client import SatCheckerError as TLEError
 
@@ -51,6 +57,28 @@ DEFAULT_REMOTE_MAX_AGE_DAYS = 3.0
 #: nearest-record request. A request/latency trade-off, not the safety ceiling
 #: above.
 DEFAULT_CACHE_REUSE_MAX_AGE_DAYS = 1.0
+
+#: Wall-clock age at which a cached catalogue search is refreshed. A day keeps a
+#: repeated run of the same configuration off the search endpoint while still
+#: noticing a launch, a decay or a new alias within a day. ``None`` reuses a
+#: snapshot indefinitely; ``0`` refreshes on every online lookup.
+DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS = 1.0
+
+#: Configuration keys that used to decide where orbital records came from and now
+#: do nothing. Silently ignoring one is worse than removing it: the run succeeds
+#: and quietly stops honouring a setting the user still believes in — so each is
+#: rejected by *presence*, null included, with the migration it needs.
+OBSOLETE_KEYS = {
+    "tle_dir": (
+        "`rfi_sources.tle_satellite.tle_dir` is obsolete. Use `extra_orbit_dir` "
+        "for existing orbit JSON files; use `ORBIT_CACHE_DIR` to relocate the "
+        "managed cache."
+    ),
+    "spacetrack_path": (
+        "`spacetrack_path` is obsolete. SatChecker requires no credentials; "
+        "remove this key."
+    ),
+}
 
 
 class TLEConfigurationError(TLEError, ValueError):
@@ -94,6 +122,34 @@ def validate_age_days(value, name: str) -> Optional[float]:
             f"{name} must be null or a non-negative number of days, got {value!r}"
         )
     return out
+
+
+def validate_bool(value, name: str) -> bool:
+    """Validate a policy switch as a real boolean, never by truthiness.
+
+    ``allow_missing_checksum`` decides whether unverifiable orbital data is
+    accepted and ``offline`` whether the service is contacted at all, so a
+    near-miss value — ``"false"``, ``0``, ``1.0`` — has to be an error rather
+    than being coerced in whichever direction the accident happens to point.
+    """
+    if not isinstance(value, bool):
+        raise TLEConfigurationError(
+            f"{name} must be true or false, got {value!r}"
+        )
+    return value
+
+
+def reject_obsolete_keys(satellites: dict) -> None:
+    """Raise the migration error for any :data:`OBSOLETE_KEYS` that is present.
+
+    By presence, not by value: a ``null`` is still a key someone wrote meaning
+    something by it. Called before the observation is built and before any
+    request goes out, including when satellite simulation is disabled entirely —
+    that is exactly the run where nothing else would ever read the section.
+    """
+    for key, migration in OBSOLETE_KEYS.items():
+        if key in (satellites or {}):
+            raise TLEConfigurationError(migration)
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +275,23 @@ class OrbitConfig:
     extra_orbit_max_age_days: Optional[float] = None
     remote_max_age_days: Optional[float] = DEFAULT_REMOTE_MAX_AGE_DAYS
     cache_reuse_max_age_days: Optional[float] = DEFAULT_CACHE_REUSE_MAX_AGE_DAYS
+    #: Accept TLE lines whose checksum digit is missing, and carry them as
+    #: ``unverified_missing_checksum`` for the life of the record. Strict by
+    #: default, and applied identically to remote acquisition, explicit files and
+    #: frozen replay — a permissive run must not be launderable into a strict one.
+    allow_missing_checksum: bool = False
+    #: Wall-clock freshness of a cached catalogue search; see
+    #: :data:`DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS`.
+    search_cache_max_age_days: Optional[float] = DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS
+    #: Forbid every SatChecker request. Cached searches are reused regardless of
+    #: freshness, and cached orbit records within ``remote_max_age_days`` — the
+    #: hard ceiling still applies, since offline is about reachability and not
+    #: about what an acceptable record is.
+    offline: bool = False
+    #: Directory of a previous run's ``input_data``. When set, its saved NORAD IDs
+    #: and records *are* the selection: no discovery, no cache, no network, no
+    #: visibility reselection and no ``max_n_sat`` truncation.
+    replay_orbit_dir: Optional[str] = None
 
 
 def validate_remote_ages(
@@ -247,14 +320,32 @@ def normalise_orbit_config(satellites: dict) -> OrbitConfig:
     column of ``norad_ids_path``; ``sat_names`` are resolved against SatChecker's
     name index later, by :func:`tabsim.orbit.resolve_names`, because that needs
     the network and this does not.
+
+    ``replay_orbit_dir`` changes what this function reads. A frozen replay's saved
+    IDs are the selection, so the run's own ``norad_ids_path`` is never opened:
+    a replay of a run whose ID file has since moved must still be possible. The
+    run's ``norad_ids``/``sat_names`` are still validated and returned, so the
+    log can say precisely what the replay overrode.
     """
     satellites = satellites or {}
+    reject_obsolete_keys(satellites)
+
+    replay_orbit_dir = satellites.get("replay_orbit_dir") or None
+    extra_orbit_dir = satellites.get("extra_orbit_dir") or None
+    if replay_orbit_dir and extra_orbit_dir:
+        raise TLEConfigurationError(
+            "replay_orbit_dir and extra_orbit_dir must not both be set: their "
+            "source-selection contracts differ. extra_orbit_dir is ordinary "
+            "per-ID precedence within this run's own satellite selection, while "
+            "replay_orbit_dir replaces that selection with a previous run's saved "
+            "one. Letting either win silently would make the other look effective."
+        )
 
     norad_ids = normalise_norad_ids(
         satellites.get("norad_ids"), "tle_satellite.norad_ids"
     )
     ids_path = satellites.get("norad_ids_path")
-    if ids_path:
+    if ids_path and not replay_orbit_dir:
         seen = set(norad_ids)
         norad_ids += [
             nid for nid in read_norad_ids_file(ids_path) if nid not in seen
@@ -271,7 +362,6 @@ def normalise_orbit_config(satellites: dict) -> OrbitConfig:
         satellites.get("remote_max_age_days", DEFAULT_REMOTE_MAX_AGE_DAYS),
         satellites.get("cache_reuse_max_age_days", DEFAULT_CACHE_REUSE_MAX_AGE_DAYS),
     )
-    extra_orbit_dir = satellites.get("extra_orbit_dir") or None
 
     return OrbitConfig(
         norad_ids=norad_ids,
@@ -282,7 +372,47 @@ def normalise_orbit_config(satellites: dict) -> OrbitConfig:
         ),
         remote_max_age_days=remote_max_age,
         cache_reuse_max_age_days=cache_reuse_age,
+        allow_missing_checksum=validate_bool(
+            satellites.get("allow_missing_checksum", False),
+            "tle_satellite.allow_missing_checksum",
+        ),
+        search_cache_max_age_days=validate_age_days(
+            satellites.get(
+                "search_cache_max_age_days", DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS
+            ),
+            "search_cache_max_age_days",
+        ),
+        offline=validate_bool(
+            satellites.get("offline", False), "tle_satellite.offline"
+        ),
+        replay_orbit_dir=str(replay_orbit_dir) if replay_orbit_dir else None,
     )
+
+
+def orbit_cache_dir() -> Path:
+    """Return the managed orbit cache directory, creating it if possible.
+
+    The directory is resolved in priority order:
+
+    1. ``ORBIT_CACHE_DIR`` environment variable (if set).
+    2. The platform user-cache directory (e.g. ``~/.cache/orbit-cache`` on Linux,
+       ``~/Library/Caches/orbit-cache`` on macOS).
+
+    A directory that cannot be created (read-only filesystem, no permission,
+    quota) is *not* an error here: the path is returned regardless, reads then
+    miss and writes are reported and skipped, so a run with a valid fetch is
+    never lost to an unusable cache location.
+
+    Lives here, with the rest of the orbit configuration, because both the record
+    cache in :mod:`tabsim.orbit` and the catalogue-search cache in
+    :mod:`tabsim.satchecker_names` share it.
+    """
+    p = Path(os.environ.get("ORBIT_CACHE_DIR") or user_cache_path("orbit-cache"))
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    return p
 
 
 def observation_epoch_jd(times_jd) -> float:
