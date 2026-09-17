@@ -13,6 +13,7 @@ assertions below are about the satellites being *there*.
 
 import sys
 from datetime import datetime, timezone
+from importlib.resources import files
 from pathlib import Path
 from unittest.mock import patch
 
@@ -24,6 +25,7 @@ from satchecker_client import client
 from satchecker_client.cache import TextOrbitCache, read_legacy_tle_records
 
 from tabsim import orbit
+from tabsim.config import load_config, run_sim_config
 from tabsim.orbit_config import read_norad_ids_file
 from tabsim.scripts import sim_vis
 
@@ -47,6 +49,13 @@ from orbit_helpers import (
 #: ``norad_spec_model`` unset for, so the packaged table is what fills it in.
 SIM_IDS = [ISS_NORAD_ID, GPS_NORAD_ID]
 
+#: The packaged MeerKAT definition the telescope tests below are about. None of
+#: these three values is in ``sim_config_base.yaml``, so each one is evidence
+#: that the named definition was applied.
+TELESCOPE_DIR = Path(str(files("tabsim.data").joinpath("telescopes")))
+PACKAGED_DISH_D = 13.5
+PACKAGED_ELEVATION = 1050.0
+
 
 def stub_records(monkeypatch, tle=None, omm=None):
     """Serve records per endpoint, so one run can mix the two archives."""
@@ -65,13 +74,16 @@ def stub_records(monkeypatch, tle=None, omm=None):
     monkeypatch.setattr(client, "fetch_nearest_omm", server(omm))
 
 
-def tiny_sim_config(path, output_path, **tle_satellite):
+def tiny_sim_config(path, output_path, telescope=None, **tle_satellite):
     """A two-antenna, three-sample, single-channel observation of two satellites.
 
     ``max_ang_sep``/``min_alt`` are wide open so the visibility filter cannot
     change the selection between the run and its replay — the point here is the
     orbital inputs, and a satellite setting near the horizon would otherwise make
     the comparison depend on the filter as well.
+
+    *telescope* overrides the ``MeerKAT``/two-antenna default section, for the
+    tests about how a named telescope definition is applied.
     """
     satellites = {
         "norad_ids": [],
@@ -85,6 +97,7 @@ def tiny_sim_config(path, output_path, **tle_satellite):
     return write_sim_config(
         path,
         tle_satellite=satellites,
+        telescope=dict(telescope or {}),
         observation={
             "start_time_lha": None,
             "start_time_jd": ISS_EPOCH_JD,
@@ -126,6 +139,25 @@ def run_sim_vis(config_path, *args):
     argv = ["sim-vis", "--config", str(config_path), "-o", *args]
     with restored_stdout(), patch.object(sys, "argv", argv):
         return sim_vis.main()
+
+
+def packaged_positions(n_ant=2):
+    """The first *n_ant* antenna positions of the packaged MeerKAT ITRF file."""
+    return np.loadtxt(
+        TELESCOPE_DIR / "MeerKAT.itrf.txt", usecols=(0, 1, 2), max_rows=n_ant
+    )
+
+
+def custom_itrf_file(path, n_ant=2, offset=1000.0):
+    """An antenna file of the run's own, distinguishable from the packaged one.
+
+    Derived from the packaged MeerKAT positions and moved a kilometre along ITRF
+    X, so it is still a plausible array at the site the named definition supplies
+    and an exact comparison says which of the two files was read.
+    """
+    positions = packaged_positions(n_ant) + np.array([offset, 0.0, 0.0])
+    np.savetxt(path, positions)
+    return str(path), positions
 
 
 def spec_model(path, norad_ids, power=CUSTOM_POWER):
@@ -399,6 +431,137 @@ def test_configured_spectral_model_sets_the_simulated_power(tmp_path, monkeypatc
     assert float(ratio) == pytest.approx(
         np.sqrt(CUSTOM_POWER / PACKAGED_POWER), rel=1e-6
     )
+
+
+def test_named_telescope_does_not_replace_a_configured_antenna_file(tmp_path):
+    """Completing a telescope section must not overwrite the part that was set.
+
+    The named definition was applied with ``deep_update`` whenever the section was
+    incomplete — and ``dish_d: null`` is exactly how one asks a named telescope
+    for its diameter, so asking for it replaced the configured antenna file with
+    the packaged ``MeerKAT.itrf.txt``. The run then simulated a different array,
+    and said nothing about it.
+    """
+    itrf_path, positions = custom_itrf_file(tmp_path / "mine.itrf.txt")
+    obs, _ = run_sim_vis(
+        tiny_sim_config(
+            tmp_path / "sim.yaml",
+            tmp_path / "out",
+            telescope={"itrf_path": itrf_path, "dish_d": None},
+        )
+    )
+
+    np.testing.assert_allclose(obs.ITRF.compute(), positions)
+    assert float(obs.dish_d.compute()) == PACKAGED_DISH_D
+
+
+def test_named_telescope_does_not_replace_a_configured_dish_diameter(tmp_path):
+    """...and the mirror case: a configured diameter, geometry from the definition.
+
+    ``dish_d: 25`` with no antenna file became the packaged 13.5, which changes
+    the primary beam and every apparent source amplitude through it.
+    """
+    obs, _ = run_sim_vis(
+        tiny_sim_config(
+            tmp_path / "sim.yaml", tmp_path / "out", telescope={"dish_d": 25.0}
+        )
+    )
+
+    assert float(obs.dish_d.compute()) == 25.0
+    np.testing.assert_allclose(obs.ITRF.compute(), packaged_positions())
+    # elevation is the one field whose own template default is not null, so a
+    # loaded config cannot tell "nothing said" from a deliberate 0 and the
+    # definition's elevation is applied either way.
+    assert float(obs.elevation.compute()) == PACKAGED_ELEVATION
+
+
+def test_named_telescope_does_not_override_the_configured_antenna_frame(tmp_path):
+    """An ENU array is a choice of source, so the packaged ITRF file must not win.
+
+    ``Telescope`` lets ITRF positions replace ENU ones, so filling the
+    definition's ``itrf_path`` in beside a configured ``enu_path`` discards the
+    configured array entirely rather than completing it.
+    """
+    enu = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]])
+    np.savetxt(tmp_path / "mine.enu.txt", enu)
+    obs, _ = run_sim_vis(
+        tiny_sim_config(
+            tmp_path / "sim.yaml",
+            tmp_path / "out",
+            telescope={"enu_path": str(tmp_path / "mine.enu.txt"), "dish_d": None},
+        )
+    )
+
+    np.testing.assert_allclose(obs.ENU.compute(), enu)
+    assert not np.allclose(obs.ITRF.compute(), packaged_positions())
+
+
+def test_shared_designator_candidates_are_not_promised_to_be_modelled(
+    tmp_path, monkeypatch, capsys
+):
+    """Two candidates under one OBJECT_ID, both resolving, and ``max_n_sat: 1``.
+
+    Discovery said a shared designator is "simulated once per number that
+    resolves", but it runs before the visibility cut, the spectral models and
+    ``max_n_sat`` have had their say. Here the last of those models one of the two
+    numbers that did resolve, so the promise was simply untrue.
+    """
+    serve_search(
+        monkeypatch,
+        {"TWIN": [search_row(nid, "TWIN SAT", object_id="2024-100A") for nid in SIM_IDS]},
+    )
+    stub_records(
+        monkeypatch, tle={nid: tle_record_at(nid, ISS_EPOCH_JD) for nid in SIM_IDS}
+    )
+
+    obs, _ = run_sim_vis(
+        tiny_sim_config(
+            tmp_path / "sim.yaml", tmp_path / "out", sat_names=["twin"], max_n_sat=1
+        )
+    )
+
+    output = capsys.readouterr().out
+    assert "candidate NORAD catalogue ID" in output
+    assert "may be modelled separately" in output
+    assert "simulated once per number that resolves" not in output
+    # Both numbers resolved to an acceptable record; one of them was modelled.
+    assert final_ids(obs) == [ISS_NORAD_ID]
+    assert obs.n_rfi_tle_satellite == 1
+
+
+def test_replay_logs_an_ignored_numpy_id_array(tmp_path, monkeypatch, capsys):
+    """An ignored ``norad_ids`` array must be reportable, not truth-tested.
+
+    The settings a replay overrides are logged raw, as written, precisely because
+    the replay never reads them — but the log filtered them with ``if value``, and
+    a NumPy array of IDs, which every other path here accepts, raises the
+    ambiguous-truth-value error there instead. Reported through
+    ``run_sim_config`` directly: a YAML file cannot carry a NumPy array.
+    """
+    replay_dir = write_replay_dir(
+        tmp_path / "input_data",
+        SIM_IDS,
+        [tle_record_at(nid, ISS_EPOCH_JD) for nid in SIM_IDS],
+    )
+    monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
+    monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
+    sim_config = load_config(
+        tiny_sim_config(
+            tmp_path / "replay.yaml",
+            tmp_path / "out",
+            replay_orbit_dir=str(replay_dir),
+        ),
+        config_type="sim",
+    )
+    sim_config["rfi_sources"]["tle_satellite"]["norad_ids"] = np.array(SIM_IDS)
+
+    with restored_stdout():
+        obs, _ = run_sim_config(sim_config=sim_config)
+
+    output = capsys.readouterr().out
+    assert final_ids(obs) == SIM_IDS
+    assert "satellite selection is overridden" in output
+    assert "norad_ids=" in output
 
 
 def test_replay_runs_with_a_deleted_original_id_file(tmp_path, monkeypatch):

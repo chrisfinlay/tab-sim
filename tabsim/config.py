@@ -997,6 +997,49 @@ def check_telescope_defintion(tel_def: dict):
         return False
 
 
+def apply_telescope_definition(tel: dict) -> dict:
+    """Complete the telescope section from its named definition, beneath what is set.
+
+    ``deep_update`` was the wrong direction here: it applied the packaged
+    definition *over* the configuration. ``dish_d: null`` is exactly how one asks
+    a named telescope for its diameter, so asking for it replaced a configured
+    ``itrf_path`` with the packaged antenna file; and configuring ``dish_d: 25``
+    without an antenna file replaced the 25 with the packaged 13.5. Either
+    silently simulates a different array or a different primary beam. Only what
+    the configuration left unset is taken from the definition.
+
+    "Unset" is ``None``, which is what every field a definition supplies is in
+    ``sim_config_base.yaml`` — so a template default and an absent key are the
+    same state here, and both mean unset. The two fields where that does not hold
+    are handled explicitly:
+
+    * ``elevation``'s own template default is ``0``, not ``null``, and no loaded
+      configuration can tell that apart from a deliberate ``0``. It is treated as
+      unset, because a named telescope's own elevation is the better of the two
+      answers; a run that means sea level at a named site says so through a
+      telescope definition complete enough never to reach this function.
+    * ``name`` is the key that *selected* the definition, so the definition's
+      spelling of it is the canonical form of the same value rather than an
+      override of a different one.
+
+    The antenna geometry is a choice of source, not a set of independent fields:
+    the packaged ``itrf_path`` is applied only when the configuration named
+    neither an ``enu_path`` nor an ``itrf_path`` of its own, since
+    :class:`~tabsim.dask.observation.Telescope` lets ITRF positions replace ENU
+    ones and would otherwise discard a configured ENU array rather than complete
+    it.
+    """
+    tel_def = get_telescope_definitions(tel["name"])
+    if tel.get("enu_path") or tel.get("itrf_path"):
+        tel_def.pop("itrf_path", None)
+    for key, value in tel_def.items():
+        if key == "name" or tel.get(key) is None:
+            tel[key] = value
+        elif key == "elevation" and not tel[key]:
+            tel[key] = value
+    return tel
+
+
 def run_sim_config(
     sim_config: Optional[dict] = None,
     config_path: Optional[str] = None,
@@ -1047,9 +1090,11 @@ def _run_sim_config(
     # where nothing downstream would ever read the section.
     reject_obsolete_keys(sim_config["rfi_sources"]["tle_satellite"])
 
+    # Only when the section cannot stand on its own, as before: a telescope that
+    # is fully specified in the configuration keeps working under a name tab-sim
+    # has never heard of, which a lookup on every run would refuse.
     if not check_telescope_defintion(sim_config["telescope"]):
-        tel_def = get_telescope_definitions(sim_config["telescope"]["name"])
-        sim_config["telescope"] = deep_update(sim_config["telescope"], tel_def)
+        sim_config["telescope"] = apply_telescope_definition(sim_config["telescope"])
 
     obs = load_obs(sim_config)
     add_astro_sources(obs, sim_config)
