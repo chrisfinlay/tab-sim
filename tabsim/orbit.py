@@ -572,10 +572,14 @@ class _Reporter:
     def finish(self, resolution: OrbitResolution) -> None:
         """What the run ended up with, which no single event can say."""
         self._report_extra()
+        # A result, so it needs a request: offline, the same records are retained
+        # because nothing was asked, which the skipped-refresh line above already
+        # says. Printing this beside it reports on requests that never went out.
         retained = [
             nid
             for nid in self.refresh_required
-            if nid in resolution.resolved
+            if not resolution.offline
+            and nid in resolution.resolved
             and resolution.resolved[nid].source == _SRC_CACHE
         ]
         if retained:

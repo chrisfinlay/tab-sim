@@ -1268,6 +1268,37 @@ def test_named_exclusion_requires_completed_acquisition_evidence(case, monkeypat
 # Reporting
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("offline", [False, True], ids=["online", "offline"])
+def test_the_refresh_summary_reports_only_requests_that_were_made(
+    offline, monkeypatch, isolated_cache, capsys
+):
+    """"SatChecker did not improve N" is a result, so it needs a request.
+
+    Offline, the same cached record is retained for a different reason: nothing
+    was asked. The line that says so is the skipped-refresh count, and printing
+    an acquisition *result* beside it reports on requests that were never sent.
+    """
+    epoch_jd = ISS_EPOCH_JD + 2.0  # inside the 3 d ceiling, outside the 1 d reuse
+    TextOrbitCache(isolated_cache).store(
+        ISS_NORAD_ID, pd.DataFrame([tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD)])
+    )
+    nearest_tle, nearest_omm = stub_endpoints(monkeypatch)  # both archives empty
+
+    resolution = orbit.resolve_orbits([ISS_NORAD_ID], epoch_jd, offline=offline)
+    out = capsys.readouterr().out
+
+    assert resolution.resolved[ISS_NORAD_ID].source == LABEL_CACHE
+    summary = "SatChecker did not improve 1 ID(s)"
+    if offline:
+        assert nearest_tle.calls == [] and nearest_omm.calls == []
+        assert "offline: 1 ID(s) would have been refreshed" in out
+        assert summary not in out
+    else:
+        assert nearest_tle.requested == [ISS_NORAD_ID]
+        assert "offline:" not in out
+        assert summary in out
+
+
 @pytest.mark.parametrize("detail", [False, True], ids=["truncated", "detailed"])
 def test_client_refresh_failures_produce_tabsim_summary(detail, monkeypatch, capsys):
     """A failed refresh is not fatal, and the run is not quite the one asked for.
