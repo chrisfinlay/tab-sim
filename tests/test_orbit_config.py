@@ -1,12 +1,10 @@
 """Orbit configuration: the new policy keys, and the ones that are now obsolete.
 
-A configuration key that used to change which satellites a run modelled and now
-does nothing is worse than a removed one: the run succeeds, the log says nothing,
-and the simulation quietly stops honouring a setting the user still believes in.
-So ``tle_dir`` and ``spacetrack_path`` have to be rejected by *presence*, before
-the observation is built and before any request goes out — including in a run
-that models no satellites at all, since that is exactly the run where nothing
-else would ever look at the section.
+A key that used to change which satellites a run modelled and now does nothing is
+worse than a removed one: the run succeeds and quietly stops honouring a setting
+the user still believes in. So ``tle_dir`` and ``spacetrack_path`` are rejected by
+*presence*, before the observation is built and before any request goes out —
+including in a run that models no satellites, where nothing else reads the section.
 """
 
 from __future__ import annotations
@@ -69,9 +67,8 @@ class TestObsoleteKeys:
     ):
         """...and they stop the run before it builds anything or asks anything.
 
-        ``max_n_sat: 0`` disables satellite simulation entirely, which is the one
-        configuration where nothing downstream would ever read the section — so
-        it is the case that has to be checked.
+        ``max_n_sat: 0`` disables satellite simulation entirely, the one
+        configuration where nothing downstream would ever read the section.
         """
         config_path = write_sim_config(
             tmp_path / "sim.yaml",
@@ -90,11 +87,9 @@ class TestObsoleteKeys:
     def test_a_failed_run_restores_stdout(self, tmp_path, monkeypatch):
         """A fatal error must not leave the process writing into that run's log.
 
-        ``run_sim_config`` replaces ``sys.stdout`` with a tee into
-        ``log_sim_*.txt``, and the configuration and orbit checks can now raise
-        before a single visibility is computed. Deliberately *without* the tests'
-        ``restored_stdout`` wrapper: this is the guard that it is not needed, and
-        that a caller of ``sim-vis`` is not left with a closed file for a stdout.
+        ``run_sim_config`` tees ``sys.stdout`` into ``log_sim_*.txt`` and the
+        checks can raise before a visibility is computed. Deliberately *without*
+        ``restored_stdout``: this is the guard that it is not needed.
         """
         config_path = write_sim_config(
             tmp_path / "sim.yaml", tle_satellite={"tle_dir": "gone"}
@@ -123,10 +118,8 @@ class TestNewSettings:
     def test_non_boolean_policy_values_are_rejected(self, key, value):
         """``allow_missing_checksum: 0`` must not mean "on" by truthiness.
 
-        These two settings decide whether unverifiable orbital data is accepted
-        and whether the service is contacted at all. A near-miss value has to be
-        an error rather than being coerced in whichever direction the accident
-        happens to point.
+        These decide whether unverifiable orbital data is accepted and whether the
+        service is contacted, so a near-miss value must be an error.
         """
         with pytest.raises(TLEConfigurationError, match=key):
             normalise_orbit_config({key: value})
@@ -163,10 +156,8 @@ class TestReplaySelection:
     def test_replay_selection_precedes_original_id_file_loading(
         self, tmp_path, monkeypatch
     ):
-        """A replay does not read the run's own satellite selection at all.
-
-        The saved IDs are authoritative, so an ID file that has since moved or
-        been deleted must not stop a replay of the run that used it.
+        """A replay does not read the run's own satellite selection at all: an ID
+        file that has since moved must not stop a replay of the run that used it.
         """
         replay_dir = tmp_path / "input_data"
         replay_dir.mkdir()
@@ -197,10 +188,8 @@ class TestReplaySelection:
     ):
         """A value a replay never reads cannot be a reason to refuse the run.
 
-        Validating the original names and IDs "so the log can say what was
-        overridden" made the replay depend on the selection it exists to replace:
-        a malformed leftover in the config stopped a run that would never have
-        looked at it. The raw values can be logged without being validated.
+        Validating the original names and IDs so the log could report them made a
+        malformed leftover stop a run that would never have looked at it.
         """
         replay_dir = tmp_path / "input_data"
         replay_dir.mkdir()
@@ -217,9 +206,8 @@ class TestReplaySelection:
     def test_replay_and_extra_orbit_dir_are_rejected_together(self, tmp_path):
         """Their source-selection contracts differ, so the pair has no meaning.
 
-        ``extra_orbit_dir`` is ordinary per-ID precedence within the run's own
-        selection; ``replay_orbit_dir`` replaces that selection. Silently letting
-        one win would make the other look effective.
+        ``extra_orbit_dir`` is per-ID precedence within the run's own selection;
+        ``replay_orbit_dir`` replaces that selection.
         """
         with pytest.raises(TLEConfigurationError, match="replay_orbit_dir"):
             normalise_orbit_config(
@@ -234,9 +222,8 @@ class TestReplaySelection:
     ):
         """A replay of a run that limited itself is still the saved selection.
 
-        ``max_n_sat`` was an acquisition-time limit, and the startup guard that
-        skips satellite handling entirely when it is zero would otherwise discard
-        a non-empty replay.
+        The startup guard that skips satellite handling when ``max_n_sat`` is zero
+        would otherwise discard a non-empty replay.
         """
         from tabsim import orbit
 

@@ -1,15 +1,13 @@
 """Resolution policy, propagation and configuration validation for orbit records.
 
-Everything here runs offline. The :mod:`satchecker_client` dependency is covered
-by its own repository's suite; what these tests exercise is the tabsim side of
-the seam — the source precedence, checksum and age policy in :mod:`tabsim.orbit`,
-the epoch-aware name discovery and search caching in
-:mod:`tabsim.satchecker_names`, the frozen-replay contract, and the propagation of
-both record kinds in :mod:`tabsim.tle`.
+Everything here runs offline and is about the tabsim side of the seam: source
+precedence, checksum and age policy in :mod:`tabsim.orbit`, epoch-aware name
+discovery and search caching in :mod:`tabsim.satchecker_names`, the frozen-replay
+contract, and the propagation of both record kinds in :mod:`tabsim.tle`. The
+client's own machinery is covered by its repository's suite.
 
 The network-touching seams are ``client.fetch_nearest_tle`` /
-``fetch_nearest_omm`` for records and ``client._http_get`` for the catalogue
-search; each test that needs one stubs it, and ``tests/conftest.py`` fails any
+``fetch_nearest_omm`` and ``client._http_get``; ``tests/conftest.py`` fails any
 test that reaches past them.
 """
 
@@ -121,9 +119,8 @@ def select_visible(
 def reject_json_constant(name):
     """Refuse the non-standard JSON literals ``json`` accepts by default.
 
-    ``json.loads`` reads a bare ``NaN`` or ``Infinity`` happily, so parsing a
-    replay file with the defaults cannot show that it contains none. Anything that
-    is not another Python JSON parser would reject the file outright.
+    ``json.loads`` reads a bare ``NaN`` happily, so parsing with the defaults
+    cannot show a replay file contains none.
     """
     raise AssertionError(f"replay file carries the non-standard JSON literal {name}")
 
@@ -143,9 +140,8 @@ def write_replay_dir(directory, norad_ids, records):
 def forbid_every_orbit_source(monkeypatch, tmp_path):
     """Make every way of obtaining a record other than the replay file fail.
 
-    A replay that quietly fell back to the cache or the service would still
-    produce a plausible simulation, just not the one it claims to reproduce — so
-    the guard has to *raise* rather than return nothing.
+    Raising rather than answering nothing: a replay that quietly fell back to the
+    cache would still produce a plausible simulation, and the test would pass.
     """
     monkeypatch.setenv("ORBIT_CACHE_DIR", str(tmp_path / "empty-cache"))
     monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
@@ -156,26 +152,15 @@ def forbid_every_orbit_source(monkeypatch, tmp_path):
     )
 
 
-# ---------------------------------------------------------------------------
-# Propagation
-# ---------------------------------------------------------------------------
-
 class TestPropagation:
     def test_tle_and_omm_paths_agree(self):
         """The same elements propagate identically whichever format carries them.
 
-        Nothing in the OMM branch of ``earth_satellite`` is checksum- or
-        parser-protected, so a wrong unit there would yield a plausible-looking
-        orbit that is simply the wrong one. The guard is this direct comparison:
-        the OMM record is built from the *same* TLE it is compared against, so a
-        degrees-for-radians or rev/day-for-rad/min slip would show up as
-        kilometres.
-
-        The residual is bounded at 1 m rather than at zero because an OMM
-        ``EPOCH`` is an ISO 8601 string, so the epoch survives the round trip
-        only to microsecond resolution — ~15 us here, which is ~0.1 m of
-        along-track motion at 7.7 km/s. Every orbital element transfers exactly.
+        The OMM record is built from the *same* TLE it is compared against, so a
+        degrees-for-radians or rev/day-for-rad/min slip shows up as kilometres.
         """
+        # 1 m, not zero: an ISO 8601 EPOCH round-trips only to microseconds,
+        # ~15 us here, which is ~0.1 m of along-track motion at 7.7 km/s.
         records = [tle_record(), omm_record_from_tle()]
         times_jd = ISS_EPOCH_JD + np.linspace(0.0, 0.5, 25)
 
@@ -221,10 +206,8 @@ class TestPropagation:
     def test_derived_fixture_lines_are_checksum_valid(self):
         """The fixture builder must produce lines the production parser accepts.
 
-        Every historical-epoch test below rests on this: a fixture whose checksum
-        was left stale would be rejected by :mod:`satchecker_client`, and the test
-        using it would then "fail" for a reason that has nothing to do with the
-        behaviour under test.
+        Every historical-epoch test rests on this: a stale checksum would fail
+        those tests for a reason unrelated to the behaviour under test.
         """
         from satchecker_client.tle_parse import tle_epoch_jd, validate_tle_pair
 
@@ -233,10 +216,6 @@ class TestPropagation:
         assert validate_tle_pair(line1, line2) == GPS_NORAD_ID
         assert tle_epoch_jd(line1) == pytest.approx(epoch, abs=1e-7)
 
-
-# ---------------------------------------------------------------------------
-# Source precedence and age policy
-# ---------------------------------------------------------------------------
 
 class TestSourcePrecedence:
     def test_extra_dir_wins_and_suppresses_the_request(self, tmp_path, monkeypatch):
@@ -297,10 +276,8 @@ class TestSourcePrecedence:
     ):
         """An explicit source we cannot read must name its path, not fall through.
 
-        Silently skipping it is the worst of the options: the run continues, the
-        service is asked instead, and the simulation is built from records the
-        user explicitly said not to use — with nothing in the log to say the file
-        they pointed at was never read.
+        Skipping it silently builds the run from records the user said not to
+        use, with nothing in the log about the file they pointed at.
         """
         stub_service(monkeypatch, {ISS_NORAD_ID: tle_record()})
         broken = tmp_path / "used_orbits.json"
@@ -318,10 +295,8 @@ class TestSourcePrecedence:
     ):
         """A row whose NORAD_CAT_ID is not an ID stops the run naming the file.
 
-        Coercing identities before validating them made the row disappear: 25544.5
-        became NaN, the filter dropped it with no diagnostic at all, and the
-        service record the user's file existed to replace was substituted for it.
-        An int() cast is worse still — it would truncate to a different
+        Coercing before validating dropped the row silently and substituted the
+        service record it existed to replace; ``int()`` truncates to another
         satellite's catalogue number.
         """
         stub_service(
@@ -376,10 +351,8 @@ class TestSourcePrecedence:
     ):
         """A successful response further from the observation must not displace it.
 
-        The rule is strictly fresher, not most recently seen. A service that
-        answers a refresh with a record further away than the cached one would
-        otherwise quietly make the simulation worse than it already was, and the
-        log would report a successful fetch.
+        The rule is strictly fresher, not most recently seen; otherwise a refresh
+        quietly makes the simulation worse and the log reports a successful fetch.
         """
         epoch_jd = ISS_EPOCH_JD + 2.0
         TextOrbitCache(isolated_cache).store(
@@ -414,10 +387,9 @@ class TestSourcePrecedence:
     def test_strict_response_is_requested_from_both_endpoints(self, monkeypatch):
         """Every nearest-record request must opt in to strict response parsing.
 
-        Without it an HTTP-200 error envelope — which is how SatChecker has been
-        observed to report its own failures — normalises to an empty frame, and
-        an outage becomes "this satellite has no record": the satellite is
-        dropped from the simulation and the log says nothing was available.
+        Without it an HTTP-200 error envelope — how SatChecker reports its own
+        failures — normalises to an empty frame and an outage becomes "this
+        satellite has no record".
         """
         stale = tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD - 40.0)
         tle_calls, omm_calls = [], []
@@ -467,9 +439,7 @@ class TestSourcePrecedence:
         """The fallback is for an unusable answer, not a second opinion.
 
         Selection is *not* globally nearest across both archives: the epoch picks
-        one, and the other is consulted only when the first has nothing
-        acceptable. One request per satellite in the common case is what keeps a
-        constellation-sized run affordable for a courtesy service.
+        one, and the other is consulted only when the first has nothing usable.
         """
         omm_calls = []
 
@@ -575,10 +545,8 @@ class TestCoverage:
     ):
         """"We could not find out" is not "there is nothing there".
 
-        A named satellite whose record could not be *obtained* used to be warned
-        about and dropped, so a SatChecker outage produced a complete-looking
-        observation with no satellite RFI in it — indistinguishable from a
-        correct simulation of a quiet sky. Both routes now stop.
+        A named satellite whose record could not be obtained used to be dropped,
+        so an outage produced a complete-looking observation with no RFI in it.
         """
         norad_id = 7001
         if failure == "transport":
@@ -620,13 +588,9 @@ class TestCoverage:
     ):
         """Through the real endpoint wrappers: an error envelope is not an empty reply.
 
-        SatChecker has been observed reporting its own failures with HTTP 200 and
-        an ``error`` field, which the lenient reading normalises to an empty frame
-        — so the named route would exclude the satellite and the run would finish
-        without it. Every other test here stubs ``fetch_nearest_tle`` itself and
-        records the ``strict_response`` argument; this one goes through the real
-        wrapper from the transport up, so what is under test is that the opt-in
-        reaches the parser and changes the answer.
+        Every other test stubs ``fetch_nearest_tle`` and records
+        ``strict_response``; this one goes through the real wrapper from the
+        transport up, so the opt-in is shown to reach the parser.
         """
         norad_id = 7002
 
@@ -649,8 +613,8 @@ class TestCoverage:
     ):
         """Nothing there, too far away, and could not ask are three answers.
 
-        Only the third is a reason to re-run unchanged, so collapsing them into
-        one message costs the user the only remedy that works.
+        Only the third is a reason to re-run unchanged, so collapsing them costs
+        the user the only remedy that works.
         """
         absent, over_age = 7001, 7002
         stub_service(
@@ -700,9 +664,8 @@ class TestCoverage:
     ):
         """A failed refresh must be recorded even when the run can continue.
 
-        The cached record is within the hard ceiling, so the simulation is
-        legitimate — but it is not the simulation the user asked for, and the log
-        is the only place that can say so.
+        The cached record is within the hard ceiling, so the run is legitimate but
+        not the one asked for, and the log is the only place that can say so.
         """
         TextOrbitCache(isolated_cache).store(
             ISS_NORAD_ID, pd.DataFrame([tle_record()])
@@ -733,9 +696,7 @@ class TestCoverage:
         """The warning has to name the record the run actually continued with.
 
         An ID rescued by the other archive is bookkept as a failed refresh, and
-        every one of those was reported as "continuing with the acceptable cached
-        record(s) already held" — with an empty cache and a record that had just
-        come back from SatChecker.
+        was reported as continuing from a cached record the run never held.
         """
 
         def failing_tle(norad_id, _epoch_jd, *, strict_response=False):
@@ -761,8 +722,7 @@ class TestCoverage:
         """``TABSIM_TLE_LOG_DETAIL=1`` has to reach the refresh summary too.
 
         It sliced to the first twelve whatever the switch said, so the one thing
-        that exists to recover a full per-satellite listing could not recover
-        this one.
+        that recovers a full per-satellite listing could not recover this one.
         """
         norad_ids = list(range(7500, 7513))  # thirteen: one over the grouping limit
         cache = TextOrbitCache(isolated_cache)
@@ -851,9 +811,8 @@ class TestCoverage:
     ):
         """A cached search says nothing about why an uncached orbit is missing.
 
-        Offline discovery and offline record acquisition are separate
-        guarantees, so a run that has the first and not the second must say it
-        ran out of local state — not that SatChecker has no record.
+        A run with offline discovery but not offline acquisition must say it ran
+        out of local state, not that SatChecker has no record.
         """
         norad_id = 7001
         TextOrbitCache(isolated_cache).store_search(
@@ -877,11 +836,8 @@ class TestCoverage:
     ):
         """An over-age local record is not evidence that nothing closer exists.
 
-        Offline, an age rejection excluded the named satellite as though the
-        catalogue had been asked and had nothing near the observation. Nothing was
-        asked: a ten-day-old cached record says only that this machine holds a
-        ten-day-old record. The exclusion made a satellite-free simulation look
-        like a legitimate answer, which is what offline running must never do.
+        Nothing was asked: a ten-day-old cached record says only that this machine
+        holds one, so excluding the satellite fakes a legitimate quiet sky.
         """
         norad_id = 7003
         cache = TextOrbitCache(isolated_cache)
@@ -931,11 +887,9 @@ class TestCoverage:
     def test_historical_epoch_is_sent_unchanged(self, monkeypatch, epoch_jd):
         """Past observations are resolved at their own epoch, not at today's.
 
-        Both halves matter. The request has to carry the observation epoch, or
-        SatChecker answers with a record from the wrong decade; and the catalogue
-        filtering has to use it too, or a satellite that decayed between the
-        observation and now is silently dropped from a historical run while one
-        launched since is silently added.
+        Both halves matter: the request carries the observation epoch, and the
+        catalogue filter uses it too, or a decayed satellite is dropped from a
+        historical run while one launched since is added.
         """
         current, launched_later = 7101, 7102
         calls = stub_service(
@@ -968,10 +922,6 @@ class TestCoverage:
         assert resolution.resolved[current].age_days < 1e-3
 
 
-# ---------------------------------------------------------------------------
-# Name discovery and the shared search cache
-# ---------------------------------------------------------------------------
-
 def _messages(log_lines, capsys):
     """Everything a lookup reported, whichever channel it used."""
     return "\n".join(log_lines) + "\n" + capsys.readouterr().out
@@ -981,10 +931,8 @@ class TestNameDiscovery:
     def test_names_use_public_substring_search(self, monkeypatch):
         """Discovery goes through the package's public search, nothing private.
 
-        tabsim held its own copy of the client's private transport helper and its
-        own response parser, which is how a malformed reply became "no satellite
-        matches this name". Using the public wrapper is what makes the client's
-        envelope checks apply here, and is the only seam a test can stub.
+        A private copy of the transport and parser is how a malformed reply
+        became "no satellite matches this name".
         """
         calls = serve_search(
             monkeypatch,
@@ -1011,7 +959,7 @@ class TestNameDiscovery:
         """Which satellites existed is a question about the observation's date.
 
         Filtering on "has a decay date at all" answers a different question, and
-        answers it wrongly in both directions for any epoch that is not today.
+        wrongly in both directions for any epoch that is not today.
         """
         rows = [
             search_row(1001, "THING A", launch_date="2000-01-01",
@@ -1039,10 +987,8 @@ class TestNameDiscovery:
     def test_alias_dates_are_combined_before_id_deduplication(self, monkeypatch):
         """One satellite's alias rows need not agree; together they are the evidence.
 
-        A null or later launch date on one alias row means that row does not say,
-        not that the satellite had not launched. De-duplicating by ID first and
-        reading the surviving row's dates therefore rules out satellites the
-        catalogue never ruled out.
+        A null or later launch date on one row means that row does not say, so
+        de-duplicating first rules out satellites the catalogue never ruled out.
         """
         first_query = [
             search_row(2001, "SAT X", object_id="1998-067A",
@@ -1068,9 +1014,8 @@ class TestNameDiscovery:
     def test_same_object_under_two_ids_is_not_collapsed(self, monkeypatch):
         """Two catalogue numbers for one object are two candidates, not one.
 
-        Nothing in the response says which number is current, so guessing an
-        identity merge would silently drop a satellite. The ambiguity is reported
-        instead.
+        Nothing says which number is current, so an identity merge would silently
+        drop a satellite; the ambiguity is reported instead.
         """
         rows = [
             search_row(61608, "TWIN SAT", object_id="2024-100A"),
@@ -1123,14 +1068,8 @@ class TestNameDiscovery:
         """The warning is issued at discovery, so it can only speak of candidates.
 
         Either number may still fail age coverage and be excluded, as one does
-        here. Saying then and there that both are kept as distinct satellites and
-        "if they are one object it is modelled twice" describes a resolution that
-        has not happened yet, and in this run does not happen. What the warning
-        does say is asserted, not only what it no longer says: the whole point is
-        that the replacement describes candidates and a selection that may still
-        drop one of them — see
-        ``test_sim-vis.py::test_shared_designator_candidates_are_not_promised_to_be_modelled``
-        for the case where the selection does.
+        here, so what the warning says is asserted as well as what it no longer
+        says.
         """
         rows = [
             search_row(61608, "TWIN SAT", object_id="2024-100A"),
@@ -1166,9 +1105,8 @@ class TestNameDiscovery:
     ):
         """The whole catalogue result is cached, not the IDs it boiled down to.
 
-        The epoch filter is applied per observation, so a snapshot reduced to one
-        epoch's candidates could not answer a second observation — and the alias
-        rows are the evidence the launch/decay combination rests on.
+        A snapshot reduced to one epoch's candidates could not answer a second
+        observation, and the alias rows are the launch/decay evidence.
         """
         rows = [
             search_row(24876, "NAVSTAR 43 (USA 132)", object_id="1997-035A",
@@ -1231,9 +1169,8 @@ class TestNameDiscovery:
     ):
         """A refreshed search replaces the old one; it is not merged into it.
 
-        A satellite absent from the new result is absent from the catalogue as it
-        stands, and keeping it because an older search saw it would resurrect
-        exactly the rows the refresh was for.
+        Keeping a satellite because an older search saw it would resurrect exactly
+        the rows the refresh was for.
         """
         from tabsim import satchecker_names
 
@@ -1279,9 +1216,9 @@ class TestNameDiscovery:
     ):
         """A stale snapshot is better than no satellites, if the log says so.
 
-        The warning has to carry enough to judge the result: which query, when it
-        was fetched, how old that makes it, how many rows it holds, and why the
-        refresh failed. A cached empty result is a valid answer too.
+        The warning carries which query, when it was fetched, how old that makes
+        it, how many rows it holds and why the refresh failed. A cached empty
+        result is a valid answer too.
         """
         from tabsim import satchecker_names
 
@@ -1321,8 +1258,7 @@ class TestNameDiscovery:
         """``search_cache_max_age_days: 0`` refreshes, however new the snapshot is.
 
         Not "reuse anything younger than zero days", which a snapshot fetched this
-        instant satisfies: the setting exists to say *always ask*, and the run has
-        to use what comes back.
+        instant satisfies: the setting says *always ask*.
         """
         from tabsim import satchecker_names
 
@@ -1380,8 +1316,8 @@ class TestNameDiscovery:
     def test_search_failure_without_snapshot_is_fatal(self, monkeypatch, error):
         """With nothing cached, a failed search is not an unmatched name.
 
-        Reporting it as one drops every satellite the query would have selected
-        and says the configuration was wrong.
+        Reporting it as one drops every satellite the query selects and blames the
+        configuration.
         """
         serve_search(monkeypatch, {"THING": error})
 
@@ -1493,9 +1429,8 @@ class TestNameDiscovery:
     def test_malformed_search_is_not_empty_success(self, monkeypatch, payload):
         """A reply we cannot read is not a catalogue with nothing in it.
 
-        Every lenient way of reading a broken envelope ends identically — as a
-        search that matched nothing — which drops every satellite the query
-        selected while reporting a configuration problem.
+        Every lenient reading of a broken envelope ends as a search that matched
+        nothing, which drops satellites while reporting a configuration problem.
         """
         serve_raw_search(monkeypatch, payload)
 
@@ -1507,10 +1442,9 @@ class TestNameDiscovery:
     ):
         """A constellation-sized query is costed honestly and kept whole.
 
-        Catalogue rows are not satellites — a satellite appears once per alias —
-        so a warning phrased in rows misstates the request count by a factor of
-        two here. And nothing may be capped: a silent truncation would model a
-        subset of the RFI the user asked for.
+        A satellite appears once per alias, so a warning phrased in rows misstates
+        the request count twofold here; and a silent cap would model a subset of
+        the RFI asked for.
         """
         unique_ids = list(range(80000, 80501))
         rows = []
@@ -1553,9 +1487,8 @@ class TestNameDiscovery:
     def test_valid_empty_search_is_not_fatal(self, monkeypatch):
         """A name the catalogue really does not know contributes nothing.
 
-        This is the one search outcome that is not an error: there is no
-        satellite for a record to be missing for. A *failed* search is a
-        different thing and now stops the run.
+        The one search outcome that is not an error: there is no satellite for a
+        record to be missing for.
         """
         serve_search(monkeypatch, {"NOSUCHSAT": []})
 
@@ -1563,10 +1496,6 @@ class TestNameDiscovery:
             ["nosuchsat"], ISS_EPOCH_JD, log=lambda *_: None
         ) == []
 
-
-# ---------------------------------------------------------------------------
-# Checksum policy
-# ---------------------------------------------------------------------------
 
 def damaged_record(norad_id, epoch_jd, damage):
     """A TLE record with the checksum digit missing from the named line(s)."""
@@ -1587,9 +1516,8 @@ class TestChecksumPolicy:
     ):
         """One policy for every route a record can arrive by.
 
-        A default that rejects checksum-less lines remotely and accepts them from
-        a file is the worst combination: the strictness is advertised, and the
-        way around it is to save the record once.
+        Rejecting checksum-less lines remotely and accepting them from a file
+        advertises a strictness whose workaround is to save the record once.
         """
         norad_id = 7201
         record = damaged_record(norad_id, ISS_EPOCH_JD, damage)
@@ -1617,11 +1545,9 @@ class TestChecksumPolicy:
     ):
         """A record marked unverified stays unverified however well its lines parse.
 
-        This is the laundering case, and the only one where provenance is doing
-        work no current evidence could: these lines carry correct checksum digits,
-        so every check passes on what the record holds *now*. What it says is that
-        nothing ever verified the digits its source omitted, which saving and
-        re-reading cannot change.
+        The laundering case: these lines carry correct checksum digits, so every
+        check passes on what the record holds now. The status says nothing ever
+        verified the digits its source omitted.
         """
         norad_id = 7301
         record = tle_record_at(norad_id, ISS_EPOCH_JD)
@@ -1667,9 +1593,8 @@ class TestChecksumPolicy:
     def test_verified_records_say_so(self, monkeypatch):
         """The status is recorded for good records too, not only for bad ones.
 
-        An absent status could mean either "verified" or "written before the
-        field existed", which is exactly the ambiguity a later reader must not
-        resolve in favour of trust.
+        An absent status could mean "verified" or "written before the field
+        existed", and a later reader must not resolve that in favour of trust.
         """
         stub_service(monkeypatch, {ISS_NORAD_ID: tle_record()})
 
@@ -1685,10 +1610,8 @@ class TestChecksumPolicy:
     ):
         """A permissive run must be replayable, and only with the same permission.
 
-        Checksum-less records are deliberately kept out of the shared cache, so
-        the saved run records are the *only* way such a run can be reproduced
-        offline. Replaying them strictly has to fail, and has to say which
-        setting would allow it.
+        Checksum-less records stay out of the shared cache, so the saved run
+        records are the only way such a run reproduces offline.
         """
         norad_id = 7202
         record = damaged_record(norad_id, ISS_EPOCH_JD, "both")
@@ -1728,9 +1651,7 @@ class TestChecksumPolicy:
         """The shared cache stays readable, and honest, for every other consumer.
 
         Older clients reject a whole cache file on meeting a line they cannot
-        validate, and tabascal's strict default must not be undermined by
-        whatever tabsim was allowed to accept. So the record is used and saved
-        with the run, and the cache is left as it was.
+        validate, so the record is used and saved with the run instead.
         """
         norad_id = ISS_NORAD_ID
         cache = TextOrbitCache(isolated_cache)
@@ -1766,10 +1687,8 @@ class TestChecksumPolicy:
     def test_local_backslash_repair_reaches_propagator(self, monkeypatch, tmp_path):
         """A repaired line must be repaired everywhere, not merely tolerated.
 
-        The archive's stray backslash is accepted because the checksum still
-        verifies once it is stripped — but if only the validator strips it, the
-        defective line is what gets propagated, written to the output schema and
-        saved for replay.
+        If only the validator strips the archive's stray backslash, the defective
+        line is what gets propagated, written out and saved for replay.
         """
         stub_service(monkeypatch, {})
         record = tle_record(
@@ -1789,10 +1708,6 @@ class TestChecksumPolicy:
         assert record_tle_lines(accepted) == (ISS_LINE1, ISS_LINE2)
         assert accepted[CHECKSUM_STATUS_FIELD] == STATUS_VERIFIED
 
-
-# ---------------------------------------------------------------------------
-# Reproducibility
-# ---------------------------------------------------------------------------
 
 class TestReplay:
     @pytest.mark.parametrize("build", [tle_record, omm_record_from_tle])
@@ -1815,10 +1730,8 @@ class TestReplay:
             replay_dir / "used_orbits.json", first.norad_ids(), first.records()
         )
 
-        # A later run with no network and no cache must reproduce the same
-        # trajectory from the file alone. The seams *raise* rather than return
-        # nothing: a replay that quietly asked the service would still produce a
-        # plausible simulation, and the test would still pass.
+        # The seams raise rather than answer nothing: a replay that quietly asked
+        # the service would still produce a plausible simulation and pass.
         monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
         monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
         monkeypatch.setenv("ORBIT_CACHE_DIR", str(tmp_path / "empty-cache"))
@@ -1828,9 +1741,8 @@ class TestReplay:
         )
         assert second.complete
 
-        # Exactly, not approximately: a replay that only nearly reproduces the
-        # run is a claim that quietly stops being true. For OMM this depends on
-        # the elements being written at full float64 precision.
+        # Exactly, not approximately: for OMM this needs the elements written at
+        # full float64 precision.
         times_jd = ISS_EPOCH_JD + np.linspace(0.0, 0.2, 5)
         before = get_satellite_positions(first.records(), times_jd)
         after = get_satellite_positions(second.records(), times_jd)
@@ -1839,12 +1751,8 @@ class TestReplay:
     def test_derived_columns_are_not_written(self, tmp_path):
         """A stored EPOCH_JD could only drift out of step with its elements.
 
-        The two derived columns are put on the record by hand rather than by
-        running it through the element derivation, so what is asserted is the
-        writer's contract — it drops them — and not the incidental fact that
-        some particular caller produced them. A record reaching the writer with
-        them on it is the ordinary case: they are what ``frame()`` adds, and a
-        run saves what it propagated.
+        Put on the record by hand, so what is asserted is the writer's contract
+        and not that some caller produced them; ``frame()`` adds them routinely.
         """
         path = tmp_path / "used_orbits.json"
         derived = tle_record()
@@ -1859,14 +1767,9 @@ class TestReplay:
     def test_omm_elements_survive_the_file_bit_for_bit(self, tmp_path):
         """The written float must read back as the *same* double, not a near one.
 
-        Either half can break it. On the way out, ``DataFrame.to_json`` formats
-        to a fixed number of decimal places: its default 10 rounds this
-        eccentricity away, and its maximum 15 writes it as 0.006663499999999999,
-        a different double. On the way in, satchecker-client before 0.1.2 parsed
-        with pandas' imprecise float parser, which reads the eccentricity back as
-        that same wrong double and a BSTAR of 3.2e-05 as 3.2000000000000005e-05.
-        Either makes a replayed trajectory quietly disagree with the run it
-        reproduces.
+        ``DataFrame.to_json`` at its maximum precision writes 0.0066635 as
+        0.006663499999999999, and pandas' imprecise float parser reads it back the
+        same way — either makes a replayed trajectory disagree with its run.
         """
         awkward = omm_record_from_tle()
         awkward["ECCENTRICITY"] = 0.0066635
@@ -1883,9 +1786,8 @@ class TestReplay:
     def test_mixed_kinds_in_one_file_stay_valid_json(self, tmp_path):
         """A TLE row has no MEAN_MOTION; that must be null, not a bare NaN.
 
-        ``json.loads`` accepts the non-standard ``NaN`` literal by default, so the
-        parse alone proves nothing: ``parse_constant`` is what makes the read
-        refuse a file only Python's own parser would accept.
+        The parse alone proves nothing: ``parse_constant`` is what refuses a file
+        only Python's own JSON parser would accept.
         """
         path = tmp_path / "used_orbits.json"
         orbit.save_orbits_for_reuse(
@@ -1906,9 +1808,8 @@ class TestReplay:
     def test_empty_selection_is_saved_explicitly(self, tmp_path):
         """A completed run with no satellites still needs its replay artifacts.
 
-        Writing nothing makes "no satellite passed the target" and "this
-        directory is not a replay" the same state on disk, so a frozen replay of
-        a legitimately satellite-free run cannot be told from a missing file.
+        Writing nothing makes "no satellite passed the target" and "this is not a
+        replay" the same state on disk.
         """
         path = tmp_path / "used_orbits.json"
 
@@ -1917,10 +1818,9 @@ class TestReplay:
         json.loads(path.read_text())  # an explicitly empty table, still valid JSON
 
     def test_save_rejects_misaligned_ids_and_records(self, tmp_path):
-        """Misaligned inputs are a bug, and ``zip`` hides it.
-
-        Truncating to the shorter sequence writes a file that reads back cleanly
-        and describes different satellites than the run propagated.
+        """Misaligned inputs are a bug, and ``zip`` hides it: truncating to the
+        shorter sequence writes a file that reads back cleanly and describes
+        different satellites than the run propagated.
         """
         path = tmp_path / "used_orbits.json"
         gps = tle_record(norad_id=GPS_NORAD_ID, line1=GPS_LINE1, line2=GPS_LINE2)
@@ -1941,11 +1841,8 @@ class TestReplay:
     def test_save_rejects_a_lossy_identity_match(self, tmp_path, damaged):
         """25544.5 is not 25544, and truncating it saves a different satellite.
 
-        There are two identities per row and both were cast with ``int()``: the
-        record's own ``NORAD_CAT_ID`` and the ID it is filed against in the
-        caller's aligned sequence. Truncating either one repaired the mismatch
-        into agreement and produced a valid-looking replay file for a satellite
-        the run never propagated.
+        Two identities per row — the record's own and the aligned one — and
+        ``int()`` on either repaired the mismatch into agreement.
         """
         record = tle_record()  # valid ISS lines...
         norad_ids = [ISS_NORAD_ID]
@@ -1963,10 +1860,8 @@ class TestReplay:
     def test_save_rejects_an_omm_missing_a_required_element(self, tmp_path, value):
         """A dropped element writes a file that cannot be replayed at all.
 
-        The projection skipped every null cell, which is right for the OMM columns
-        a TLE row acquires in a mixed frame and wrong for an OMM's own elements:
-        the record went out without its mean motion and the run it exists to
-        reproduce no longer could be.
+        Skipping every null cell is right for the OMM columns a TLE row acquires
+        in a mixed frame and wrong for an OMM's own elements.
         """
         record = omm_record_from_tle()
         record["MEAN_MOTION"] = value
@@ -1981,9 +1876,7 @@ class TestReplay:
     def test_replay_freezes_final_ids(self, monkeypatch, tmp_path):
         """The saved IDs are the selection, not an input to it.
 
-        ``extra_orbit_dir`` never froze anything: it only changed where a record
-        came from, so the original names, ID list, visibility cuts and
-        ``max_n_sat`` still chose the satellites. A replay has to be able to
+        ``extra_orbit_dir`` only changed where a record came from; a replay has to
         reproduce a run whose name search no longer returns the same catalogue.
         """
         replay_dir = write_replay_dir(
@@ -2015,12 +1908,9 @@ class TestReplay:
     ):
         """Replay has no second source, so anything short of exact must stop.
 
-        Every alternative — skipping a record, taking the first of two, asking
-        the cache — silently changes the orbital inputs of a run whose whole
-        purpose is to keep them fixed. Each case is pinned to the rejection it is
-        about: with two rows for one satellite, and with two ID lines for one, both
-        sharing a single "duplicate" fixture, whichever check ran first answered
-        for both.
+        Each case is pinned to the rejection it is about: two rows for one
+        satellite and two ID lines for one are different checks, and sharing a
+        "duplicate" fixture let whichever ran first answer for both.
         """
         gps = tle_record(norad_id=GPS_NORAD_ID, line1=GPS_LINE1, line2=GPS_LINE2)
         replay_dir = write_replay_dir(
@@ -2043,7 +1933,7 @@ class TestReplay:
             ids_path.write_text(f"{ISS_NORAD_ID}\n{ISS_NORAD_ID}\n")
         elif damage == "rounding-id":
             # A float conversion rounds this to exactly 25544.0 and the replay
-            # would quietly proceed with the ISS; the ID must be read exactly.
+            # would quietly proceed with the ISS.
             ids_path.write_text(f"{ISS_NORAD_ID}.000000000001\n{GPS_NORAD_ID}\n")
         elif damage == "duplicate-record-rows":
             # Two saved records for one satellite: choosing between them is the
@@ -2114,10 +2004,6 @@ class TestReplay:
         )
 
 
-# ---------------------------------------------------------------------------
-# Replay at the simulation-selection level
-# ---------------------------------------------------------------------------
-
 class FakeObservation:
     """The little of ``Observation`` that satellite source selection touches."""
 
@@ -2178,12 +2064,9 @@ class TestSelectionEpoch:
     ):
         """Satellites are judged at the observation's epoch, not the check grid's.
 
-        The visibility grid steps ``vis_step`` from the first sample to *past* the
-        last, so an observation ending at 23:59:50 with a one-minute step has a
-        grid of 23:59:40 and next-day 00:00:40 — a mean on the following date. A
-        satellite the catalogue says decayed on the observation's own date was
-        excluded from a simulation it belongs in, and the record request and every
-        age comparison used the shifted epoch too.
+        The visibility grid steps past the last sample, so this observation's grid
+        has a mean on the following date — which excluded a satellite the
+        catalogue says decayed on the observation's own date.
         """
         from tabsim import config as config_module
 
@@ -2227,9 +2110,8 @@ class TestReplaySelection:
     ):
         """Saved IDs are the answer; the settings that produced them are not re-run.
 
-        A ``max_n_sat`` or a visibility cut changed since the original run would
-        otherwise silently drop satellites from a replay that exists precisely to
-        keep them.
+        A ``max_n_sat`` or visibility cut changed since the original run would
+        otherwise drop satellites from a replay that exists to keep them.
         """
         from tabsim import config as config_module
 
@@ -2288,10 +2170,6 @@ class TestReplaySelection:
         out = capsys.readouterr().out
         assert "Frozen orbit replay" in out
 
-
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
 
 class TestConfiguration:
     @pytest.mark.parametrize("value", [-1, float("nan"), float("inf"), "soon", True])
@@ -2368,10 +2246,6 @@ class TestConfiguration:
     def test_observation_epoch_is_the_mean(self):
         assert observation_epoch_jd([2460000.0, 2460002.0]) == 2460001.0
 
-
-# ---------------------------------------------------------------------------
-# Frame contract
-# ---------------------------------------------------------------------------
 
 class TestFrame:
     @pytest.mark.parametrize(

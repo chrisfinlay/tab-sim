@@ -1,14 +1,12 @@
 """End-to-end ``sim-vis`` behaviour: the live check, frozen replay, and outages.
 
 ``test_simulation_runs_with_config`` is the suite's only test that reaches the
-live SatChecker service, and it stays that way: everything else here drives the
-same code over a two-antenna observation with a mocked transport, which is fast
-enough to assert on the actual visibilities rather than on log lines.
+live SatChecker service; everything else drives the same code over a two-antenna
+observation with a mocked transport, fast enough to assert on the visibilities.
 
-What a completed simulation has to prove is not that it completed. A run whose
-satellites all silently failed to resolve also completes, produces valid output,
-and differs from a correct run only in the RFI it does not contain — so the
-assertions below are about the satellites being *there*.
+What a completed simulation has to prove is not that it completed: a run whose
+satellites all silently failed to resolve also completes and produces valid
+output, so the assertions below are about the satellites being *there*.
 """
 
 import sys
@@ -78,12 +76,8 @@ def tiny_sim_config(path, output_path, telescope=None, **tle_satellite):
     """A two-antenna, three-sample, single-channel observation of two satellites.
 
     ``max_ang_sep``/``min_alt`` are wide open so the visibility filter cannot
-    change the selection between the run and its replay — the point here is the
-    orbital inputs, and a satellite setting near the horizon would otherwise make
-    the comparison depend on the filter as well.
-
-    *telescope* overrides the ``MeerKAT``/two-antenna default section, for the
-    tests about how a named telescope definition is applied.
+    change the selection between a run and its replay. *telescope* overrides the
+    ``MeerKAT``/two-antenna default section.
     """
     satellites = {
         "norad_ids": [],
@@ -151,9 +145,8 @@ def packaged_positions(n_ant=2):
 def custom_itrf_file(path, n_ant=2, offset=1000.0):
     """An antenna file of the run's own, distinguishable from the packaged one.
 
-    Derived from the packaged MeerKAT positions and moved a kilometre along ITRF
-    X, so it is still a plausible array at the site the named definition supplies
-    and an exact comparison says which of the two files was read.
+    The packaged MeerKAT positions moved a kilometre along ITRF X: still a
+    plausible array at that site, and an exact comparison says which file was read.
     """
     positions = packaged_positions(n_ant) + np.array([offset, 0.0, 0.0])
     np.savetxt(path, positions)
@@ -231,10 +224,9 @@ def test_missing_config_file():
 def test_simulation_runs_with_config(capsys, tmp_path):
     """The one live check: a real NAVSTAR selection, resolved against SatChecker.
 
-    "It finished" is not the assertion. An outage that dropped every named
-    satellite would finish too, so the run has to be shown to have modelled
-    satellites and to have saved the records it modelled them from — which is
-    also what makes the run reproducible.
+    "It finished" is not the assertion: an outage that dropped every named
+    satellite would finish too, so the run must be shown to have modelled
+    satellites and saved the records it modelled them from.
     """
     config_path = (
         Path(__file__).parent.parent / "examples" / "test" / "sim_test_16A.yaml"
@@ -270,10 +262,8 @@ def test_simulation_runs_with_config(capsys, tmp_path):
 def test_sim_vis_offline_frozen_replay(tmp_path, monkeypatch, archives):
     """A replayed run reproduces the visibilities, from its saved records alone.
 
-    The managed cache is emptied and every transport seam raises, so the second
-    run has nothing to work from except ``used_orbits.json`` and
-    ``norad_ids.yaml``. Anything less than an exact match on ``vis_obs`` means
-    the replay modelled a different sky.
+    The cache is emptied and every transport seam raises, so anything less than an
+    exact match on ``vis_obs`` means the replay modelled a different sky.
     """
     tle_records = {nid: tle_record_at(nid, ISS_EPOCH_JD) for nid in SIM_IDS}
     omm_records = {nid: omm_record_at(nid, ISS_EPOCH_JD) for nid in SIM_IDS}
@@ -326,10 +316,8 @@ def test_sim_vis_named_outage_does_not_write_successful_observation(
 ):
     """A named satellite whose record could not be fetched stops the run.
 
-    This used to finish: the search succeeded, the acquisition failed, the
-    satellite was warned about, and the simulation wrote a complete observation
-    with no satellite RFI in it. Nothing downstream could tell that from a
-    correct simulation of a quiet sky.
+    This used to finish: the search succeeded, the acquisition failed, and the
+    simulation wrote a complete observation with no satellite RFI in it.
     """
     serve_search(monkeypatch, {"THING": [search_row(ISS_NORAD_ID, "THING ONE")]})
 
@@ -356,10 +344,8 @@ def test_configured_spectral_model_is_not_replaced_by_the_packaged_one(
 ):
     """Startup's packaged defaults must not overwrite a configured spectral model.
 
-    ``deep_update`` applied the shipped table *over* whatever was configured, so a
-    satellite the user's own model covers and the shipped one does not was left
-    out of the simulation, with nothing in the log but "No NORAD IDs matching in
-    'norad_spec_model' file given".
+    ``deep_update`` applied the shipped table over the configured one, so a
+    satellite only the user's model covers was left out of the simulation.
     """
     unknown = 99999  # deliberately absent from the shipped norad_satellite.rfimodel
     stub_records(monkeypatch, tle={unknown: tle_record_at(unknown, ISS_EPOCH_JD)})
@@ -401,9 +387,8 @@ def test_configured_spectral_model_survives_into_a_frozen_replay(
 def test_configured_spectral_model_sets_the_simulated_power(tmp_path, monkeypatch):
     """For a satellite both tables cover, the configured power is the one simulated.
 
-    This is the quiet half of the same defect: the run completes, models the
-    satellite it was asked for, and gets its emission power from a file the
-    configuration replaced.
+    The quiet half of the same defect: the run completes and models the satellite,
+    with its emission power from a file the configuration replaced.
     """
     stub_records(
         monkeypatch, tle={ISS_NORAD_ID: tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD)}
@@ -436,11 +421,9 @@ def test_configured_spectral_model_sets_the_simulated_power(tmp_path, monkeypatc
 def test_named_telescope_does_not_replace_a_configured_antenna_file(tmp_path):
     """Completing a telescope section must not overwrite the part that was set.
 
-    The named definition was applied with ``deep_update`` whenever the section was
-    incomplete — and ``dish_d: null`` is exactly how one asks a named telescope
-    for its diameter, so asking for it replaced the configured antenna file with
-    the packaged ``MeerKAT.itrf.txt``. The run then simulated a different array,
-    and said nothing about it.
+    ``dish_d: null`` is how one asks a named telescope for its diameter, and
+    ``deep_update`` then replaced the configured antenna file with the packaged
+    ``MeerKAT.itrf.txt``: a different array, simulated silently.
     """
     itrf_path, positions = custom_itrf_file(tmp_path / "mine.itrf.txt")
     obs, _ = run_sim_vis(
@@ -476,11 +459,9 @@ def test_named_telescope_does_not_replace_a_configured_dish_diameter(tmp_path):
 def test_named_telescope_does_not_replace_an_explicit_zero_elevation(tmp_path):
     """``elevation: 0`` at a named site is a setting, not an omission.
 
-    The template default used to be ``0`` as well, so a loaded configuration
-    could not tell the two apart and the definition's 1050 m won either way —
-    and an ENU array is placed on the ellipsoid through that elevation, so the
-    configured array moved. The template default is now null; only that is
-    unset.
+    The template default was ``0`` too, so the definition's 1050 m won either way
+    — and an ENU array is placed on the ellipsoid through that elevation, so the
+    configured array moved. The template default is now null.
     """
     enu = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]])
     np.savetxt(tmp_path / "mine.enu.txt", enu)
@@ -533,9 +514,9 @@ def test_unset_elevation_without_a_named_telescope_is_sea_level(tmp_path):
 def test_named_telescope_does_not_override_the_configured_antenna_frame(tmp_path):
     """An ENU array is a choice of source, so the packaged ITRF file must not win.
 
-    ``Telescope`` lets ITRF positions replace ENU ones, so filling the
-    definition's ``itrf_path`` in beside a configured ``enu_path`` discards the
-    configured array entirely rather than completing it.
+    ``Telescope`` lets ITRF positions replace ENU ones, so filling in the
+    definition's ``itrf_path`` discards the configured array rather than
+    completing it.
     """
     enu = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]])
     np.savetxt(tmp_path / "mine.enu.txt", enu)
@@ -556,10 +537,8 @@ def test_shared_designator_candidates_are_not_promised_to_be_modelled(
 ):
     """Two candidates under one OBJECT_ID, both resolving, and ``max_n_sat: 1``.
 
-    Discovery said a shared designator is "simulated once per number that
-    resolves", but it runs before the visibility cut, the spectral models and
-    ``max_n_sat`` have had their say. Here the last of those models one of the two
-    numbers that did resolve, so the promise was simply untrue.
+    Discovery promised "simulated once per number that resolves", but it runs
+    before ``max_n_sat`` has its say, which here models one of the two.
     """
     serve_search(
         monkeypatch,
@@ -587,11 +566,9 @@ def test_shared_designator_candidates_are_not_promised_to_be_modelled(
 def test_replay_logs_an_ignored_numpy_id_array(tmp_path, monkeypatch, capsys):
     """An ignored ``norad_ids`` array must be reportable, not truth-tested.
 
-    The settings a replay overrides are logged raw, as written, precisely because
-    the replay never reads them — but the log filtered them with ``if value``, and
-    a NumPy array of IDs, which every other path here accepts, raises the
-    ambiguous-truth-value error there instead. Reported through
-    ``run_sim_config`` directly: a YAML file cannot carry a NumPy array.
+    The log filtered the overridden settings with ``if value``, on which a NumPy
+    array of IDs raises. Driven through ``run_sim_config`` directly, because a
+    YAML file cannot carry one.
     """
     replay_dir = write_replay_dir(
         tmp_path / "input_data",
@@ -622,11 +599,8 @@ def test_replay_logs_an_ignored_numpy_id_array(tmp_path, monkeypatch, capsys):
 def test_replay_runs_with_a_deleted_original_id_file(tmp_path, monkeypatch):
     """A replay of a run whose ID file has since moved must still complete.
 
-    Two things depended on the selection a replay overrides: normalisation read
-    and validated ``norad_ids_path``, and ``save_inputs`` then copied it into the
-    new run's ``input_data``. Either one turned "replay this previous run" into a
-    requirement that the previous run's inputs still exist, which is most of the
-    reason to save records in the first place.
+    Normalisation validated ``norad_ids_path`` and ``save_inputs`` copied it, so
+    either one made a replay require the previous run's inputs to still exist.
     """
     replay_dir = write_replay_dir(
         tmp_path / "input_data",
@@ -654,10 +628,9 @@ def test_sim_vis_offline_over_age_record_does_not_silently_drop_a_satellite(
 ):
     """Offline, an over-age cached record must stop the run, not exclude the satellite.
 
-    The cached catalogue search says this satellite exists; the cached orbit
-    record is ten days from the observation and nothing was asked for a closer
-    one. Treating that as "the catalogue has nothing acceptable" wrote a complete
-    observation with no satellite RFI in it.
+    The cached search says the satellite exists and the cached record is ten days
+    out, with nothing asked for a closer one; calling that "the catalogue has
+    nothing acceptable" wrote a complete observation with no satellite RFI.
     """
     cache = TextOrbitCache(isolated_cache)
     cache.store_search(

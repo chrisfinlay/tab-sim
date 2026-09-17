@@ -1,17 +1,13 @@
 """Shared fixtures for the orbit-record tests: real records, no network.
 
-Everything a test needs to stand in for SatChecker lives here: checksum-valid
-TLE lines at an arbitrary NORAD ID and epoch, the two record kinds built from
-them, the two historical archive defects derived from a valid line, and the
+Checksum-valid TLE lines at an arbitrary NORAD ID and epoch, the two record kinds
+built from them, the historical archive defects derived from a valid line, and
 stubs for the three service seams (both nearest-record endpoints and the
 catalogue name search).
 
 TLE fixtures are *derived*, never typed out: the checksum is what makes a
-single-character corruption detectable, so a fixture whose ID or epoch was
-edited by hand would be rejected by the same parser the production code uses.
-Every line here goes out through :func:`satchecker_client.tle_parse.tle_checksum`
-for that reason, and the checksum-less and backslash variants are made by
-damaging a line that was valid first.
+single-character corruption detectable, so a fixture whose ID or epoch was edited
+by hand would be rejected by the same parser the production code uses.
 """
 
 from __future__ import annotations
@@ -51,26 +47,19 @@ GPS_NORAD_ID = 32260
 GPS_EPOCH_JD = 2460310.5 + 0.24286508
 
 #: Where a record says whether anything ever verified its TLE lines. Written by
-#: the client's ``validated_record`` and carried through the managed cache, the
-#: saved run records and frozen replay, so a run that opted in to checksum-less
-#: lines cannot later be mistaken for one that did not. The two values are the
-#: client's; tabsim only reads them.
+#: the client and carried through the managed cache, the saved run records and
+#: frozen replay, so a run that opted in to checksum-less lines cannot later be
+#: mistaken for one that did not. The two values are the client's.
 CHECKSUM_STATUS_FIELD = "TLE_CHECKSUM_STATUS"
 STATUS_VERIFIED = "verified"
 STATUS_UNVERIFIED = "unverified_missing_checksum"
 
 
-# ---------------------------------------------------------------------------
-# TLE lines at an arbitrary ID and epoch
-# ---------------------------------------------------------------------------
-
 def with_checksum(line: str) -> str:
     """*line* with its column-69 modulo-10 checksum recomputed.
 
-    Substituting an ID or an epoch into a template invalidates the original
-    checksum, and every parser in this stack rejects a bad one — as it should,
-    since that is how single-character corruption is caught. A fixture therefore
-    has to recompute it exactly as a real TLE producer would.
+    Substituting an ID or an epoch invalidates the original checksum, and every
+    parser in this stack rejects a bad one — as it should.
     """
     body = line[:68]
     return body + str(tle_checksum(body))
@@ -80,9 +69,7 @@ def tle_lines(norad_id: int = ISS_NORAD_ID, epoch_jd: float = ISS_EPOCH_JD):
     """A checksum-valid ``(line1, line2)`` pair for *norad_id* at *epoch_jd*.
 
     The ID and the line-1 epoch field are substituted into the ISS template at
-    their fixed columns; every other element is the template's, which is what
-    makes a historical-epoch fixture cheap to produce. The parsed epoch
-    round-trips to *epoch_jd* within the format's ~1 ms quantum.
+    their fixed columns; the parsed epoch round-trips within the format's ~1 ms.
     """
     nid = f"{int(norad_id):05d}"
     stamp = jd_to_datetime(float(epoch_jd))
@@ -99,8 +86,7 @@ def tle_lines(norad_id: int = ISS_NORAD_ID, epoch_jd: float = ISS_EPOCH_JD):
 def without_checksum(line: str) -> str:
     """*line* with its checksum digit removed, as SatChecker's archive serves some.
 
-    Derived from a valid line rather than written out, so the only thing wrong
-    with the result is the one defect under test.
+    Derived from a valid line, so the only thing wrong with it is the one defect.
     """
     return line[:68]
 
@@ -109,15 +95,11 @@ def with_stray_backslash(line: str) -> str:
     """*line* with the archive's trailing backslash appended.
 
     The checksum still verifies once the backslash is stripped, so a record
-    carrying this is exactly as trustworthy as a clean one — provided whatever
-    accepts it also writes the canonical line back out.
+    carrying this is as trustworthy as a clean one — provided the canonical line
+    is what gets written back out.
     """
     return line + "\\"
 
-
-# ---------------------------------------------------------------------------
-# Records
-# ---------------------------------------------------------------------------
 
 def tle_record(norad_id=ISS_NORAD_ID, line1=ISS_LINE1, line2=ISS_LINE2, **extra):
     """A TLE record in the shape :mod:`tabsim.orbit` resolves and caches."""
@@ -143,13 +125,9 @@ def omm_record_from_tle(
 ):
     """An OMM record carrying the *same* elements as the given TLE pair.
 
-    Deriving it from a TLE rather than writing numbers by hand is what makes the
-    two propagation paths directly comparable: any unit error in the OMM branch
-    of :func:`tabsim.tle.earth_satellite` shows up as a position difference
+    Deriving it from a TLE is what makes the two propagation paths directly
+    comparable: a degrees-for-radians slip shows up as a position difference
     against a satellite whose elements are known to be identical.
-
-    The epoch goes out at microsecond resolution, which is all an ISO 8601
-    ``EPOCH`` field carries.
     """
     elements = parse_tle_elements(line1, line2)
     return {
@@ -157,6 +135,7 @@ def omm_record_from_tle(
         KIND_FIELD: KIND_OMM,
         "OBJECT_NAME": "TEST SAT",
         "OBJECT_ID": "1998-067A",
+        # An ISO 8601 EPOCH carries microseconds, and no more.
         "EPOCH": jd_to_datetime(elements["EPOCH_JD"]).isoformat(),
         "INCLINATION": elements["INCLINATION"],
         "RA_OF_ASC_NODE": elements["RA_OF_ASC_NODE"],
@@ -182,10 +161,6 @@ def record_at(kind: str, norad_id: int, epoch_jd: float, **extra):
     return builder(norad_id, epoch_jd, **extra)
 
 
-# ---------------------------------------------------------------------------
-# Service stubs
-# ---------------------------------------------------------------------------
-
 def forbidden(what: str):
     """A callable that fails the test if anything calls it."""
 
@@ -198,11 +173,9 @@ def forbidden(what: str):
 def stub_service(monkeypatch, records_by_id, endpoint="tle"):
     """Serve *records_by_id* from the nearest-record endpoint of the given kind.
 
-    Each call is recorded as ``(norad_id, epoch_jd, strict_response)``. The
-    third element is the point of the keyword-only argument: tabsim has to opt
-    in to strict response parsing, or a SatChecker outage answered with an
-    HTTP-200 error envelope is read as "this satellite has no record" and the
-    satellite is silently dropped from the simulation.
+    Each call is recorded as ``(norad_id, epoch_jd, strict_response)``; the third
+    element is the opt-in without which an HTTP-200 error envelope reads as "this
+    satellite has no record".
     """
     calls = []
 
@@ -229,14 +202,9 @@ def stub_service(monkeypatch, records_by_id, endpoint="tle"):
 class EndpointStub:
     """One nearest-record endpoint with scripted per-ID answers, recording calls.
 
-    :func:`stub_service` answers every ID alike, which is all most tests need.
-    This is for the ones where the *difference* between two satellites at one
-    endpoint is the point — one answering empty while another fails — and for
-    the ones that assert what a given endpoint was and was not asked.
-
-    An *answers* entry is a record dict, a DataFrame, or an exception to raise;
-    an ID with no entry gets *default*, and ``None`` is an empty frame, which is
-    the service saying it has no such record.
+    An *answers* entry is a record dict, a DataFrame, or an exception to raise; an
+    ID with no entry gets *default*, and ``None`` is an empty frame — the service
+    saying it has no such record.
     """
 
     def __init__(self, label, answers=None, default=None):
@@ -265,9 +233,9 @@ class EndpointStub:
 def stub_endpoints(monkeypatch, *, tle=None, omm=None, tle_default=None, omm_default=None):
     """Install an :class:`EndpointStub` on each nearest-record endpoint.
 
-    Returns ``(nearest_tle, nearest_omm)`` in that order — the same order
-    :func:`satchecker_client.nearest_endpoints_for` returns them in for a
-    pre-handover epoch — so a test can assert what each archive was asked.
+    Returns ``(nearest_tle, nearest_omm)`` in the order
+    :func:`satchecker_client.nearest_endpoints_for` returns them for a
+    pre-handover epoch, so a test can assert what each archive was asked.
     """
     stubs = (
         EndpointStub("nearest-TLE", tle, tle_default),
@@ -281,9 +249,8 @@ def stub_endpoints(monkeypatch, *, tle=None, omm=None, tle_default=None, omm_def
 def stub_failing_service(monkeypatch, error, endpoint=None):
     """Make one or both nearest-record endpoints raise *error*.
 
-    *endpoint* is ``"tle"``, ``"omm"`` or ``None`` for both. The error is raised
-    fresh per call so a single exception instance is not shared between the
-    threads of a batch.
+    *endpoint* is ``"tle"``, ``"omm"`` or ``None`` for both. Raised fresh per call
+    so one exception instance is not shared between the threads of a batch.
     """
     calls = []
 
@@ -303,10 +270,6 @@ def stub_failing_service(monkeypatch, error, endpoint=None):
     )
     return calls
 
-
-# ---------------------------------------------------------------------------
-# Catalogue search stubs
-# ---------------------------------------------------------------------------
 
 def search_row(
     norad_id: int,
@@ -338,8 +301,8 @@ def search_payload(rows) -> bytes:
 def search_frame(rows) -> pd.DataFrame:
     """*rows* as the normalised frame ``search_satellites`` returns.
 
-    Used to seed the cache directly, so a snapshot test does not have to go
-    through the transport to create the state it is testing.
+    Seeds the cache directly, so a snapshot test need not go through the
+    transport to create the state it is testing.
     """
     normalised = [
         {
@@ -375,10 +338,10 @@ def restored_stdout():
 def write_sim_config(path, tle_satellite=None, **sections) -> str:
     """Write a minimal simulation config that runs in about a second.
 
-    Two antennas, two time steps and one channel: enough for
-    ``tabsim.config.load_obs`` to build a real observation, little enough that a
-    test asserting *when* something is validated does not pay for a simulation.
-    Everything not given here comes from ``sim_config_base.yaml``.
+    Two antennas, two time steps and one channel: enough for ``load_obs`` to
+    build a real observation, little enough that a test asserting *when*
+    something is validated does not pay for a simulation. Everything not given
+    here comes from ``sim_config_base.yaml``.
     """
     import yaml
 
@@ -412,13 +375,10 @@ def write_sim_config(path, tle_satellite=None, **sections) -> str:
 def _serve_transport(monkeypatch, fake_get):
     """Install a search transport at the one seam there is.
 
-    ``client._http_get`` is what the public
-    :func:`satchecker_client.search_satellites` uses, so it is the only place a
-    catalogue search can leave from. There is deliberately nothing else patched
-    here: while the migration was in progress ``tabsim.satchecker_names`` held its
-    own copy of that private helper and this stubbed that too, which would let a
-    reintroduced private bypass keep passing the "public search" test. Anything
-    reaching the service another way now hits the suite's network block instead.
+    ``client._http_get`` is what the public :func:`search_satellites` uses, so it
+    is the only place a catalogue search can leave from. Nothing else is patched:
+    a reintroduced private bypass must hit the suite's network block instead of
+    keeping the "public search" test passing.
     """
     monkeypatch.setattr(client, "_http_get", fake_get)
 
@@ -440,10 +400,9 @@ def serve_raw_search(monkeypatch, payload):
 def serve_search(monkeypatch, by_query):
     """Answer ``search-satellites`` requests from *by_query*.
 
-    Keys are the query string as it goes out on the wire — the catalogue is
-    upper case and the endpoint matches case-sensitively, so ``"NAVSTAR"``, not
-    ``"navstar"``. A value is either a list of :func:`search_row` rows or an
-    exception to raise. Every call is recorded as ``(name, url)``.
+    Keys are the query as it goes out on the wire — the catalogue is upper case
+    and matched case-sensitively, so ``"NAVSTAR"``, not ``"navstar"``. A value is
+    a list of :func:`search_row` rows or an exception. Calls record ``(name, url)``.
     """
     calls = []
 
@@ -468,10 +427,6 @@ def serve_search(monkeypatch, by_query):
     return calls
 
 
-# ---------------------------------------------------------------------------
-# Frozen cross-version fixtures
-# ---------------------------------------------------------------------------
-
 #: Replay directories written by tab-sim e3d957d (PR #44), with what #44's own
 #: loader read back out of each. See ``tests/compat/fixtures/PROVENANCE.txt``.
 COMPAT_FIXTURE_DIR = Path(__file__).resolve().parent / "compat" / "fixtures"
@@ -480,9 +435,9 @@ COMPAT_FIXTURE_DIR = Path(__file__).resolve().parent / "compat" / "fixtures"
 def compat_fixture(name: str):
     """One frozen #44 replay directory and the pair #44 read back from it.
 
-    Returns ``(directory, expected)`` where *expected* carries the checksum
-    policy the case needs, the saved IDs in saved order, and one record each,
-    written the way :func:`comparable_record` spells them.
+    Returns ``(directory, expected)``, *expected* carrying the checksum policy the
+    case needs, the saved IDs in saved order, and one record each, spelled the way
+    :func:`comparable_record` spells them.
     """
     directory = COMPAT_FIXTURE_DIR / name
     expected = json.loads((directory / "expected.json").read_text())
@@ -492,8 +447,7 @@ def compat_fixture(name: str):
 def json_ready(value):
     """One record cell as the frozen fixtures spell it.
 
-    A NumPy scalar is unwrapped and every flavour of null becomes ``None``: a
-    mixed-kind table gives one kind's row the other kind's columns as NaN, and
+    A NumPy scalar is unwrapped and every flavour of null becomes ``None``:
     ``NaN != NaN`` makes a record carrying one impossible to compare by equality.
     """
     item = getattr(value, "item", None)

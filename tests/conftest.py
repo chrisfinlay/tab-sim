@@ -1,18 +1,9 @@
 """Suite-wide protection: an isolated cache, no network, no IERS downloads.
 
-Every module in this suite gets these, so a new test file cannot silently start
-reading the developer's real ``~/.cache/orbit-cache`` or querying the live
-SatChecker service. The one test that is *meant* to reach the network —
-``test_sim-vis.py::test_simulation_runs_with_config``, the suite's single live
-integration check — opts out with ``@pytest.mark.allow_network``.
-
-The network block covers two layers deliberately. Patching
-``satchecker_client.client._http_get`` is what a test replaces when it wants to
-serve a recorded response; patching ``urllib.request.urlopen`` underneath it is
-what catches a code path that reaches the service some *other* way. That second
-layer is not hypothetical: tabsim held its own copy of the client's private
-transport helper, and a search through it bypassed every stub a test installed,
-which is how a malformed reply became "no satellite matches this name".
+Every module gets these autouse fixtures, so a new test file cannot silently read
+the developer's real ``~/.cache/orbit-cache`` or query the live SatChecker
+service. The suite's one live check, ``test_sim-vis.py::
+test_simulation_runs_with_config``, opts out with ``@pytest.mark.allow_network``.
 """
 
 from __future__ import annotations
@@ -33,12 +24,7 @@ def pytest_configure(config):
 
 @pytest.fixture(autouse=True)
 def isolated_cache(tmp_path, monkeypatch):
-    """Point the managed cache at a temporary directory for every test.
-
-    Without this the tests would read and write the developer's real
-    ``~/.cache/orbit-cache``, which would make them order-dependent on whatever
-    a previous simulation happened to fetch.
-    """
+    """Point the managed cache at a temporary directory for every test."""
     monkeypatch.setenv("ORBIT_CACHE_DIR", str(tmp_path / "orbit-cache"))
     return tmp_path / "orbit-cache"
 
@@ -47,10 +33,8 @@ def isolated_cache(tmp_path, monkeypatch):
 def no_iers_download():
     """Never fetch Earth-orientation data while propagating in a test.
 
-    Astropy downloads IERS tables on first use and then warns or blocks for
-    dates outside them. A propagation test that quietly depends on that is both
-    slow and non-reproducible, so the tables stay at their bundled values and
-    out-of-range dates are accepted at reduced accuracy rather than raising.
+    The bundled tables stay in force and out-of-range dates are accepted at
+    reduced accuracy rather than raising.
     """
     from contextlib import ExitStack
 
@@ -65,7 +49,12 @@ def no_iers_download():
 
 @pytest.fixture(autouse=True)
 def no_network(request, monkeypatch):
-    """Fail loudly if a test reaches the network without saying it means to."""
+    """Fail loudly if a test reaches the network without saying it means to.
+
+    Both transports are blocked: ``_http_get`` is the seam a test replaces to
+    serve a recorded reply, and ``urlopen`` beneath it catches code reaching the
+    service some other way — which a private copy of the client's transport did.
+    """
     if request.node.get_closest_marker("allow_network"):
         return
 

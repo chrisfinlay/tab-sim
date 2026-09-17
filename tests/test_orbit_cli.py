@@ -1,12 +1,9 @@
 """The command-line surface of the orbit policy, and the credential-free promise.
 
 Two rules run through all of it. A boolean flag defaults to ``None`` rather than
-to ``False``, so omitting it leaves the YAML choice alone instead of silently
-overwriting a deliberate ``offline: true``. And a path typed on the command line
-is relative to where it was typed, while one written in a config is relative to
-the config — the rule every other path in ``sim-vis`` already follows, and the
-only one under which the same string can be pasted between the two places and
-still mean what it looks like.
+``False``, so omitting it leaves the YAML choice alone instead of overwriting a
+deliberate ``offline: true``. And a path typed on the command line is relative to
+where it was typed, while one written in a config is relative to the config.
 """
 
 from __future__ import annotations
@@ -57,11 +54,9 @@ def run_sim_vis_config(monkeypatch, config_path, *args, cwd=None):
 def test_the_console_entry_point_exits_zero_on_success(monkeypatch, tmp_path):
     """``sys.exit(main())`` reads a returned tuple as failure.
 
-    The console script generated for the entry point wraps it in ``sys.exit``,
-    and any return that is not ``None`` or an int is printed and becomes exit
-    status 1 — so a successful ``sim-vis`` run reported failure to every shell
-    and CI step that checked. The script now points at ``cli``, which discards
-    the result ``main`` keeps returning for Python callers.
+    Any return that is not ``None`` or an int becomes exit status 1, so a
+    successful run reported failure to every shell that checked. The entry point
+    is ``cli``, which discards the result ``main`` returns for Python callers.
     """
     config_path = write_sim_config(tmp_path / "sim.yaml", {"sat_names": ["navstar"]})
     run_sim_vis_config(monkeypatch, config_path)  # installs the capture stub
@@ -84,10 +79,8 @@ def run_sim_vis(monkeypatch, config_path, *args, cwd=None):
 def import_tle_sat_region(monkeypatch):
     """Import ``tle_sat_region`` without the optional ``regions`` dependency.
 
-    It is in the ``sat`` extra and is not installed everywhere, but it is only
-    used to serialise the output file — long after the orbit policy this test is
-    about has been forwarded. Skipping the test where the extra is absent would
-    leave that forwarding unchecked on most machines.
+    It only serialises the output file, long after the orbit policy this test is
+    about has been forwarded; skipping would leave that unchecked on most machines.
     """
     import importlib
     import types
@@ -198,10 +191,8 @@ class TestPolicyFlags:
     ):
         """A replay must not even look at the ID-file setting it overrides.
 
-        ``norad_ids_path`` went through ``get_abs_path`` before the replay was
-        loaded, and ``os.path.join`` raises ``TypeError`` on a value that is not a
-        path at all — so a leftover the run will never read stopped it before it
-        started.
+        ``norad_ids_path`` went through ``get_abs_path``, which raises on a value
+        that is not a path — so a leftover the run never reads stopped it.
         """
         conf, work = layout
         config_path = write_sim_config(
@@ -238,10 +229,8 @@ class TestPolicyFlags:
     ):
         """``-o`` is a boolean flag like the new ones, and omitting it says nothing.
 
-        It defaulted to ``False`` and was assigned unconditionally, so a config
-        carrying ``output.overwrite: true`` had it turned back off by every command
-        line that did not mention ``-o`` — and the run then stopped on the output
-        directory the config had said to replace.
+        Defaulting to ``False`` and assigning unconditionally turned
+        ``output.overwrite: true`` back off on every command line without ``-o``.
         """
         conf, work = layout
         config_path = write_sim_config(conf / "sim.yaml", output={"overwrite": True})
@@ -282,10 +271,9 @@ class TestHelpAndMigration:
         assert excinfo.value.code != 0
 
     def test_tle_region_forwards_the_orbit_policy(self, tmp_path, monkeypatch):
-        """``tle-region`` resolves records too, so it needs the same policy.
-
-        Forwarded rather than re-defaulted: a region file drawn from records the
-        simulation would have refused is a region file for a different run.
+        """``tle-region`` resolves records too, so the policy is forwarded rather
+        than re-defaulted: a region file drawn from records the simulation would
+        have refused is a region file for a different run.
         """
         tle_sat_region = import_tle_sat_region(monkeypatch)
 
@@ -361,8 +349,8 @@ class TestCredentialFreeRuntime:
     def test_no_space_track_requirement_or_setup_command(self):
         """The dependency and its credential-setup entry point are both gone.
 
-        A guard rather than a regression: losing it means a dependency CI cannot
-        install and an unattended run that asks for a password.
+        A guard: losing it means a dependency CI cannot install and an unattended
+        run that asks for a password.
         """
         pyproject = (Path(__file__).parent.parent / "pyproject.toml").read_text()
 
