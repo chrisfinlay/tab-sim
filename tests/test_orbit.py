@@ -42,6 +42,7 @@ from tabsim.tle import (
 
 from orbit_helpers import (
     CHECKSUM_STATUS_FIELD,
+    GPS_EPOCH_JD,
     GPS_LINE1,
     GPS_LINE2,
     GPS_NORAD_ID,
@@ -1590,24 +1591,31 @@ def writer_cases():
     what ``frame()`` puts on everything a run propagates: without them on the
     input, "the writer does not store them" would prove nothing.
     """
-    derived = {"EPOCH_JD": ISS_EPOCH_JD, "SEMIMAJOR_AXIS": 6796.0}
     tle = tle_record(
-        norad_id=GPS_NORAD_ID, line1=GPS_LINE1, line2=GPS_LINE2, **derived
+        EPOCH_JD=ISS_EPOCH_JD, SEMIMAJOR_AXIS=6796.0, DATA_SOURCE="spacetrack"
     )
-    omm = omm_record_from_tle(**derived)
+    omm = omm_record_from_tle(
+        norad_id=GPS_NORAD_ID,
+        line1=GPS_LINE1,
+        line2=GPS_LINE2,
+        EPOCH_JD=GPS_EPOCH_JD,
+        SEMIMAJOR_AXIS=26560.0,
+        DATA_SOURCE="spacetrack",
+    )
     # Neither double survives DataFrame.to_json at its maximum precision, which
     # writes the first as 0.006663499999999999, nor pandas' own float parser.
     omm["ECCENTRICITY"] = 0.0066635
     omm["BSTAR"] = 3.2e-05
-    iss = tle_record()
     return {
         "empty": ([], [], None),
-        "tle": ([GPS_NORAD_ID], [tle], None),
-        "omm": ([ISS_NORAD_ID], [omm], None),
-        "mixed": ([ISS_NORAD_ID, GPS_NORAD_ID], [omm, tle], None),
-        "more-ids-than-records": ([ISS_NORAD_ID, GPS_NORAD_ID], [iss], ValueError),
-        "more-records-than-ids": ([ISS_NORAD_ID], [iss, tle], ValueError),
-        "mismatched-identity": ([GPS_NORAD_ID], [iss], ValueError),
+        "tle": ([ISS_NORAD_ID], [tle], None),
+        "omm": ([GPS_NORAD_ID], [omm], None),
+        # The OMM comes first and carries the larger ID: aligned input that
+        # sorting anywhere under the writer would reorder.
+        "mixed": ([GPS_NORAD_ID, ISS_NORAD_ID], [omm, tle], None),
+        "more-ids-than-records": ([GPS_NORAD_ID, ISS_NORAD_ID], [tle], ValueError),
+        "more-records-than-ids": ([ISS_NORAD_ID], [tle, omm], ValueError),
+        "mismatched-identity": ([GPS_NORAD_ID], [tle], ValueError),
     }
 
 
@@ -1626,6 +1634,9 @@ class TestReplay:
         propagated, so a misaligned pair is a ``ValueError`` in the caller.
         """
         norad_ids, records, error = WRITER_CASES[case]
+        # Taken before the call: a writer that edited its input records and wrote
+        # the edited values would still agree with a post-call reading of them.
+        given = [dict(record) for record in records]
         spy = spy_on(monkeypatch, "save_orbits_for_reuse")
         path = tmp_path / "used_orbits.json"
 
@@ -1656,11 +1667,11 @@ class TestReplay:
 
         back = read_legacy_tle_records(tmp_path)
         assert len(back) == len(records)
-        kinds = {record[KIND_FIELD] for record in records}
-        for position, record in enumerate(records):
+        kinds = {record[KIND_FIELD] for record in given}
+        for position, record in enumerate(given):
             cell = str(position)
             assert written["NORAD_CAT_ID"][cell] == norad_ids[position]
-            assert written["DATA_SOURCE"][cell] == record["DATA_SOURCE"]
+            assert written["DATA_SOURCE"][cell] == "spacetrack"
             if len(kinds) > 1:
                 # One table holding both kinds gives each row the other kind's
                 # columns as nulls — the format, not an invention.
@@ -1672,13 +1683,11 @@ class TestReplay:
                 assert written["TLE_LINE1"][cell] == record["TLE_LINE1"]
                 continue
             # The same double, not a near one: in the file, and read back out.
-            assert written["ECCENTRICITY"][cell] == record["ECCENTRICITY"]
-            assert written["BSTAR"][cell] == record["BSTAR"]
-            row = back[
-                back["NORAD_CAT_ID"].astype("int64") == int(record["NORAD_CAT_ID"])
-            ].iloc[0]
-            assert row["ECCENTRICITY"] == record["ECCENTRICITY"]
-            assert row["BSTAR"] == record["BSTAR"]
+            assert written["ECCENTRICITY"][cell] == 0.0066635
+            assert written["BSTAR"][cell] == 3.2e-05
+            row = back[back["NORAD_CAT_ID"].astype("int64") == GPS_NORAD_ID].iloc[0]
+            assert row["ECCENTRICITY"] == 0.0066635
+            assert row["BSTAR"] == 3.2e-05
 
     @pytest.mark.parametrize("build", [tle_record, omm_record_from_tle])
     def test_saved_records_read_back_as_themselves(
