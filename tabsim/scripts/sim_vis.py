@@ -63,9 +63,10 @@ def main():
     parser.add_argument(
         "-o",
         "--overwrite",
-        default=False,
+        default=None,
         action=argparse.BooleanOptionalAction,
-        help="Overwrite existing observation.",
+        help="Overwrite existing observation. Omitted, the config's own "
+        "'overwrite' is left alone.",
     )
     parser.add_argument(
         "-eod",
@@ -147,12 +148,12 @@ def main():
         satellites["offline"] = args.offline
     if args.allow_missing_checksum is not None:
         satellites["allow_missing_checksum"] = args.allow_missing_checksum
+    if args.overwrite is not None:
+        sim_config["output"]["overwrite"] = args.overwrite
 
     sim_config["rfi_sources"]["tle_satellite"]["power_scale"] *= rfi_amp
     sim_config["rfi_sources"]["satellite"]["power_scale"] *= rfi_amp
     sim_config["rfi_sources"]["stationary"]["power_scale"] *= rfi_amp
-
-    sim_config["output"]["overwrite"] = args.overwrite
 
     if args.n_ant is not None:
         sim_config["telescope"]["n_ant"] = args.n_ant

@@ -37,7 +37,7 @@ class Reached(Exception):
     """Raised by a stub to prove control got as far as it."""
 
 
-def run_sim_vis(monkeypatch, config_path, *args, cwd=None):
+def run_sim_vis_config(monkeypatch, config_path, *args, cwd=None):
     """Run ``sim-vis`` up to the point it would start simulating; return its config."""
     captured = {}
 
@@ -51,7 +51,13 @@ def run_sim_vis(monkeypatch, config_path, *args, cwd=None):
     argv = ["sim-vis", "--config", str(config_path), *args]
     with patch.object(sys, "argv", argv):
         sim_vis.main()
-    return captured["sim_config"]["rfi_sources"]["tle_satellite"]
+    return captured["sim_config"]
+
+
+def run_sim_vis(monkeypatch, config_path, *args, cwd=None):
+    """...and just the satellite section of it, which most of these tests want."""
+    config = run_sim_vis_config(monkeypatch, config_path, *args, cwd=cwd)
+    return config["rfi_sources"]["tle_satellite"]
 
 
 def import_tle_sat_region(monkeypatch):
@@ -165,6 +171,29 @@ class TestPolicyFlags:
             monkeypatch, plain, "--replay-orbit-dir", "previous/input_data", cwd=work
         )
         assert satellites["replay_orbit_dir"] == str(work / "previous" / "input_data")
+
+
+    @pytest.mark.parametrize(
+        "args,expected",
+        [((), True), (("-o",), True), (("--no-overwrite",), False)],
+        ids=["omitted", "on", "off"],
+    )
+    def test_overwrite_obeys_the_same_omission_rule(
+        self, layout, monkeypatch, args, expected
+    ):
+        """``-o`` is a boolean flag like the new ones, and omitting it says nothing.
+
+        It defaulted to ``False`` and was assigned unconditionally, so a config
+        carrying ``output.overwrite: true`` had it turned back off by every command
+        line that did not mention ``-o`` — and the run then stopped on the output
+        directory the config had said to replace.
+        """
+        conf, work = layout
+        config_path = write_sim_config(conf / "sim.yaml", output={"overwrite": True})
+
+        sim_config = run_sim_vis_config(monkeypatch, config_path, *args, cwd=work)
+
+        assert sim_config["output"]["overwrite"] is expected
 
 
 class TestHelpAndMigration:
