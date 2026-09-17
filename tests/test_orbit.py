@@ -1791,7 +1791,9 @@ class TestReplay:
     @pytest.mark.parametrize(
         "damage,expected",
         [
-            ("missing-directory", "input_data"),
+            # The whole requested path: a diagnostic naming only the last
+            # component leaves the user hunting for which directory was meant.
+            ("missing-directory", "{path}"),
             ("missing-records-file", "used_orbits.json"),
             ("missing-id-file", "norad_ids.yaml"),
             ("corrupt-json", "used_orbits.json"),
@@ -1859,7 +1861,7 @@ class TestReplay:
         with pytest.raises(orbit.OrbitError) as excinfo:
             orbit.load_replay_orbits(str(replay_dir))
 
-        assert expected in str(excinfo.value)
+        assert expected.format(path=replay_dir) in str(excinfo.value)
 
     def test_empty_replay_is_explicit_and_network_free(self, monkeypatch, tmp_path):
         """Replaying a satellite-free run returns zero satellites, deliberately."""
