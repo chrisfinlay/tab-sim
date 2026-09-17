@@ -77,6 +77,21 @@ from orbit_helpers import (
 
 UTC = timezone.utc
 
+
+def utc(*parts) -> datetime:
+    """A timezone-aware UTC instant, for the wall-clock freshness fixtures."""
+    return datetime(*parts, tzinfo=UTC)
+
+
+#: The three ways SatChecker can fail to answer, as the client reports them. They
+#: are not interchangeable: a rate limit carries a retry delay and a 5xx is
+#: per-request, so each reaches the user with a different remedy.
+SERVICE_FAILURES = {
+    "transport": client.SatCheckerTransportError("connection refused"),
+    "rate-limit": client.SatCheckerRateLimitError("slow down", retry_after=30.0),
+    "response": client.SatCheckerResponseError("unreadable reply", status=500),
+}
+
 #: A MeerKAT-ish observer and target, for the selection helper below. None of the
 #: geometry matters to these tests: visibility is always stubbed.
 _OBSERVER = (-30.7, 21.44, 1050.0, 27.0, -30.0, 180.0, -90.0)
@@ -480,42 +495,42 @@ class TestSourcePrecedence:
 
 
 class TestCoverage:
-    def test_missing_record_raises_with_the_remedies(self, monkeypatch):
-        stub_service(monkeypatch, {})
-        resolution = orbit.resolve_orbits([ISS_NORAD_ID], ISS_EPOCH_JD)
+    @pytest.mark.parametrize(
+        "failure,expected",
+        [
+            ("absent", ["extra_orbit_dir", "remote_max_age_days"]),
+            ("over-age", ["10.000 d from the"]),
+            ("outage", ["Re-run when the service"]),
+        ],
+    )
+    def test_the_coverage_error_says_which_of_the_three_failures_it_is(
+        self, monkeypatch, failure, expected
+    ):
+        """Nothing there, too far away and could not ask need different remedies.
+
+        "10 d away" is actionable where "not found" is not, and only the outage is
+        a reason to re-run an unchanged configuration.
+        """
+        epoch_jd, policy = ISS_EPOCH_JD, {}
+        if failure == "absent":
+            stub_service(monkeypatch, {})
+        elif failure == "over-age":
+            stub_service(monkeypatch, {ISS_NORAD_ID: tle_record()})
+            epoch_jd, policy = ISS_EPOCH_JD + 10.0, {"remote_max_age_days": 3.0}
+        else:
+            stub_failing_service(
+                monkeypatch, client.SatCheckerTransportError("connection refused")
+            )
+
+        resolution = orbit.resolve_orbits([ISS_NORAD_ID], epoch_jd, **policy)
 
         with pytest.raises(orbit.OrbitError) as excinfo:
             orbit.require_complete_coverage(resolution)
 
         message = str(excinfo.value)
         assert str(ISS_NORAD_ID) in message
-        assert "extra_orbit_dir" in message
-        assert "remote_max_age_days" in message
-
-    def test_coverage_error_reports_how_close_the_best_record_was(self, monkeypatch):
-        """"4.2 d away" is actionable; "not found" is not."""
-        stub_service(monkeypatch, {ISS_NORAD_ID: tle_record()})
-
-        resolution = orbit.resolve_orbits(
-            [ISS_NORAD_ID], ISS_EPOCH_JD + 10.0, remote_max_age_days=3.0
-        )
-
-        with pytest.raises(orbit.OrbitError, match="10.000 d from the"):
-            orbit.require_complete_coverage(resolution)
-
-    def test_service_outage_is_distinguished_from_a_missing_satellite(
-        self, monkeypatch
-    ):
-        def unreachable(norad_id, _epoch_jd, *, strict_response=False):
-            raise client.SatCheckerTransportError("connection refused")
-
-        monkeypatch.setattr(client, "fetch_nearest_tle", unreachable)
-        monkeypatch.setattr(client, "fetch_nearest_omm", unreachable)
-
-        resolution = orbit.resolve_orbits([ISS_NORAD_ID], ISS_EPOCH_JD)
-
-        with pytest.raises(orbit.OrbitError, match="Re-run when the service"):
-            orbit.require_complete_coverage(resolution)
+        for fragment in expected:
+            assert fragment in message, fragment
 
     def test_no_ceiling_accepts_anything(self, monkeypatch):
         stub_service(monkeypatch, {ISS_NORAD_ID: tle_record()})
@@ -532,15 +547,7 @@ class TestCoverage:
     # -- unresolved failures are fatal for *both* selection routes -----------
 
     @pytest.mark.parametrize("route", ["numbered", "named"])
-    @pytest.mark.parametrize(
-        "failure",
-        [
-            "transport",
-            "rate-limit",
-            "response",
-            "invalid-record",
-        ],
-    )
+    @pytest.mark.parametrize("failure", list(SERVICE_FAILURES) + ["invalid-record"])
     def test_unresolved_service_failure_is_fatal_for_names_and_numbers(
         self, monkeypatch, route, failure
     ):
@@ -550,24 +557,12 @@ class TestCoverage:
         so an outage produced a complete-looking observation with no RFI in it.
         """
         norad_id = 7001
-        if failure == "transport":
-            stub_failing_service(
-                monkeypatch, client.SatCheckerTransportError("connection refused")
-            )
-        elif failure == "rate-limit":
-            stub_failing_service(
-                monkeypatch,
-                client.SatCheckerRateLimitError("slow down", retry_after=30.0),
-            )
-        elif failure == "response":
-            stub_failing_service(
-                monkeypatch,
-                client.SatCheckerResponseError("unreadable reply", status=500),
-            )
-        else:  # a reply that arrived but carries no usable record
+        if failure == "invalid-record":  # a reply that carries no usable record
             corrupt = tle_record_at(norad_id, ISS_EPOCH_JD)
             corrupt["TLE_LINE2"] = corrupt["TLE_LINE2"][:68] + "9"
             stub_service(monkeypatch, {norad_id: corrupt})
+        else:
+            stub_failing_service(monkeypatch, SERVICE_FAILURES[failure])
 
         if route == "named":
             serve_search(
@@ -987,36 +982,18 @@ class TestNameDiscovery:
         # Latest known decay and earliest known launch keep both in play, once.
         assert ids == [2001, 2002]
 
-    def test_same_object_under_two_ids_is_not_collapsed(self, monkeypatch):
+    @pytest.mark.parametrize(
+        "both_resolve", [True, False], ids=["both-resolve", "one-over-age"]
+    )
+    def test_two_ids_for_one_object_are_kept_and_reported_as_candidates(
+        self, monkeypatch, capsys, both_resolve
+    ):
         """Two catalogue numbers for one object are two candidates, not one.
 
-        Nothing says which number is current, so an identity merge would silently
-        drop a satellite; the ambiguity is reported instead.
+        Nothing says which is current, so an identity merge would silently drop a
+        satellite; and the warning runs at discovery, so it can only speak of
+        candidates — either may still fail age coverage, as one does here.
         """
-        rows = [
-            search_row(61608, "TWIN SAT", object_id="2024-100A"),
-            search_row(72115, "TWIN SAT", object_id="2024-100A"),
-        ]
-        serve_search(monkeypatch, {"TWIN": rows})
-
-        ids = orbit.resolve_names(["twin"], ISS_EPOCH_JD, log=lambda *_: None)
-        assert ids == [61608, 72115]
-
-        # Only the nearer record is acceptable, so only one resolves.
-        stub_service(
-            monkeypatch,
-            {
-                61608: tle_record_at(61608, ISS_EPOCH_JD),
-                72115: tle_record_at(72115, ISS_EPOCH_JD - 10.0),
-            },
-        )
-        resolution = orbit.resolve_orbits(ids, ISS_EPOCH_JD, remote_max_age_days=3.0)
-        assert sorted(resolution.resolved) == [61608]
-
-    def test_two_ids_for_one_object_that_both_resolve_are_both_kept(
-        self, monkeypatch, capsys
-    ):
-        """...and the shared international designator is reported as ambiguous."""
         rows = [
             search_row(61608, "TWIN SAT", object_id="2024-100A"),
             search_row(72115, "TWIN SAT", object_id="2024-100A"),
@@ -1025,56 +1002,35 @@ class TestNameDiscovery:
         log_lines = []
 
         ids = orbit.resolve_names(["twin"], ISS_EPOCH_JD, log=log_lines.append)
+        assert ids == [61608, 72115]
+
         stub_service(
             monkeypatch,
             {
                 61608: tle_record_at(61608, ISS_EPOCH_JD),
-                72115: tle_record_at(72115, ISS_EPOCH_JD),
+                72115: tle_record_at(
+                    72115, ISS_EPOCH_JD - (0.0 if both_resolve else 10.0)
+                ),
             },
         )
         resolution = orbit.resolve_orbits(ids, ISS_EPOCH_JD, remote_max_age_days=3.0)
+        orbit.report_named_coverage(resolution, log=log_lines.append)
 
-        assert sorted(resolution.resolved) == [61608, 72115]
+        assert sorted(resolution.resolved) == (
+            [61608, 72115] if both_resolve else [61608]
+        )
         messages = _messages(log_lines, capsys)
         assert "OBJECT_ID" in messages
         assert "2024-100A" in messages
         assert "61608" in messages and "72115" in messages
-
-    def test_shared_designator_warning_is_about_candidates(self, monkeypatch, capsys):
-        """The warning is issued at discovery, so it can only speak of candidates.
-
-        Either number may still fail age coverage and be excluded, as one does
-        here, so what the warning says is asserted as well as what it no longer
-        says.
-        """
-        rows = [
-            search_row(61608, "TWIN SAT", object_id="2024-100A"),
-            search_row(72115, "TWIN SAT", object_id="2024-100A"),
-        ]
-        serve_search(monkeypatch, {"TWIN": rows})
-        log_lines = []
-
-        ids = orbit.resolve_names(["twin"], ISS_EPOCH_JD, log=log_lines.append)
-        stub_service(
-            monkeypatch,
-            {
-                61608: tle_record_at(61608, ISS_EPOCH_JD),
-                72115: tle_record_at(72115, ISS_EPOCH_JD - 10.0),
-            },
-        )
-        orbit.report_named_coverage(
-            orbit.resolve_orbits(ids, ISS_EPOCH_JD, remote_max_age_days=3.0),
-            log=log_lines.append,
-        )
-
-        messages = _messages(log_lines, capsys)
         assert "candidate NORAD catalogue ID" in messages
         assert "may be modelled separately" in messages
         assert "if both survive" in messages
+        # ...and never a promise about a selection that has not happened yet.
         assert "both are kept as distinct satellites" not in messages
         assert "simulated once per number that resolves" not in messages
-        # ...and one of the two was in fact excluded.
-        assert "No acceptable record for named satellite 72115" in messages
+        if not both_resolve:
+            assert "No acceptable record for named satellite 72115" in messages
 
     def test_search_snapshot_is_full_and_beside_orbit_files(
         self, monkeypatch, isolated_cache
@@ -1113,32 +1069,46 @@ class TestNameDiscovery:
         ]
         assert len(list(isolated_cache.glob("search-*.json"))) == 1
 
-    def test_fresh_search_snapshot_suppresses_transport(
-        self, monkeypatch, isolated_cache
+    @pytest.mark.parametrize(
+        "fetched_at,now,freshness,requests,expected",
+        [
+            (utc(2026, 1, 1), utc(2026, 1, 1, 12), 1.0, 0, [3001]),
+            # Zero is "always ask", not "reuse anything younger than zero days",
+            # which a snapshot fetched at this very instant satisfies.
+            (utc(2026, 1, 1), utc(2026, 1, 1), 0, 1, [3002]),
+            # null is the opt-out from refreshing at all, at any age.
+            (utc(2020, 1, 1), utc(2026, 1, 1), None, 0, [3001]),
+        ],
+        ids=["fresh", "zero-at-the-same-instant", "null-six-years-old"],
+    )
+    def test_search_freshness_decides_whether_the_catalogue_is_asked(
+        self, monkeypatch, isolated_cache, fetched_at, now, freshness, requests, expected
     ):
-        """A search fresh enough by the wall clock is reused without a request."""
+        """Wall-clock freshness, and the two settings that are not a duration."""
         from tabsim import satchecker_names
 
-        TextOrbitCache(isolated_cache).store_search(
-            "NAVSTAR",
-            search_frame([search_row(24876, "NAVSTAR 43 (USA 132)")]),
-            fetched_at=datetime(2026, 1, 1, tzinfo=UTC),
+        cache = TextOrbitCache(isolated_cache)
+        cache.store_search(
+            "THING", search_frame([search_row(3001, "THING A")]), fetched_at=fetched_at
         )
-        monkeypatch.setattr(
-            satchecker_names,
-            "_utc_now",
-            lambda: datetime(2026, 1, 1, 12, tzinfo=UTC),
-        )
+        monkeypatch.setattr(satchecker_names, "_utc_now", lambda: now)
+        calls = []
+        if requests:
+            calls = serve_search(monkeypatch, {"THING": [search_row(3002, "THING B")]})
+        else:
+            forbid_search(monkeypatch)
 
-        # The suite's network block is still in force: any request fails here.
         ids = orbit.resolve_names(
-            ["navstar"],
+            ["thing"],
             ISS_EPOCH_JD,
-            search_cache_max_age_days=1.0,
+            search_cache_max_age_days=freshness,
             log=lambda *_: None,
         )
 
-        assert ids == [24876]
+        assert ids == expected
+        assert len(calls) == requests
+        # A refresh replaces the snapshot; a reuse leaves it exactly as it was.
+        assert sorted(cache.get_search("THING").found["NORAD_CAT_ID"]) == expected
 
     def test_stale_search_refresh_replaces_snapshot(
         self, monkeypatch, isolated_cache
@@ -1156,10 +1126,10 @@ class TestNameDiscovery:
             search_frame(
                 [search_row(3001, "THING A"), search_row(3002, "THING B")]
             ),
-            fetched_at=datetime(2026, 1, 1, tzinfo=UTC),
+            fetched_at=utc(2026, 1, 1),
         )
         monkeypatch.setattr(
-            satchecker_names, "_utc_now", lambda: datetime(2026, 1, 11, tzinfo=UTC)
+            satchecker_names, "_utc_now", lambda: utc(2026, 1, 11)
         )
         serve_search(
             monkeypatch,
@@ -1178,13 +1148,7 @@ class TestNameDiscovery:
         assert sorted(stored.found["NORAD_CAT_ID"]) == [3002, 3003]
 
     @pytest.mark.parametrize(
-        "error",
-        [
-            client.SatCheckerTransportError("connection refused"),
-            client.SatCheckerRateLimitError("slow down", retry_after=30.0),
-            client.SatCheckerResponseError("unreadable reply", status=500),
-        ],
-        ids=["transport", "rate-limit", "response"],
+        "error", list(SERVICE_FAILURES.values()), ids=list(SERVICE_FAILURES)
     )
     @pytest.mark.parametrize("cached_rows", [2, 0], ids=["rows", "empty"])
     def test_search_refresh_failure_uses_snapshot_with_warning(
@@ -1204,10 +1168,10 @@ class TestNameDiscovery:
             else []
         )
         TextOrbitCache(isolated_cache).store_search(
-            "THING", search_frame(rows), fetched_at=datetime(2026, 9, 1, tzinfo=UTC)
+            "THING", search_frame(rows), fetched_at=utc(2026, 9, 1)
         )
         monkeypatch.setattr(
-            satchecker_names, "_utc_now", lambda: datetime(2026, 9, 11, tzinfo=UTC)
+            satchecker_names, "_utc_now", lambda: utc(2026, 9, 11)
         )
         serve_search(monkeypatch, {"THING": error})
         log_lines = []
@@ -1228,66 +1192,8 @@ class TestNameDiscovery:
         assert str(len(rows)) in messages      # how many rows it holds
         assert str(error) in messages          # and why the refresh failed
 
-    def test_zero_search_freshness_refreshes_every_online_lookup(
-        self, monkeypatch, isolated_cache
-    ):
-        """``search_cache_max_age_days: 0`` refreshes, however new the snapshot is.
-
-        Not "reuse anything younger than zero days", which a snapshot fetched this
-        instant satisfies: the setting says *always ask*.
-        """
-        from tabsim import satchecker_names
-
-        cache = TextOrbitCache(isolated_cache)
-        cache.store_search(
-            "THING",
-            search_frame([search_row(3001, "THING A")]),
-            fetched_at=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-        monkeypatch.setattr(
-            satchecker_names, "_utc_now", lambda: datetime(2026, 1, 1, tzinfo=UTC)
-        )
-        calls = serve_search(monkeypatch, {"THING": [search_row(3002, "THING B")]})
-
-        ids = orbit.resolve_names(
-            ["thing"], ISS_EPOCH_JD, search_cache_max_age_days=0, log=lambda *_: None
-        )
-
-        assert ids == [3002]
-        assert len(calls) == 1
-        assert sorted(cache.get_search("THING").found["NORAD_CAT_ID"]) == [3002]
-
-    def test_null_search_freshness_reuses_a_snapshot_indefinitely(
-        self, monkeypatch, isolated_cache
-    ):
-        """``null`` is the opt-out from refreshing at all, at any age."""
-        from tabsim import satchecker_names
-
-        TextOrbitCache(isolated_cache).store_search(
-            "THING",
-            search_frame([search_row(3001, "THING A")]),
-            fetched_at=datetime(2020, 1, 1, tzinfo=UTC),
-        )
-        monkeypatch.setattr(
-            satchecker_names, "_utc_now", lambda: datetime(2026, 1, 1, tzinfo=UTC)
-        )
-        forbid_search(monkeypatch)  # six years old, and still no request
-
-        assert orbit.resolve_names(
-            ["thing"],
-            ISS_EPOCH_JD,
-            search_cache_max_age_days=None,
-            log=lambda *_: None,
-        ) == [3001]
-
     @pytest.mark.parametrize(
-        "error",
-        [
-            client.SatCheckerTransportError("connection refused"),
-            client.SatCheckerRateLimitError("slow down", retry_after=30.0),
-            client.SatCheckerResponseError("unreadable reply", status=500),
-        ],
-        ids=["transport", "rate-limit", "response"],
+        "error", list(SERVICE_FAILURES.values()), ids=list(SERVICE_FAILURES)
     )
     def test_search_failure_without_snapshot_is_fatal(self, monkeypatch, error):
         """With nothing cached, a failed search is not an unmatched name.
@@ -1312,12 +1218,12 @@ class TestNameDiscovery:
 
         cache = TextOrbitCache(isolated_cache)
         cache.store_search(
-            "NAVSTAR", search_frame([]), fetched_at=datetime(2026, 1, 1, tzinfo=UTC)
+            "NAVSTAR", search_frame([]), fetched_at=utc(2026, 1, 1)
         )
         monkeypatch.setattr(
             satchecker_names,
             "_utc_now",
-            lambda: datetime(2026, 1, 1, 1, tzinfo=UTC),
+            lambda: utc(2026, 1, 1, 1),
         )
         log_lines = []
 
@@ -1331,7 +1237,7 @@ class TestNameDiscovery:
 
         # Offline reuses it regardless of age.
         monkeypatch.setattr(
-            satchecker_names, "_utc_now", lambda: datetime(2026, 6, 1, tzinfo=UTC)
+            satchecker_names, "_utc_now", lambda: utc(2026, 6, 1)
         )
         assert orbit.resolve_names(
             ["navstar"],
@@ -1362,10 +1268,10 @@ class TestNameDiscovery:
         cache.store_search(
             "THING",
             search_frame([search_row(3001, "THING A")]),
-            fetched_at=datetime(2026, 1, 1, tzinfo=UTC),
+            fetched_at=utc(2026, 1, 1),
         )
         monkeypatch.setattr(
-            satchecker_names, "_utc_now", lambda: datetime(2026, 1, 11, tzinfo=UTC)
+            satchecker_names, "_utc_now", lambda: utc(2026, 1, 11)
         )
         serve_search(monkeypatch, {"THING": [search_row(3002, "THING B")]})
         log_lines = []
@@ -2183,31 +2089,36 @@ class TestConfiguration:
         with pytest.raises(TLEConfigurationError):
             normalise_norad_ids(value)
 
-    def test_integral_decimal_strings_are_still_accepted(self):
-        assert normalise_norad_ids(["25544.0", " 32260 ", "2.5544e4"]) == [25544, 32260]
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            (["25544.0", " 32260 ", "2.5544e4"], [25544, 32260]),
+            ([3, 1, 3, 2, "1"], [3, 1, 2]),
+            # Config lists routinely arrive as floats; only fractional ones are wrong.
+            (np.array([25544.0, 32260.0]), [25544, 32260]),
+        ],
+        ids=["integral-decimals", "deduplicated-in-order", "numpy-floats"],
+    )
+    def test_exactly_integral_norad_ids_are_accepted(self, value, expected):
+        assert normalise_norad_ids(value) == expected
 
-    def test_norad_ids_file_rejects_an_id_that_only_rounds_to_an_integer(self, tmp_path):
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("# satellites\n25544 ISS\n\n32260  GPS\n25544\n", [25544, 32260]),
+            ("25544\nnot-an-id\n", r"ids\.txt:2"),
+            # A float conversion rounds this to exactly 25544.0 and selects the ISS.
+            ("25544.000000000001\n", r"ids\.txt:1"),
+        ],
+        ids=["first-column-only", "error-names-the-line", "only-rounds-to-an-integer"],
+    )
+    def test_the_norad_id_file_is_read_line_by_line(self, tmp_path, text, expected):
         path = tmp_path / "ids.txt"
-        path.write_text("25544.000000000001\n")
-        with pytest.raises(TLEConfigurationError, match=r"ids\.txt:1"):
-            read_norad_ids_file(path)
-
-    def test_norad_ids_are_deduplicated_in_order(self):
-        assert normalise_norad_ids([3, 1, 3, 2, "1"]) == [3, 1, 2]
-
-    def test_float_ids_from_numpy_are_accepted(self):
-        """Config lists routinely arrive as floats; only fractional ones are wrong."""
-        assert normalise_norad_ids(np.array([25544.0, 32260.0])) == [25544, 32260]
-
-    def test_norad_ids_file_keeps_the_first_column(self, tmp_path):
-        path = tmp_path / "ids.txt"
-        path.write_text("# satellites\n25544 ISS\n\n32260  GPS\n25544\n")
-        assert read_norad_ids_file(path) == [25544, 32260]
-
-    def test_norad_ids_file_error_names_the_line(self, tmp_path):
-        path = tmp_path / "ids.txt"
-        path.write_text("25544\nnot-an-id\n")
-        with pytest.raises(TLEConfigurationError, match=r"ids\.txt:2"):
+        path.write_text(text)
+        if isinstance(expected, list):
+            assert read_norad_ids_file(path) == expected
+            return
+        with pytest.raises(TLEConfigurationError, match=expected):
             read_norad_ids_file(path)
 
     def test_config_merges_ids_and_the_id_file(self, tmp_path):
