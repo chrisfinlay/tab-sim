@@ -64,8 +64,8 @@ Three ways to run a simulation that includes satellites:
 The first fetches what it needs, caching records and catalogue searches under
 ``ORBIT_CACHE_DIR`` (by default the platform user-cache directory).
 
-Where several records are held for one satellite, the one selected is the nearest to
-the observation epoch *that this run can use*: a record the run's checksum policy
+Where the cache holds several records for one satellite, the one selected is the
+nearest to the observation epoch *that this run can use*: a record the run's checksum policy
 refuses is not a candidate, so a nearer unusable row neither displaces a usable one
 nor provokes a request. What is chosen is still within ``remote_max_age_days``, and
 if it is also within ``cache_reuse_max_age_days`` no request is sent — which is what

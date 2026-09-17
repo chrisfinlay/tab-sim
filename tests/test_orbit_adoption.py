@@ -135,7 +135,7 @@ OBS_EPOCH_JD = ISS_EPOCH_JD
 
 #: The client dependency this adoption is written against; see §3.6 of the plan
 #: and the comment in ``pyproject.toml``.
-PINNED_CLIENT_SHA = "e2c83d617e09de3561a8674c29b0775c9079700b"
+PINNED_CLIENT_SHA = "bfc2cddc5ddeace7694b8161befc4a4e35b27584"
 PINNED_REQUIREMENT = (
     "satchecker-client @ git+https://github.com/epfl-radio-astro/"
     f"satchecker-client.git@{PINNED_CLIENT_SHA}"
@@ -147,6 +147,7 @@ SUPERSEDED_CLIENT_SHAS = (
     "06dcbf5cff5ce581bf694d689bfe08de358c5e72",
     "bb7027042b6ed6f5f76049201335d3cdc1dd1c06",
     "9096df99cab6c268041b7f954a352855500c4101",
+    "e2c83d617e09de3561a8674c29b0775c9079700b",
 )
 
 
@@ -1729,6 +1730,10 @@ def test_the_checksum_remedy_is_offered_only_where_it_is_one(
     remedy = "rfi_sources.tle_satellite.allow_missing_checksum: true"
     assert (remedy in message) is remediable
     assert ("--allow-missing-checksum" in message) is remediable
+    # The whole displayed message, the client's part included: no spelling of
+    # the opt-in may reach a user it cannot help.
+    assert ("allow_missing_checksum" in message) is remediable
+    assert ("allow-missing-checksum" in message) is remediable
 
     if remediable:
         # ...and it really is the remedy: the same files load with it set.
