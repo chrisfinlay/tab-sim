@@ -154,11 +154,27 @@ class TestNewSettings:
 
 
 class TestReplaySelection:
-    def test_replay_selection_precedes_original_id_file_loading(
-        self, tmp_path, monkeypatch
+    @pytest.mark.parametrize(
+        "ignored",
+        [
+            {
+                "norad_ids_path": "gone.txt",
+                "norad_ids": [ISS_NORAD_ID],
+                "sat_names": ["navstar"],
+            },
+            {"norad_ids": ["bad"]},
+            {"norad_ids": [1.5]},
+            {"sat_names": "NAVSTAR"},
+        ],
+        ids=["missing-id-file", "non-numeric-id", "fractional-id", "sat-names-str"],
+    )
+    def test_replay_neither_reads_nor_validates_what_it_overrides(
+        self, tmp_path, monkeypatch, ignored
     ):
-        """A replay does not read the run's own satellite selection at all: an ID
-        file that has since moved must not stop a replay of the run that used it.
+        """A value a replay never reads cannot be a reason to refuse the run.
+
+        The saved IDs are authoritative, so an ID file that has since moved and a
+        malformed leftover in the config must both stop mattering.
         """
         replay_dir = tmp_path / "input_data"
         replay_dir.mkdir()
@@ -167,33 +183,6 @@ class TestReplaySelection:
             "read_norad_ids_file",
             forbidden("the original NORAD ID file"),
         )
-
-        config = normalise_orbit_config(
-            {
-                "replay_orbit_dir": str(replay_dir),
-                "norad_ids_path": str(tmp_path / "gone.txt"),
-                "norad_ids": [ISS_NORAD_ID],
-                "sat_names": ["navstar"],
-            }
-        )
-
-        assert config.replay_orbit_dir == str(replay_dir)
-
-    @pytest.mark.parametrize(
-        "ignored",
-        [{"norad_ids": ["bad"]}, {"norad_ids": [1.5]}, {"sat_names": "NAVSTAR"}],
-        ids=["non-numeric-id", "fractional-id", "sat-names-not-a-list"],
-    )
-    def test_replay_does_not_validate_the_selection_it_overrides(
-        self, tmp_path, ignored
-    ):
-        """A value a replay never reads cannot be a reason to refuse the run.
-
-        Validating the original names and IDs so the log could report them made a
-        malformed leftover stop a run that would never have looked at it.
-        """
-        replay_dir = tmp_path / "input_data"
-        replay_dir.mkdir()
 
         config = normalise_orbit_config(
             {"replay_orbit_dir": str(replay_dir), **ignored}

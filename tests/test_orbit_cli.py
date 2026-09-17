@@ -106,54 +106,43 @@ def layout(tmp_path):
 
 
 class TestPolicyFlags:
-    def test_omitted_flags_preserve_the_yaml_choices(self, layout, monkeypatch):
+    @pytest.mark.parametrize(
+        "written,args,expected",
+        [
+            (
+                {"offline": True, "allow_missing_checksum": True},
+                (),
+                {"offline": True, "allow_missing_checksum": True},
+            ),
+            (
+                {"offline": False, "allow_missing_checksum": True},
+                ("--offline", "--no-allow-missing-checksum"),
+                {"offline": True, "allow_missing_checksum": False},
+            ),
+            (
+                {"allow_missing_checksum": False},
+                ("--allow-missing-checksum",),
+                {"allow_missing_checksum": True},
+            ),
+        ],
+        ids=["omitted", "overridden", "switched-on"],
+    )
+    def test_a_boolean_flag_only_speaks_when_it_is_typed(
+        self, layout, monkeypatch, written, args, expected
+    ):
         """A flag that was not typed is not an instruction to turn anything off."""
         conf, work = layout
         config_path = write_sim_config(
             conf / "sim.yaml",
-            tle_satellite={
-                "offline": True,
-                "allow_missing_checksum": True,
-                "extra_orbit_dir": "yaml_extra",
-            },
+            tle_satellite={**written, "extra_orbit_dir": "yaml_extra"},
         )
 
-        satellites = run_sim_vis(monkeypatch, config_path, cwd=work)
+        satellites = run_sim_vis(monkeypatch, config_path, *args, cwd=work)
 
-        assert satellites["offline"] is True
-        assert satellites["allow_missing_checksum"] is True
+        for key, value in expected.items():
+            assert satellites[key] is value, key
         # A config path is relative to the config, as every other path here is.
         assert satellites["extra_orbit_dir"] == str(conf / "yaml_extra")
-
-    def test_flags_override_the_yaml_choices(self, layout, monkeypatch):
-        conf, work = layout
-        config_path = write_sim_config(
-            conf / "sim.yaml",
-            tle_satellite={"offline": False, "allow_missing_checksum": True},
-        )
-
-        satellites = run_sim_vis(
-            monkeypatch,
-            config_path,
-            "--offline",
-            "--no-allow-missing-checksum",
-            cwd=work,
-        )
-
-        assert satellites["offline"] is True
-        assert satellites["allow_missing_checksum"] is False
-
-    def test_allow_missing_checksum_can_be_switched_on(self, layout, monkeypatch):
-        conf, work = layout
-        config_path = write_sim_config(
-            conf / "sim.yaml", tle_satellite={"allow_missing_checksum": False}
-        )
-
-        satellites = run_sim_vis(
-            monkeypatch, config_path, "--allow-missing-checksum", cwd=work
-        )
-
-        assert satellites["allow_missing_checksum"] is True
 
     @pytest.mark.parametrize(
         "flag", ["--extra-orbit-dir", "--extra_orbit_dir", "-eod"]
