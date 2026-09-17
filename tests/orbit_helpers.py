@@ -1,13 +1,10 @@
 """Shared fixtures for the orbit-record tests: real records, no network.
 
 Checksum-valid TLE lines at an arbitrary NORAD ID and epoch, the two record kinds
-built from them, the historical archive defects derived from a valid line, and
-stubs for the three service seams (both nearest-record endpoints and the
-catalogue name search).
-
-TLE fixtures are *derived*, never typed out: the checksum is what makes a
-single-character corruption detectable, so a fixture whose ID or epoch was edited
-by hand would be rejected by the same parser the production code uses.
+built from them, the historical archive defects derived from a valid line, and stubs
+for the three service seams. TLE fixtures are *derived*, never typed out: the
+checksum is what makes a single-character corruption detectable, so one edited by
+hand would be rejected by the same parser the production code uses.
 """
 
 from __future__ import annotations
@@ -98,9 +95,8 @@ def without_checksum(line: str) -> str:
 def with_stray_backslash(line: str) -> str:
     """*line* with the archive's trailing backslash appended.
 
-    The checksum still verifies once the backslash is stripped, so a record
-    carrying this is as trustworthy as a clean one — provided the canonical line
-    is what gets written back out.
+    The checksum still verifies once the backslash is stripped, so a record carrying
+    this is as trustworthy as a clean one — if the canonical line is written back out.
     """
     return line + "\\"
 
@@ -129,9 +125,8 @@ def omm_record_from_tle(
 ):
     """An OMM record carrying the *same* elements as the given TLE pair.
 
-    Deriving it from a TLE is what makes the two propagation paths directly
-    comparable: a degrees-for-radians slip shows up as a position difference
-    against a satellite whose elements are known to be identical.
+    Deriving it from a TLE is what makes the two propagation paths comparable: a
+    degrees-for-radians slip shows up as a position difference between them.
     """
     elements = parse_tle_elements(line1, line2)
     return {
@@ -177,9 +172,9 @@ def forbidden(what: str):
 class EndpointStub:
     """One nearest-record endpoint with scripted per-ID answers, recording calls.
 
-    An *answers* entry is a record dict, a DataFrame, or an exception to raise; an
-    ID with no entry gets *default*, and ``None`` is an empty frame — the service
-    saying it has no such record.
+    An *answers* entry is a record dict, a DataFrame, or an exception to raise; an ID
+    with no entry gets *default*, and ``None`` is an empty frame — the service saying
+    it has no such record.
     """
 
     def __init__(self, label, answers=None, default=None, calls=None):
@@ -214,8 +209,8 @@ def stub_endpoints(
     """Install an :class:`EndpointStub` on each nearest-record endpoint.
 
     Returns ``(nearest_tle, nearest_omm)`` in the order
-    :func:`satchecker_client.nearest_endpoints_for` returns them for a
-    pre-handover epoch, so a test can assert what each archive was asked.
+    :func:`satchecker_client.nearest_endpoints_for` gives them for a pre-handover
+    epoch, so a test can assert what each archive was asked.
     """
     stubs = (
         EndpointStub("nearest-TLE", tle, tle_default, calls),
@@ -229,9 +224,9 @@ def stub_endpoints(
 def stub_service(monkeypatch, records_by_id, endpoint="tle"):
     """Serve *records_by_id* from the nearest-record endpoint of the given kind.
 
-    The other endpoint answers empty. Returns one ordered stream of
-    ``(norad_id, epoch_jd, strict_response)`` across both, the third element being
-    the opt-in without which an HTTP-200 error envelope reads as "no record".
+    The other endpoint answers empty. Returns one ordered stream of ``(norad_id,
+    epoch_jd, strict_response)`` across both, the third being the opt-in without which
+    an HTTP-200 error envelope reads as "no record".
     """
     calls: list[tuple] = []
     served = dict(records_by_id)
@@ -317,9 +312,8 @@ FORBIDDEN_SOURCES = (
 def forbid_orbit_acquisition(monkeypatch, tmp_path=None) -> None:
     """Every source in :data:`FORBIDDEN_SOURCES`, made to raise.
 
-    Raising rather than answering nothing: a replay that quietly resolved a
-    satellite from the cache or the service would still produce a plausible
-    simulation, just not the one it claims to reproduce.
+    Raising rather than answering nothing: a replay that quietly resolved a satellite
+    from the cache or the service would still produce a plausible simulation.
     """
     if tmp_path is not None:
         monkeypatch.setenv("ORBIT_CACHE_DIR", str(tmp_path / "empty-cache"))
@@ -449,10 +443,9 @@ def restored_stdout():
 def write_sim_config(path, tle_satellite=None, **sections) -> str:
     """Write a minimal simulation config that runs in about a second.
 
-    Two antennas, two time steps and one channel: enough for ``load_obs`` to
-    build a real observation, little enough that a test asserting *when*
-    something is validated does not pay for a simulation. Everything not given
-    here comes from ``sim_config_base.yaml``.
+    Two antennas, two time steps and one channel: enough for ``load_obs`` to build a
+    real observation, little enough that a test asserting *when* something is
+    validated does not pay for a simulation. The rest is ``sim_config_base.yaml``.
     """
     import yaml
 
@@ -486,10 +479,9 @@ def write_sim_config(path, tle_satellite=None, **sections) -> str:
 def _serve_transport(monkeypatch, fake_get):
     """Install a search transport at the one seam there is.
 
-    ``client._http_get`` is what the public :func:`search_satellites` uses, so it
-    is the only place a catalogue search can leave from. Nothing else is patched:
-    a reintroduced private bypass must hit the suite's network block instead of
-    keeping the "public search" test passing.
+    ``client._http_get`` is what the public :func:`search_satellites` uses; nothing
+    else is patched, so a reintroduced private bypass hits the suite's network block
+    instead of keeping the "public search" test passing.
     """
     monkeypatch.setattr(client, "_http_get", fake_get)
 
@@ -511,9 +503,9 @@ def serve_raw_search(monkeypatch, payload):
 def serve_search(monkeypatch, by_query):
     """Answer ``search-satellites`` requests from *by_query*.
 
-    Keys are the query as it goes out on the wire — the catalogue is upper case
-    and matched case-sensitively, so ``"NAVSTAR"``, not ``"navstar"``. A value is
-    a list of :func:`search_row` rows or an exception. Calls record ``(name, url)``.
+    Keys are the query as it goes out on the wire — the catalogue is upper case and
+    matched case-sensitively, so ``"NAVSTAR"``, not ``"navstar"``. A value is a list
+    of :func:`search_row` rows or an exception; calls record ``(name, url)``.
     """
     calls = []
 
@@ -555,8 +547,8 @@ COMPAT_FIXTURE_DIR = Path(__file__).resolve().parent / "compat" / "fixtures"
 def compat_fixture(name: str):
     """One frozen #44 replay directory and the pair #44 read back from it.
 
-    Returns ``(directory, expected)``, *expected* carrying the checksum policy the
-    case needs, the saved IDs in saved order, and one record each, spelled the way
+    Returns ``(directory, expected)``, *expected* carrying the checksum policy the case
+    needs, the saved IDs in saved order, and the records spelled the way
     :func:`comparable_record` spells them.
     """
     directory = COMPAT_FIXTURE_DIR / name

@@ -1,9 +1,8 @@
-"""Suite-wide protection: an isolated cache, no network, no IERS downloads.
+"""Autouse protection for every test: isolated cache, no network, no IERS downloads.
 
-Every module gets these autouse fixtures, so a new test file cannot silently read
-the developer's real ``~/.cache/orbit-cache`` or query the live SatChecker
-service. The suite's one live check, ``test_sim-vis.py::
-test_simulation_runs_with_config``, opts out with ``@pytest.mark.allow_network``.
+A new test file cannot silently read the developer's real ``~/.cache/orbit-cache`` or
+query the live service; only ``test_sim-vis.py::test_simulation_runs_with_config``
+opts out, with ``@pytest.mark.allow_network``.
 """
 
 from __future__ import annotations
@@ -33,8 +32,8 @@ def isolated_cache(tmp_path, monkeypatch):
 def no_iers_download():
     """Never fetch Earth-orientation data while propagating in a test.
 
-    The bundled tables stay in force and out-of-range dates are accepted at
-    reduced accuracy rather than raising.
+    The bundled tables stay in force and an out-of-range date is accepted at reduced
+    accuracy rather than raising.
     """
     from contextlib import ExitStack
 
@@ -51,9 +50,9 @@ def no_iers_download():
 def no_network(request, monkeypatch):
     """Fail loudly if a test reaches the network without saying it means to.
 
-    Both transports are blocked: ``_http_get`` is the seam a test replaces to
-    serve a recorded reply, and ``urlopen`` beneath it catches code reaching the
-    service some other way — which a private copy of the client's transport did.
+    Both transports: ``_http_get`` is the seam a test replaces to serve a recorded
+    reply, and ``urlopen`` beneath it catches a private copy of the client's
+    transport reaching the service some other way, as one did.
     """
     if request.node.get_closest_marker("allow_network"):
         return

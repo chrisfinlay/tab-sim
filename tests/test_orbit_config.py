@@ -1,10 +1,9 @@
 """Orbit configuration: the new policy keys, and the ones that are now obsolete.
 
 A key that used to change which satellites a run modelled and now does nothing is
-worse than a removed one: the run succeeds and quietly stops honouring a setting
-the user still believes in. So ``tle_dir`` and ``spacetrack_path`` are rejected by
-*presence*, before the observation is built and before any request goes out —
-including in a run that models no satellites, where nothing else reads the section.
+worse than a removed one: the run succeeds and quietly stops honouring a setting the
+user still believes in. So ``tle_dir`` and ``spacetrack_path`` are rejected by
+*presence*, before the observation is built and before any request goes out.
 """
 
 from __future__ import annotations
@@ -88,9 +87,9 @@ class TestObsoleteKeys:
     def test_a_failed_run_restores_stdout(self, tmp_path, monkeypatch):
         """A fatal error must not leave the process writing into that run's log.
 
-        ``run_sim_config`` tees ``sys.stdout`` into ``log_sim_*.txt`` and the
-        checks can raise before a visibility is computed. Deliberately *without*
-        ``restored_stdout``: this is the guard that it is not needed.
+        ``run_sim_config`` tees ``sys.stdout`` into ``log_sim_*.txt`` and the checks
+        can raise first. Deliberately *without* ``restored_stdout``: this is the
+        guard that it is not needed.
         """
         config_path = write_sim_config(
             tmp_path / "sim.yaml", tle_satellite={"tle_dir": "gone"}

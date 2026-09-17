@@ -1,22 +1,18 @@
 """tabsim.orbit as an adapter over satchecker-client's resolver and replay API.
 
-``tests/test_orbit.py`` says what tabsim's orbit policy *is*; this module says
-who executes it — that the selection, acquisition and serialisation tabsim used
-to implement itself now come from the client's public API, and that what comes
-back through that seam still has tabsim's shape, labels and wording.
+``tests/test_orbit.py`` says what tabsim's orbit policy *is*; this module says who
+executes it, and that what comes back through the seam still has tabsim's shape,
+labels and wording.
 
 **The seam.** Every adopted client function is looked up on the package module at
-call time, never bound by a module-scope ``from ... import``, which would make it
-unpatchable here and would freeze the archive choice at import.
-``orbit_helpers.CLIENT_SEAM_NAMES`` is the list and its ``spy_on`` the only way
-these tests install anything on it.
+call time — a module-scope import would make it unpatchable here and freeze the
+archive choice — and ``orbit_helpers.CLIENT_SEAM_NAMES`` with its ``spy_on`` is the
+only way these tests install anything on it.
 
-**Public API only.** Nothing patches the client's resolver internals. Delegation
-spies wrap the *real* function wherever the behaviour is also asserted, so a test
-proves both that the call happened and that the answer is right; where a test
-needs a result tabsim could not produce by itself — an outage that blocked a
-fallback, a refresh that failed — it builds the client's own result dataclasses
-and hands them back through the same seam.
+**Public API only.** Delegation spies wrap the *real* function wherever the
+behaviour is also asserted; where a test needs a result tabsim could not produce by
+itself — an outage that blocked a fallback, a refresh that failed — it builds the
+client's own result dataclasses and hands them back through the same seam.
 """
 
 from __future__ import annotations
@@ -363,10 +359,9 @@ def test_an_unusable_nearest_cached_record_does_not_hide_a_usable_one(
 ):
     """Of the records held for one satellite, the nearest *usable* one is chosen.
 
-    A deliberate difference from #44, which refused the nearest cached record for
-    its provenance and then asked SatChecker: a row this run's checksum policy
-    cannot use is not a candidate, so it neither displaces a usable record inside
-    every ceiling the user set nor decides the outcome of an offline run.
+    A deliberate difference from #44: a row this run's checksum policy cannot use is
+    not a candidate, so it neither displaces a usable record inside every ceiling the
+    user set nor decides the outcome of an offline run.
     """
     epoch_jd = ISS_EPOCH_JD
     unusable = tle_record_at(ISS_NORAD_ID, epoch_jd, DATA_SOURCE="permissive run")
@@ -684,8 +679,7 @@ def test_a_rejection_reason_describes_the_candidate_its_source_names(
     """One satellite, two unusable records: the reported reason is the kept one's.
 
     Only the first rejection per satellite survives, so pairing it with the last
-    ``candidate_rejected`` event reports the other candidate's defect beside a
-    source that supplied nothing of the sort.
+    ``candidate_rejected`` event reports the other candidate's defect instead.
     """
     first = tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD, DATA_SOURCE="my archive")
     first["TLE_LINE1"] = corrupt_checksum(first["TLE_LINE1"])
@@ -722,9 +716,8 @@ def test_a_rejection_reason_describes_the_candidate_its_source_names(
 def test_tabsim_result_constructors_keep_their_positional_order():
     """Existing callers build these positionally; new metadata is keyword-only.
 
-    The cheapest way to adopt the client's result types is to alias them, and its
-    field order puts ``endpoint`` between ``source`` and ``provider``, moving
-    every positional argument along by one.
+    Aliasing the client's result types is the cheapest adoption, and its field order
+    puts ``endpoint`` between ``source`` and ``provider``, shifting every one along.
     """
     record = canonical(tle_record_at(ISS_NORAD_ID, OBS_EPOCH_JD))
     accepted = orbit.ResolvedOrbit(
@@ -843,9 +836,8 @@ def test_outage_blocked_not_sent_is_fatal_for_named_coverage(
 ):
     """An answer that was never asked for is not an answer.
 
-    An outage that stopped acquisition leaves the second archive's reply
-    ``not_sent``, and the client files such an ID under neither ``service_errors``
-    nor ``unavailable``, so "no error recorded" cannot mean "nothing there".
+    An outage that stopped acquisition leaves the second archive ``not_sent``, and
+    the client files such an ID under neither ``service_errors`` nor ``unavailable``.
     """
     stub_endpoints(monkeypatch)
     blocked, answered = ISS_NORAD_ID, GPS_NORAD_ID
@@ -898,9 +890,8 @@ def test_outage_blocked_not_sent_is_fatal_for_named_coverage(
 def test_outage_blocked_fallback_through_real_client(monkeypatch):
     """The same case, produced by the real resolver rather than described to it.
 
-    One worker, so the first satellite's archive answers empty, the second's
-    raises, and the batch stops before the fallback goes out — leaving the first
-    with one reply, silence from the other, and no failure of its own.
+    One worker, so the first satellite's archive answers empty, the second's raises
+    and the batch stops: the first has one reply, silence, and no failure of its own.
     """
     blocked, failing = ISS_NORAD_ID, GPS_NORAD_ID  # blocked sorts first
     outage = SatCheckerTransportError("connection refused")
@@ -966,9 +957,9 @@ def test_not_sent_cache_hits_are_not_coverage_failures(monkeypatch):
 def evidence_cases():
     """``id -> (client fields for the unresolved ID, tabsim settings, fatal?)``.
 
-    One satellite, asked for by name, with nothing accepted. Only two kinds of
-    evidence are an answer from the catalogue: both archives replied and had
-    nothing, or what they had was too old and the acquisition finished.
+    One satellite asked for by name, nothing accepted. Only two kinds of evidence are
+    an answer from the catalogue: both archives replied and had nothing, or what they
+    had was too old and the acquisition finished.
     """
     unresolved = ISS_NORAD_ID
     over_age = client_rejected(
@@ -1101,9 +1092,8 @@ def test_the_refresh_summary_reports_only_requests_that_were_made(
 ):
     """"SatChecker did not improve N" is a result, so it needs a request.
 
-    Offline the same record is retained because nothing was asked; the
-    skipped-refresh count says that, and an acquisition result beside it would
-    report on requests that were never sent.
+    Offline the same record is retained because nothing was asked: the skipped-refresh
+    count says so, where an acquisition result would report on requests never sent.
     """
     epoch_jd = ISS_EPOCH_JD + 2.0  # inside the 3 d ceiling, outside the 1 d reuse
     TextOrbitCache(isolated_cache).store(
@@ -1131,9 +1121,8 @@ def test_one_healthy_run_says_each_thing_once_and_warns_about_nothing(
 ):
     """Cache reuse, a refresh and a fallback in one run — and one log to read.
 
-    Events arrive per set of satellites, so a heading, a cache-hit count or a
-    fallback explanation can each be emitted more than once for one thing. The
-    counts are the assertion, as is the absence of every went-wrong line.
+    Events arrive per set of satellites, so a heading or a count can be emitted twice
+    for one thing: the counts are the assertion, as is every absent went-wrong line.
     """
     reused, refreshed, fetched = ISS_NORAD_ID, ISS_NORAD_ID + 1, ISS_NORAD_ID + 2
     epoch_jd = ISS_EPOCH_JD
@@ -1186,10 +1175,9 @@ def test_a_refresh_failure_reaches_the_summary_through_the_real_callbacks(
 ):
     """The failed-refresh warning, driven by the client's own event sequence.
 
-    What has to agree is the resolver's ``on_event`` callbacks, its error
-    bookkeeping and its final result: which satellites failed a refresh, and what
-    each is continuing from — never the cache for an ID the second archive
-    rescued, which is a record the run never held.
+    The callbacks, the error bookkeeping and the final result must agree on which
+    satellites failed a refresh and what each continues from — never the cache for an
+    ID the second archive rescued, which is a record the run never held.
     """
     rescued, epoch_jd = GPS_NORAD_ID, ISS_EPOCH_JD
     expected = {rescued: LABEL_OMM}
@@ -1226,12 +1214,11 @@ def test_a_refresh_failure_reaches_the_summary_through_the_real_callbacks(
 
 
 def test_extra_reader_delegates_and_preserves_contextual_errors(monkeypatch, tmp_path):
-    """An explicitly named directory is read through the client, and a failure the
-    client raises keeps the file, row and satellite it named.
+    """A named directory is read through the client, and an error it raises keeps the
+    file, row and satellite it named.
 
-    The malformed files themselves are
-    ``test_orbit.py::TestSourcePrecedence::test_an_unusable_extra_orbit_file_stops_the_run_naming_it``;
-    what is here is the delegation and the error translation.
+    The malformed files themselves are ``test_orbit.py``'s
+    ``test_an_unusable_extra_orbit_file_stops_the_run_naming_it``.
     """
     spy = spy_on(monkeypatch, "read_extra_orbit_dir")
 
@@ -1377,9 +1364,8 @@ SAVE_CASES = save_cases()
 def test_config_saves_one_validated_replay_pair(case, monkeypatch, tmp_path, capsys):
     """The IDs and the records a run saves are one decision, written together.
 
-    Writing the ID file separately leaves a directory holding an ID list for
-    records that are not there; the pair writer validates and serialises both
-    before either destination is opened.
+    Writing the ID file separately leaves an ID list for records that are not there;
+    the pair writer validates and serialises both before either file is opened.
     """
     norad_ids, records, error = SAVE_CASES[case]
     pair = spy_on(monkeypatch, "save_replay_orbits")
@@ -1437,9 +1423,9 @@ COMPAT_CASES = ["empty", "mixed_tle_first", "unverified"]
 def test_a_pr44_replay_loads_through_the_client_adapter(case, monkeypatch, capsys):
     """Directories written by #44 replay unchanged, through the client's loader.
 
-    The fixtures are #44's own output, frozen before any of this landed. What has
-    to survive is the saved selection, the retained doubles, the checksum
-    provenance and the trajectories — not the bytes.
+    The fixtures are #44's own output, frozen before any of this landed; what has to
+    survive is the saved selection, the retained doubles and the checksum provenance
+    — not the bytes.
     """
     forbid_orbit_acquisition(monkeypatch)
     spy = spy_on(monkeypatch, "load_replay_orbits")
@@ -1478,11 +1464,10 @@ def test_what_a_run_saves_still_matches_the_frozen_file_format(
 ):
     """And the other direction: the pair writer still produces #44's two files.
 
-    The expectation is the frozen directory itself, read with the standard
-    library — never re-derived through the client's serialiser or its loader,
-    which would compare the implementation with itself. Executing #44's own
-    loader over this output is historical test-host evidence recorded in the PR,
-    not something this suite still does.
+    The expectation is the frozen directory itself, read with the standard library,
+    never re-derived through the client's serialiser or its loader. Executing #44's
+    own loader over this output is historical evidence recorded in the PR, not
+    something this suite still does.
     """
     directory, expected = compat_fixture(case)
     norad_ids = expected["norad_ids"]

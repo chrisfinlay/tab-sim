@@ -1,9 +1,9 @@
 """The command-line surface of the orbit policy, and the credential-free promise.
 
-Two rules run through all of it. A boolean flag defaults to ``None`` rather than
-``False``, so omitting it leaves the YAML choice alone instead of overwriting a
-deliberate ``offline: true``. And a path typed on the command line is relative to
-where it was typed, while one written in a config is relative to the config.
+Two rules run through all of it: a boolean flag defaults to ``None``, so omitting it
+leaves a deliberate ``offline: true`` alone rather than overwriting it; and a path
+typed on the command line is relative to where it was typed, one in a config to the
+config.
 """
 
 from __future__ import annotations
@@ -54,9 +54,9 @@ def run_sim_vis_config(monkeypatch, config_path, *args, cwd=None):
 def test_the_console_entry_point_exits_zero_on_success(monkeypatch, tmp_path):
     """``sys.exit(main())`` reads a returned tuple as failure.
 
-    Any return that is not ``None`` or an int becomes exit status 1, so a
-    successful run reported failure to every shell that checked. The entry point
-    is ``cli``, which discards the result ``main`` returns for Python callers.
+    Any return that is not ``None`` or an int becomes exit status 1, so a successful
+    run reported failure to every shell that checked. The entry point is ``cli``,
+    which discards what ``main`` returns for Python callers.
     """
     config_path = write_sim_config(tmp_path / "sim.yaml", {"sat_names": ["navstar"]})
     run_sim_vis_config(monkeypatch, config_path)  # installs the capture stub

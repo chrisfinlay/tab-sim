@@ -1,12 +1,10 @@
 """End-to-end ``sim-vis`` behaviour: the live check, frozen replay, and outages.
 
-``test_simulation_runs_with_config`` is the suite's only test that reaches the
-live SatChecker service; everything else drives the same code over a two-antenna
-observation with a mocked transport, fast enough to assert on the visibilities.
-
-What a completed simulation has to prove is not that it completed: a run whose
-satellites all silently failed to resolve also completes and produces valid
-output, so the assertions below are about the satellites being *there*.
+``test_simulation_runs_with_config`` is the suite's only test that reaches the live
+SatChecker service; everything else drives the same code over a two-antenna
+observation with a mocked transport. Completion is never the assertion: a run whose
+satellites all silently failed to resolve also completes and writes valid output, so
+these tests are about the satellites being *there*.
 """
 
 import sys
@@ -60,9 +58,8 @@ PACKAGED_ELEVATION = 1050.0
 def tiny_sim_config(path, output_path, telescope=None, **tle_satellite):
     """A two-antenna, three-sample, single-channel observation of two satellites.
 
-    ``max_ang_sep``/``min_alt`` are wide open so the visibility filter cannot
-    change the selection between a run and its replay. *telescope* overrides the
-    ``MeerKAT``/two-antenna default section.
+    ``max_ang_sep``/``min_alt`` are wide open so the visibility filter cannot change
+    the selection between a run and its replay; *telescope* overrides the default.
     """
     satellites = {
         "norad_ids": [],
@@ -197,9 +194,9 @@ def test_missing_config_file():
 def test_simulation_runs_with_config(capsys, tmp_path):
     """The one live check: a real NAVSTAR selection, resolved against SatChecker.
 
-    "It finished" is not the assertion: an outage that dropped every named
-    satellite would finish too, so the run must be shown to have modelled
-    satellites and saved the records it modelled them from.
+    "It finished" is not the assertion: an outage dropping every named satellite
+    finishes too, so the run must be shown to have modelled satellites and saved the
+    records it modelled them from.
     """
     config_path = (
         Path(__file__).parent.parent / "examples" / "test" / "sim_test_16A.yaml"
@@ -315,9 +312,9 @@ def test_a_configured_spectral_model_is_not_replaced_by_the_packaged_one(
 ):
     """Startup's packaged defaults must not overwrite a configured spectral model.
 
-    ``deep_update`` applied the shipped table over the configured one, so a
-    satellite only the user's model covers was left out of the simulation — and a
-    replay of such a run then reported a spectrum missing that is not missing.
+    ``deep_update`` applied the shipped table over the configured one, so a satellite
+    only the user's model covers was left out — and a replay of such a run then
+    reported a spectrum missing that is not missing.
     """
     unknown = 99999  # deliberately absent from the shipped norad_satellite.rfimodel
     settings = {"norad_spec_model": spec_model(tmp_path / "mine.rfimodel", [unknown])}
@@ -386,9 +383,8 @@ def test_a_named_telescope_completes_the_section_without_replacing_it(
     """Completing a telescope section must not overwrite the part that was set.
 
     ``dish_d: null`` is how one asks a named telescope for its diameter, and
-    ``deep_update`` then replaced the configured antenna file with the packaged
-    ``MeerKAT.itrf.txt``; the mirror case turned a configured 25 m dish into the
-    packaged 13.5, which changes the beam and every apparent source amplitude.
+    ``deep_update`` then replaced the configured antenna file with the packaged one;
+    the mirror case turned a 25 m dish into 13.5, changing every amplitude.
     """
     if configured == "antenna-file":
         itrf_path, positions = custom_itrf_file(tmp_path / "mine.itrf.txt")
@@ -413,8 +409,8 @@ def test_a_named_telescope_completes_the_section_without_replacing_it(
 def test_named_telescope_does_not_replace_an_explicit_zero_elevation(tmp_path):
     """``elevation: 0`` at a named site is a setting, not an omission.
 
-    The template default was ``0`` too, so the definition's 1050 m won either way
-    — and an ENU array is placed on the ellipsoid through that elevation, so the
+    The template default was ``0`` too, so the definition's 1050 m won either way —
+    and an ENU array is placed on the ellipsoid through that elevation, so the
     configured array moved. The template default is now null.
     """
     enu = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]])
@@ -468,9 +464,8 @@ def test_unset_elevation_without_a_named_telescope_is_sea_level(tmp_path):
 def test_named_telescope_does_not_override_the_configured_antenna_frame(tmp_path):
     """An ENU array is a choice of source, so the packaged ITRF file must not win.
 
-    ``Telescope`` lets ITRF positions replace ENU ones, so filling in the
-    definition's ``itrf_path`` discards the configured array rather than
-    completing it.
+    ``Telescope`` lets ITRF positions replace ENU ones, so filling in the definition's
+    ``itrf_path`` discards the configured array rather than completing it.
     """
     enu = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]])
     np.savetxt(tmp_path / "mine.enu.txt", enu)
@@ -520,9 +515,8 @@ def test_shared_designator_candidates_are_not_promised_to_be_modelled(
 def test_replay_logs_an_ignored_numpy_id_array(tmp_path, monkeypatch, capsys):
     """An ignored ``norad_ids`` array must be reportable, not truth-tested.
 
-    The log filtered the overridden settings with ``if value``, on which a NumPy
-    array of IDs raises. Driven through ``run_sim_config`` directly, because a
-    YAML file cannot carry one.
+    The log filtered the overridden settings with ``if value``, on which a NumPy array
+    raises. Driven through ``run_sim_config``, because YAML cannot carry one.
     """
     replay_dir = write_replay_dir(
         tmp_path / "input_data",
@@ -580,9 +574,9 @@ def test_sim_vis_offline_over_age_record_does_not_silently_drop_a_satellite(
 ):
     """Offline, an over-age cached record must stop the run, not exclude the satellite.
 
-    The cached search says the satellite exists and the cached record is ten days
-    out, with nothing asked for a closer one; calling that "the catalogue has
-    nothing acceptable" wrote a complete observation with no satellite RFI.
+    The cached search says the satellite exists and the record is ten days out with
+    nothing asked for a closer one; calling that "the catalogue has nothing
+    acceptable" wrote a complete observation with no satellite RFI.
     """
     cache = TextOrbitCache(isolated_cache)
     cache.store_search(
