@@ -21,7 +21,7 @@ from tabsim.sky import generate_random_sky
 from tabsim.write import write_ms, mk_obs_name, mk_obs_dir
 from tabsim.jax.coordinates import calculate_fringe_frequency, jd_to_mjd, mjd_to_jd
 from tabsim.tle import get_visible_satellite_tles, id_generator
-from tabsim.orbit import OrbitError, load_replay_orbits, save_orbits_for_reuse
+from tabsim.orbit import OrbitError, load_replay_orbits, save_replay_orbits
 from tabsim.orbit_config import (
     normalise_orbit_config,
     observation_epoch_jd,
@@ -879,30 +879,21 @@ def save_inputs(obs: Observation, sim_config: dict, save_path: str) -> None:
         if path is not None:
             shutil.copy(path, save_path)
 
-    # The satellites this observation actually propagated, flattened once and used
-    # for both replay files so the IDs and the records cannot disagree. Written
-    # even when empty: "this run modelled no satellites" is a fact a later replay
-    # needs, and a missing file cannot state it.
+    # The satellites this observation actually propagated, flattened once and
+    # written as one pair, so the IDs and the records cannot disagree: they are
+    # one decision, validated and serialised together before either file is
+    # opened. Written even when empty: "this run modelled no satellites" is a
+    # fact a later replay needs, and a missing file cannot state it.
+    #
+    # `sim-vis --replay-orbit-dir <this directory>` then reproduces exactly this
+    # selection and these trajectories, independently of the shared cache, of the
+    # remote age ceiling, and of what SatChecker serves by then.
     final_ids = (
         [int(nid) for nid in np.concatenate(obs.norad_ids).compute()]
         if len(obs.norad_ids) > 0
         else []
     )
-    np.savetxt(
-        os.path.join(save_path, "norad_ids.yaml"),
-        np.asarray(final_ids, dtype=int),
-        fmt="%i",
-    )
-
-    # The orbit records this run propagated, with their checksum provenance.
-    # `sim-vis --replay-orbit-dir <this directory>` reproduces exactly this
-    # selection and these trajectories, independently of the shared cache, of the
-    # remote age ceiling, and of what SatChecker serves by then.
-    used_orbits = save_orbits_for_reuse(
-        os.path.join(save_path, "used_orbits.json"),
-        final_ids,
-        obs.orbit_records,
-    )
+    _, used_orbits = save_replay_orbits(save_path, final_ids, obs.orbit_records)
     print(f"Orbit records used written to : {used_orbits}")
 
     with open(os.path.join(save_path, "sim_config.yaml"), "w") as fp:
