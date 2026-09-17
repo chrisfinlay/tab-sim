@@ -39,8 +39,13 @@ def run_sim_vis(sim_config: dict, tmp_path, monkeypatch):
     # The simulation log is written to the working directory
     monkeypatch.chdir(tmp_path)
 
-    with patch.object(sys, "argv", ["sim-vis", "-c", str(config_path), "-o"]):
-        sim_vis.main()
+    stdout = sys.stdout
+    try:
+        with patch.object(sys, "argv", ["sim-vis", "-c", str(config_path), "-o"]):
+            sim_vis.main()
+    finally:
+        # A simulation that fails leaves stdout copied to its log
+        sys.stdout = stdout
 
 
 def test_min_flux_in_sigma_above_max_flux_raises(tmp_path, monkeypatch):
@@ -96,6 +101,7 @@ def test_sources_too_crowded_to_separate_raises(tmp_path, monkeypatch):
     assert "n_src = 300" in msg
     assert "max_sep / n_beam (60.0 arcsec)" in msg
     assert "the settings to lower are n_src, n_beam and max_sep" in msg
+    assert "max_sep, which is in arcseconds" in msg
 
 
 def test_small_observation_with_a_valid_flux_range_runs(tmp_path, monkeypatch, capsys):

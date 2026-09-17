@@ -1,3 +1,8 @@
+from contextlib import contextmanager
+
+import dask.array as da
+import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -10,6 +15,16 @@ from tabsim.sky import (
     uniform_points_disk,
 )
 from timeouts import fail_after
+
+
+@contextmanager
+def single_precision():
+    enabled = jax.config.jax_enable_x64
+    jax.config.update("jax_enable_x64", False)
+    try:
+        yield
+    finally:
+        jax.config.update("jax_enable_x64", enabled)
 
 
 def reference_power_law(n_src, I_min, I_max, alpha, rng):
@@ -26,8 +41,11 @@ def reference_power_law(n_src, I_min, I_max, alpha, rng):
     return I
 
 
-def reference_positions(n_src, fov, min_sep, rng):
-    """The minimum separation loop as it was before it was bounded."""
+def reference_random_sky(
+    n_src, freqs, min_I, max_I, fov, beam_width, rng, n_beam, alpha=1.6
+):
+    """`generate_random_sky` as it was before its loops were bounded."""
+    I = da.atleast_1d(reference_power_law(n_src, min_I, max_I, alpha, rng))
     positions = uniform_points_disk(fov / 2.0, 1, rng)
     while positions.shape[1] < n_src:
         n_sample = 2 * (n_src - positions.shape[1])
@@ -35,11 +53,16 @@ def reference_positions(n_src, fov, min_sep, rng):
         positions = np.concatenate([positions, new_positions], axis=1)
         s1, s2 = np.triu_indices(positions.shape[1], 1)
         d = np.linalg.norm(positions[:, s1] - positions[:, s2], axis=0)
-        idx = np.where(d < min_sep)[0]
-        remove_source_idx = np.unique(np.concatenate([s1[idx], s2[idx]]))
+        idx = np.where(d < n_beam * beam_width)[0]
+        remove_source_idx = np.unique(jnp.concatenate([s1[idx], s2[idx]]))
         positions = np.delete(positions, remove_source_idx, axis=1)
 
-    return positions[:, :n_src]
+    d_ra, d_dec = positions[:, :n_src]
+
+    spectral_indices = rng.normal(loc=0.7, scale=0.2, size=(n_src,))
+    I = I[:, None] * ((freqs[None, :] / freqs[0]) ** -spectral_indices[:, None])
+
+    return I, d_ra, d_dec
 
 
 def pairwise_separations(x, y):
@@ -119,16 +142,88 @@ def test_power_law_narrow_range_follows_the_truncated_distribution():
     assert kstest(I, cdf).pvalue > 1e-3
 
 
-def test_truncated_inv_cdf_inverts_the_truncated_cdf():
-    I_min, I_max, alpha = 1e-4, 1.0, 1.6
+def truncated_cdf(I, I_min, I_max, alpha):
     a = 1.0 - alpha
+    return np.expm1(a * np.log(I / I_min)) / np.expm1(a * np.log(I_max / I_min))
+
+
+@pytest.mark.parametrize(
+    "I_min,I_max,alpha",
+    [
+        (1e-4, 1.0, 1.6),
+        (1e-4, 1.000001e-4, 100.0),  # I_min ** (1 - alpha) overflows
+        (np.float64(1e-4), np.float64(1.000001e-4), 100.0),
+        (1e200, 1.000001e200, 3.0),  # I_min ** (1 - alpha) underflows to zero
+        (1.0, 1.0 + 1e-8, 1.6),  # limits nearly equal
+        (1e-4, 1.0, 1.0 + 1e-9),  # index nearly one
+    ],
+)
+def test_truncated_inv_cdf_inverts_the_truncated_cdf(I_min, I_max, alpha):
     u = np.linspace(0.0, 1.0, 1001)
 
     I = truncated_power_law_inv_cdf(u, I_min, I_max, alpha)
 
+    assert np.all(np.isfinite(I))
     np.testing.assert_allclose(I[[0, -1]], [I_min, I_max], rtol=1e-12)
-    assert np.all(np.diff(I) > 0)
-    np.testing.assert_allclose((I_min**a - I**a) / (I_min**a - I_max**a), u, atol=1e-12)
+    assert np.all(np.diff(I) >= 0) and I[-1] > I[0]
+    np.testing.assert_allclose(truncated_cdf(I, I_min, I_max, alpha), u, atol=1e-6)
+
+
+def test_truncated_inv_cdf_of_nearly_equal_limits_is_nearly_uniform():
+    u = np.array([0.25, 0.5, 0.75])
+
+    I = truncated_power_law_inv_cdf(u, 1e-4, 1.000001e-4, 100.0)
+
+    np.testing.assert_allclose((I / 1e-4 - 1.0) / 1e-6, u, atol=1e-4)
+
+
+def test_truncated_inv_cdf_of_index_nearly_one_is_log_uniform():
+    u = np.array([0.25, 0.5, 0.75])
+
+    I = truncated_power_law_inv_cdf(u, 1e-4, 1.0, 1.0 + 1e-9)
+
+    np.testing.assert_allclose(I, 1e-4 * 1e4**u, rtol=1e-6)
+
+
+def test_truncated_inv_cdf_of_equal_limits_is_that_flux():
+    I = truncated_power_law_inv_cdf(np.array([0.0, 0.5, 1.0]), 0.3, 0.3, 1.6)
+
+    np.testing.assert_array_equal(I, 0.3)
+
+
+def test_truncated_inv_cdf_without_a_maximum_is_the_power_law():
+    u = np.array([0.0, 0.25, 0.5, 0.75])
+
+    I = truncated_power_law_inv_cdf(u, 1e-4, np.inf, 1.6)
+
+    np.testing.assert_allclose(I, 1e-4 * (1.0 - u) ** (1.0 / (1.0 - 1.6)), rtol=1e-12)
+
+
+def test_power_law_returns_whatever_drawing_directly_gives(monkeypatch):
+    """Fluxes are drawn directly once. Looking at them again could loop forever
+    on any that are still above the maximum, as rounding can leave them."""
+    monkeypatch.setattr(sky, "MAX_FLUX_ROUNDS", 3)
+    monkeypatch.setattr(
+        sky, "truncated_power_law_inv_cdf", lambda x, *limits: np.full(x.shape, 2.0)
+    )
+
+    with fail_after(30):
+        I = random_power_law(10, I_min=1.0, I_max=1.0, random_seed=0)
+
+    np.testing.assert_array_equal(I, 2.0)
+
+
+def test_power_law_in_single_precision_terminates(monkeypatch):
+    """0.1 in single precision is above 0.1 in double precision, so single precision
+    fluxes of exactly `I_max` = 0.1 never pass a check against it."""
+    monkeypatch.setattr(sky, "MAX_FLUX_ROUNDS", 3)
+
+    with single_precision(), fail_after(30):
+        alpha = jnp.array(1.6, dtype=jnp.float32)
+        I = random_power_law(4, np.float64(0.1), np.float64(0.1), alpha, 0)
+
+    assert I.dtype == np.float32
+    np.testing.assert_array_equal(I, np.float32(0.1))
 
 
 def test_power_law_zero_sources():
@@ -142,27 +237,41 @@ def test_power_law_zero_sources():
 FREQS = np.array([1.227e9, 1.228e9])
 
 
-def test_random_sky_is_unchanged():
-    """Same seed, same sky as before the loops were bounded."""
-    n_src, fov, beam_width, n_beam = 50, 1.27, 200.0 / 3600 / 5, 5
-    rng_ref = np.random.default_rng(123456)
-    I_ref = reference_power_law(n_src, 1e-3, 1.0, 1.6, rng_ref)
-    ra_ref, dec_ref = reference_positions(n_src, fov, n_beam * beam_width, rng_ref)
+@pytest.mark.parametrize(
+    "n_src,min_I,max_I,beam_width",
+    [
+        (50, 1e-3, 1.0, 200.0 / 3600 / 5),  # as the example configs, placed at once
+        (50, 0.5, 1.0, 0.0139),  # many flux redraws and several placement rounds
+        (10, 0.9, 1.0, 0.04),  # few crowded sources
+        (1, 1e-3, 1.0, 10.0),  # a single source is never too close to another
+        (3, 1e-3, 1.0, 0.0),  # no minimum separation
+    ],
+)
+def test_random_sky_is_unchanged(n_src, min_I, max_I, beam_width):
+    """Same seed, same sky as before the loops were bounded: every flux at every
+    frequency, every position, and the generator left in the same state."""
+    fov, n_beam = 1.27, 5
+    rng, rng_ref = np.random.default_rng(123456), np.random.default_rng(123456)
 
-    I, d_ra, d_dec = generate_random_sky(
-        n_src=n_src,
-        freqs=FREQS,
-        min_I=1e-3,
-        max_I=1.0,
-        fov=fov,
-        beam_width=beam_width,
-        random_seed=123456,
-        n_beam=n_beam,
-    )
+    with fail_after(120):
+        I_ref, ra_ref, dec_ref = reference_random_sky(
+            n_src, FREQS, min_I, max_I, fov, beam_width, rng_ref, n_beam
+        )
+        I, d_ra, d_dec = generate_random_sky(
+            n_src=n_src,
+            freqs=FREQS,
+            min_I=min_I,
+            max_I=max_I,
+            fov=fov,
+            beam_width=beam_width,
+            random_seed=rng,
+            n_beam=n_beam,
+        )
 
-    np.testing.assert_array_equal(np.asarray(I)[:, 0], I_ref)
+    np.testing.assert_array_equal(np.asarray(I), np.asarray(I_ref))
     np.testing.assert_array_equal(np.asarray(d_ra), np.asarray(ra_ref))
     np.testing.assert_array_equal(np.asarray(d_dec), np.asarray(dec_ref))
+    assert rng.uniform() == rng_ref.uniform()
 
 
 def test_random_sky_respects_separation_and_fov():
@@ -237,6 +346,43 @@ def test_random_sky_gives_up_on_the_pair_budget(monkeypatch):
 
     n_rounds = int(str(err.value).split("gave up after ")[1].split(" rounds")[0])
     assert 0 < n_rounds < 100
+
+
+@pytest.mark.parametrize(
+    "fov,beam_width",
+    [
+        (1.0, -1.0),  # no distance is less than a negative separation
+        (np.int64(3037000500), 0),  # (fov + min_sep) ** 2 overflows 64 bit integers
+        (-1.0, 0.01),  # points are drawn within |fov|
+    ],
+)
+def test_random_sky_precheck_only_rejects_what_it_can_prove(fov, beam_width):
+    rng, rng_ref = np.random.default_rng(0), np.random.default_rng(0)
+
+    with fail_after(30):
+        I_ref, ra_ref, dec_ref = reference_random_sky(
+            2, FREQS, 1e-4, 1.0, fov, beam_width, rng_ref, 1
+        )
+        I, d_ra, d_dec = generate_random_sky(
+            n_src=2,
+            freqs=FREQS,
+            fov=fov,
+            beam_width=beam_width,
+            n_beam=1,
+            random_seed=rng,
+        )
+
+    np.testing.assert_array_equal(np.asarray(d_ra), np.asarray(ra_ref))
+    np.testing.assert_array_equal(np.asarray(d_dec), np.asarray(dec_ref))
+    assert rng.uniform() == rng_ref.uniform()
+
+
+def test_random_sky_no_room_in_a_point_raises():
+    with fail_after(30):
+        with pytest.raises(SourcePlacementError, match="no such arrangement"):
+            generate_random_sky(
+                n_src=2, freqs=FREQS, fov=0.0, beam_width=0.01, n_beam=5, random_seed=0
+            )
 
 
 def test_random_sky_single_source_ignores_separation():
