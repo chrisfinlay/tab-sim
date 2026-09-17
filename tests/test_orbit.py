@@ -1837,11 +1837,20 @@ class TestReplay:
         np.testing.assert_array_equal(before, after)
 
     def test_derived_columns_are_not_written(self, tmp_path):
-        """A stored EPOCH_JD could only drift out of step with its elements."""
+        """A stored EPOCH_JD could only drift out of step with its elements.
+
+        The two derived columns are put on the record by hand rather than by
+        running it through the element derivation, so what is asserted is the
+        writer's contract — it drops them — and not the incidental fact that
+        some particular caller produced them. A record reaching the writer with
+        them on it is the ordinary case: they are what ``frame()`` adds, and a
+        run saves what it propagated.
+        """
         path = tmp_path / "used_orbits.json"
-        orbit.save_orbits_for_reuse(
-            path, [ISS_NORAD_ID], [orbit._finalise_records([tle_record()]).iloc[0].to_dict()]
-        )
+        derived = tle_record()
+        derived["EPOCH_JD"] = ISS_EPOCH_JD
+        derived["SEMIMAJOR_AXIS"] = 6796.0
+        orbit.save_orbits_for_reuse(path, [ISS_NORAD_ID], [derived])
         written = json.loads(path.read_text())
         assert "EPOCH_JD" not in written
         assert "SEMIMAJOR_AXIS" not in written
