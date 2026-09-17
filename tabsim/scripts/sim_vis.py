@@ -204,5 +204,17 @@ def main():
     return run_sim_config(sim_config=sim_config)
 
 
+def cli() -> None:
+    """The ``sim-vis`` console entry point.
+
+    :func:`main` returns the observation and its output path for callers that
+    drive a simulation from Python, tests included. The console script wraps its
+    entry point in ``sys.exit(...)``, which reads any value that is not ``None``
+    or an integer as failure: it prints the tuple and exits 1 after a successful
+    run. So the script points here, and the result stays with :func:`main`.
+    """
+    main()
+
+
 if __name__ == "__main__":
     obs, obs_path = main()

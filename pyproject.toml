@@ -56,6 +56,6 @@ tabsim = ["data/**/*"]
 tle-region = "tabsim.scripts.tle_sat_region:main"
 ast-region = "tabsim.scripts.ast_region:main"
 flag-data = "tabsim.scripts.flag_data:main"
-sim-vis = "tabsim.scripts.sim_vis:main"
+sim-vis = "tabsim.scripts.sim_vis:cli"
 write-config = "tabsim.scripts.write_config_from_ms:main"
 tabsim-import-tles = "tabsim.scripts.import_tle_files:main"

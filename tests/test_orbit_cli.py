@@ -54,6 +54,25 @@ def run_sim_vis_config(monkeypatch, config_path, *args, cwd=None):
     return captured["sim_config"]
 
 
+def test_the_console_entry_point_exits_zero_on_success(monkeypatch, tmp_path):
+    """``sys.exit(main())`` reads a returned tuple as failure.
+
+    The console script generated for the entry point wraps it in ``sys.exit``,
+    and any return that is not ``None`` or an int is printed and becomes exit
+    status 1 — so a successful ``sim-vis`` run reported failure to every shell
+    and CI step that checked. The script now points at ``cli``, which discards
+    the result ``main`` keeps returning for Python callers.
+    """
+    config_path = write_sim_config(tmp_path / "sim.yaml", {"sat_names": ["navstar"]})
+    run_sim_vis_config(monkeypatch, config_path)  # installs the capture stub
+    argv = ["sim-vis", "--config", str(config_path)]
+    with patch.object(sys, "argv", argv):
+        assert sim_vis.main() == (None, "output-path")
+        assert sim_vis.cli() is None
+    text = Path(sim_vis.__file__).parents[2].joinpath("pyproject.toml").read_text()
+    assert 'sim-vis = "tabsim.scripts.sim_vis:cli"' in text
+
+
 def run_sim_vis(monkeypatch, config_path, *args, cwd=None):
     """...and just the satellite section of it, which most of these tests want."""
     config = run_sim_vis_config(monkeypatch, config_path, *args, cwd=cwd)
