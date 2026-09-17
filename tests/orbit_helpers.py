@@ -301,8 +301,21 @@ def write_replay_pair(directory, norad_ids, records) -> Path:
     return directory
 
 
+#: ``(module, attribute, diagnostic)`` for every route to a record other than the
+#: two replay files. The diagnostic is what a test failure says was reached.
+FORBIDDEN_SOURCES = (
+    (client, "fetch_nearest_tle", "the TLE endpoint"),
+    (client, "fetch_nearest_omm", "the OMM endpoint"),
+    (orbit, "TextOrbitCache", "the managed orbit cache"),
+    (satchecker_client, "resolve_orbits", "the client resolver"),
+    (satchecker_client, "read_extra_orbit_dir", "the directory scan"),
+    (satchecker_client, "search_satellites", "the catalogue search"),
+    (tle_module, "check_satellite_visibilibities", "the visibility search"),
+)
+
+
 def forbid_orbit_acquisition(monkeypatch, tmp_path=None) -> None:
-    """Every route to a record other than the two replay files, made to raise.
+    """Every source in :data:`FORBIDDEN_SOURCES`, made to raise.
 
     Raising rather than answering nothing: a replay that quietly resolved a
     satellite from the cache or the service would still produce a plausible
@@ -310,21 +323,8 @@ def forbid_orbit_acquisition(monkeypatch, tmp_path=None) -> None:
     """
     if tmp_path is not None:
         monkeypatch.setenv("ORBIT_CACHE_DIR", str(tmp_path / "empty-cache"))
-    monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
-    monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
-    monkeypatch.setattr(orbit, "TextOrbitCache", forbidden("the managed orbit cache"))
-    monkeypatch.setattr(
-        satchecker_client, "resolve_orbits", forbidden("the client resolver")
-    )
-    monkeypatch.setattr(
-        satchecker_client, "read_extra_orbit_dir", forbidden("the directory scan")
-    )
-    monkeypatch.setattr(
-        satchecker_client, "search_satellites", forbidden("the catalogue search")
-    )
-    monkeypatch.setattr(
-        tle_module, "check_satellite_visibilibities", forbidden("the visibility search")
-    )
+    for module, attribute, diagnostic in FORBIDDEN_SOURCES:
+        monkeypatch.setattr(module, attribute, forbidden(diagnostic))
 
 
 #: Every client function tabsim must look up on the package module at call time.
