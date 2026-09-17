@@ -9,10 +9,10 @@ integration check — opts out with ``@pytest.mark.allow_network``.
 The network block covers two layers deliberately. Patching
 ``satchecker_client.client._http_get`` is what a test replaces when it wants to
 serve a recorded response; patching ``urllib.request.urlopen`` underneath it is
-what catches a code path that reaches the service some *other* way — which is
-exactly the defect the SatChecker migration has to remove, since
-``tabsim.satchecker_names`` currently imports the client's private transport
-helper and would otherwise bypass every stub a test installs.
+what catches a code path that reaches the service some *other* way. That second
+layer is not hypothetical: tabsim held its own copy of the client's private
+transport helper, and a search through it bypassed every stub a test installed,
+which is how a malformed reply became "no satellite matches this name".
 """
 
 from __future__ import annotations

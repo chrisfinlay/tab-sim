@@ -356,20 +356,17 @@ def write_sim_config(path, tle_satellite=None, **sections) -> str:
 
 
 def _serve_transport(monkeypatch, fake_get):
-    """Install a search transport at both the public and the legacy private seam.
+    """Install a search transport at the one seam there is.
 
-    ``client._http_get`` is the seam the public
-    :func:`satchecker_client.search_satellites` uses, and the only one that
-    should exist once discovery goes through it. Until then
-    ``tabsim.satchecker_names`` holds its own copy of that private helper, and a
-    test stubbing only the public seam would fail on the suite's network block
-    rather than on the behaviour it is about — so the legacy seam is stubbed too,
-    tolerantly, and simply stops existing when the migration lands.
+    ``client._http_get`` is what the public
+    :func:`satchecker_client.search_satellites` uses, so it is the only place a
+    catalogue search can leave from. There is deliberately nothing else patched
+    here: while the migration was in progress ``tabsim.satchecker_names`` held its
+    own copy of that private helper and this stubbed that too, which would let a
+    reintroduced private bypass keep passing the "public search" test. Anything
+    reaching the service another way now hits the suite's network block instead.
     """
-    from tabsim import satchecker_names
-
     monkeypatch.setattr(client, "_http_get", fake_get)
-    monkeypatch.setattr(satchecker_names, "_http_get", fake_get, raising=False)
 
 
 def forbid_search(monkeypatch):
