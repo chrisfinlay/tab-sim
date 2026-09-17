@@ -1908,3 +1908,12 @@ def test_satchecker_dependency_pins_resolver_head():
         "satchecker" in line or "-e " in line or "--editable" in line
         for line in installs
     ), installs
+    # And CI checks what it *installed*, not what the checkout asked for: every
+    # revision of this branch of the client exposes the same names and reports
+    # the same version, so only the recorded commit distinguishes them.
+    assert "direct_url.json" in workflow
+    assert "vcs_info" in workflow
+    assert "editable" in workflow
+    # One source of truth for the revision. Repeating the SHA in the workflow is
+    # a second place for it to be right, which is a place for it to be wrong.
+    assert PINNED_CLIENT_SHA not in workflow
