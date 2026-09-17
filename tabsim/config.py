@@ -3,6 +3,7 @@ import re
 import os
 import sys
 import shutil
+import numbers
 
 import collections.abc
 from typing import Tuple, Union, Optional
@@ -232,17 +233,40 @@ def image_noise(obs: Observation) -> float:
     return (np.mean(obs.noise_std) / np.sqrt(obs.n_time * obs.n_bl)).compute()
 
 
-def sigma_value(value: Union[str, float, int], obs: Observation):
-    try:
-        if isinstance(value, str):
-            sigma = image_noise(obs)
+def describe_image_noise(obs: Observation) -> str:
+    """Say what the theoretical image noise is and which settings it comes from."""
+    return (
+        f"Here sigma = {image_noise(obs):.4g} Jy is the theoretical image noise, "
+        "mean(noise_std) / sqrt(n_time * n_bl) = "
+        f"{float(np.mean(obs.noise_std)):.4g} Jy / sqrt({obs.n_time} * {obs.n_bl}), "
+        f"where noise_std is set by SEFD = {float(np.mean(obs.SEFD)):.4g} Jy, "
+        f"chan_width = {float(obs.chan_width):.4g} Hz and int_time = "
+        f"{float(obs.int_time):.4g} s, and n_bl by n_ant = {obs.n_ant}."
+    )
+
+
+def sigma_value(value: Union[str, float, int], obs: Observation) -> float:
+    """Get a flux in Jy from a number, or from a string such as '3sigma' giving it
+    in units of the theoretical image noise.
+
+    Raises
+    ------
+    ValueError
+        If the value is neither.
+    """
+    if isinstance(value, str):
+        try:
             n_sig = float(value.replace("sigma", ""))
-            value = n_sig * sigma
-            return value
-        elif isinstance(value, float) or isinstance(value, int):
-            return float(value)
-    except:
-        raise ValueError()
+        except ValueError:
+            raise ValueError(
+                f"{value!r} is not a number of sigma such as '3sigma'."
+            ) from None
+        return n_sig * image_noise(obs)
+    elif isinstance(value, numbers.Real):
+        return float(value)
+    raise ValueError(
+        f"{value!r} is neither a flux in Jy nor a number of sigma such as '3sigma'."
+    )
 
 
 def random_flux_range(key: str, rand_: dict, obs: Observation) -> Tuple[float, float]:
@@ -262,8 +286,18 @@ def random_flux_range(key: str, rand_: dict, obs: Observation) -> Tuple[float, f
     Tuple[float, float]
         Minimum and maximum flux in Jy.
     """
-    min_I = sigma_value(rand_["min_I"], obs)
-    max_I = sigma_value(rand_["max_I"], obs)
+    limits = {}
+    for name in ["min_I", "max_I"]:
+        try:
+            limits[name] = sigma_value(rand_[name], obs)
+        except ValueError as err:
+            raise ValueError(f"ast_sources.{key}.random: {name}: {err}") from err
+        if np.isnan(limits[name]):
+            raise ValueError(
+                f"ast_sources.{key}.random: {name} = {rand_[name]!r} is not a number "
+                "(NaN), so it cannot limit the source fluxes."
+            )
+    min_I, max_I = limits["min_I"], limits["max_I"]
 
     if min_I > max_I:
         msg = (
@@ -272,15 +306,15 @@ def random_flux_range(key: str, rand_: dict, obs: Observation) -> Tuple[float, f
             f"is no flux range to draw the {rand_['n_src']} sources from."
         )
         if isinstance(rand_["min_I"], str) or isinstance(rand_["max_I"], str):
+            # Explaining sigma computes more than finding it did. If that fails, the
+            # error to report is still the empty range and not the explanation's.
+            try:
+                msg += " " + describe_image_noise(obs)
+            except Exception:
+                pass
             msg += (
-                f" Here sigma = {image_noise(obs):.4g} Jy is the theoretical image "
-                "noise, mean(noise_std) / sqrt(n_time * n_bl) = "
-                f"{float(np.mean(obs.noise_std)):.4g} Jy / sqrt({obs.n_time} * "
-                f"{obs.n_bl}), where noise_std is set by SEFD = "
-                f"{float(np.mean(obs.SEFD)):.4g} Jy, chan_width = "
-                f"{float(obs.chan_width):.4g} Hz and int_time = {obs.int_time:.4g} s, "
-                f"and n_bl by n_ant = {obs.n_ant}. Lower min_I, raise max_I, or lower "
-                "sigma with a longer or larger observation (n_time, int_time, n_ant)."
+                " Lower min_I, raise max_I, or lower sigma with a longer or larger "
+                "observation (n_time, int_time, n_ant)."
             )
         else:
             msg += " Lower min_I or raise max_I."
