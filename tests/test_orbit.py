@@ -1108,7 +1108,7 @@ class TestNameDiscovery:
 
         assert ids == expected
         assert len(calls) == requests
-        # A refresh replaces the snapshot; a reuse leaves it exactly as it was.
+        # A refresh replaces the snapshot's rows; a reuse leaves the stored IDs.
         assert sorted(cache.get_search("THING").found["NORAD_CAT_ID"]) == expected
 
     def test_stale_search_refresh_replaces_snapshot(
