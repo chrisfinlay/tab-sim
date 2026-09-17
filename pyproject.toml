@@ -23,10 +23,17 @@ dependencies = [
     "dask-ms>=0.2.21", "scipy", "tqdm", "matplotlib",
     "astropy", "skyfield", "sgp4", "platformdirs", "numpy", "pyyaml", "pandas",
     # IAU CPS SatChecker client; credential-free orbit records. Shared with tabascal.
-    # 0.1.2 is the floor, not 0.1.0: earlier releases read replay files through
-    # pandas' imprecise JSON float parser, which rounds an OMM eccentricity to a
-    # different double and makes a replayed trajectory disagree with the run it
-    # reproduces. tests/test_orbit.py guards this.
+    # This requirement does not yet describe what the code needs. tabsim.orbit
+    # imports cache.read_orbit_file and records.validated_record and passes
+    # strict_response=True to both nearest-record endpoints; all three are additive
+    # APIs that exist only on the client branch this was developed against, so a
+    # release satisfying >=0.1.2 fails on import. It has to be pinned to the full
+    # client commit carrying them before CI can install this, then replaced with
+    # >=0.2.0,<0.3 once that is released and the packaged install is checked.
+    # (0.1.2 was the floor for an older reason that still holds: earlier releases
+    # read replay files through pandas' imprecise JSON float parser, which rounds an
+    # OMM eccentricity to a different double and makes a replayed trajectory
+    # disagree with the run it reproduces. tests/test_orbit.py guards that.)
     "satchecker-client>=0.1.2",
 ]
 
