@@ -42,6 +42,7 @@ import numpy as np
 from platformdirs import user_cache_path
 
 from satchecker_client import SatCheckerError as TLEError
+from satchecker_client.records import norad_id_of
 
 
 # ---------------------------------------------------------------------------
@@ -157,43 +158,20 @@ def reject_obsolete_keys(satellites: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _as_norad_id(value, where: str) -> int:
-    """Coerce one entry to a positive integral NORAD catalogue ID."""
-    if isinstance(value, bool):
-        raise TLEConfigurationError(f"{where}: {value!r} is not a NORAD catalogue ID")
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            raise TLEConfigurationError(f"{where}: empty NORAD catalogue ID")
-        try:
-            value = int(text)
-        except ValueError:
-            # A NORAD ID list written by numpy, or read out of a spectral-model
-            # CSV, routinely arrives as "25544.0"; the fractional check below is
-            # what keeps that from admitting a genuinely fractional entry.
-            try:
-                value = float(text)
-            except ValueError as e:
-                raise TLEConfigurationError(
-                    f"{where}: {value!r} is not a NORAD catalogue ID"
-                ) from e
-    if isinstance(value, Integral):
-        out = int(value)
-    elif isinstance(value, Real):
-        as_float = float(value)
-        # Reject NaN/inf and fractional values before int(): a fractional ID would
-        # truncate to a *different* satellite and an infinity raises inside numpy.
-        if not math.isfinite(as_float) or as_float != round(as_float):
-            raise TLEConfigurationError(
-                f"{where}: {value!r} is not a finite integer NORAD catalogue ID"
-            )
-        out = int(round(as_float))
-    else:
-        raise TLEConfigurationError(f"{where}: {value!r} is not a NORAD catalogue ID")
-    if out <= 0:
-        raise TLEConfigurationError(
-            f"{where}: NORAD catalogue IDs must be positive, got {out}"
-        )
-    return out
+    """Coerce one entry to a positive integral NORAD catalogue ID, exactly.
+
+    The client's :func:`~satchecker_client.records.norad_id_of` does the
+    checking, because it is exact: a string goes through ``Decimal``, so
+    ``"25544.0"`` — how a NORAD ID list written by numpy or read out of a
+    spectral-model CSV routinely arrives — is 25544, while
+    ``"25544.000000000001"`` is refused rather than rounded to 25544 by a float
+    conversion and quietly selecting the ISS. A fractional, non-finite,
+    non-positive or non-numeric value is a configuration error naming *where*.
+    """
+    try:
+        return norad_id_of({"NORAD_CAT_ID": value}, where)
+    except ValueError as e:
+        raise TLEConfigurationError(str(e)) from e
 
 
 def normalise_norad_ids(values, source: str = "norad_ids") -> list[int]:

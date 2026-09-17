@@ -1998,6 +1998,7 @@ class TestReplay:
             ("duplicate-id-line", "more than once"),
             ("duplicate-record-rows", "holds 2 records"),
             ("wrong-embedded-id", "not acceptable under this run's policy"),
+            ("rounding-id", "non-integer"),
         ],
     )
     def test_replay_requires_exact_saved_records(
@@ -2031,6 +2032,10 @@ class TestReplay:
             ids_path.write_text(f"{ISS_NORAD_ID}\n")
         elif damage == "duplicate-id-line":
             ids_path.write_text(f"{ISS_NORAD_ID}\n{ISS_NORAD_ID}\n")
+        elif damage == "rounding-id":
+            # A float conversion rounds this to exactly 25544.0 and the replay
+            # would quietly proceed with the ISS; the ID must be read exactly.
+            ids_path.write_text(f"{ISS_NORAD_ID}.000000000001\n{GPS_NORAD_ID}\n")
         elif damage == "duplicate-record-rows":
             # Two saved records for one satellite: choosing between them is the
             # reselection a frozen replay exists to prevent.
@@ -2295,10 +2300,24 @@ class TestConfiguration:
                 {"remote_max_age_days": 1, "cache_reuse_max_age_days": 5}
             )
 
-    @pytest.mark.parametrize("value", [[1.5], [0], [-3], ["abc"], [None], "25544"])
+    @pytest.mark.parametrize(
+        "value",
+        [[1.5], [0], [-3], ["abc"], [None], "25544", ["25544.000000000001"]],
+    )
     def test_bad_norad_ids_are_rejected_before_the_resolver(self, value):
+        # "25544.000000000001" is the case a float conversion gets wrong: it
+        # rounds to exactly 25544.0 and would select the ISS.
         with pytest.raises(TLEConfigurationError):
             normalise_norad_ids(value)
+
+    def test_integral_decimal_strings_are_still_accepted(self):
+        assert normalise_norad_ids(["25544.0", " 32260 ", "2.5544e4"]) == [25544, 32260]
+
+    def test_norad_ids_file_rejects_an_id_that_only_rounds_to_an_integer(self, tmp_path):
+        path = tmp_path / "ids.txt"
+        path.write_text("25544.000000000001\n")
+        with pytest.raises(TLEConfigurationError, match=r"ids\.txt:1"):
+            read_norad_ids_file(path)
 
     def test_norad_ids_are_deduplicated_in_order(self):
         assert normalise_norad_ids([3, 1, 3, 2, "1"]) == [3, 1, 2]
