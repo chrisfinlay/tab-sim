@@ -48,6 +48,11 @@ Satellite orbital records
 -------------------------
 
 Orbital records come from the IAU CPS SatChecker service and need no credentials.
+Choosing and fetching them is done by ``satchecker-client``, shared with TABASCAL;
+the source order, the age defaults, what happens when a satellite cannot be
+resolved, and every message about it are tab-sim's own. The dependency is pinned to
+an exact revision until a release contains the API used here.
+
 Three ways to run a simulation that includes satellites:
 
 .. code-block:: bash
@@ -70,9 +75,13 @@ previous run saved in its ``input_data`` directory and treats them as the
 selection: no catalogue search, no cache, no request, no visibility reselection and
 no ``max_n_sat``. Reproducing that run's visibilities exactly also assumes the same
 observation, spectral models, random seeds and numerical environment; what replay
-freezes is the orbital input. ``--extra-orbit-dir`` (also ``-eod``) is not the same
-thing — it is ordinary per-satellite source precedence, and the run still chooses
-its own satellites.
+freezes is the orbital input. A directory written by an earlier tab-sim replays
+here, and one written here replays there: the two files hold the same identities,
+retained values and checksum provenance, which is the contract — not that the bytes
+are identical. ``--extra-orbit-dir`` (also ``-eod``) is not the same thing — it is
+ordinary per-satellite source precedence, searched ahead of the cache and the
+service, and the run still chooses its own satellites from its own names, IDs,
+visibility cuts and ``max_n_sat``.
 
 TLE lines whose checksum digit is missing are refused by default, which can leave no
 record for dates in roughly 2001–2018. ``--allow-missing-checksum`` accepts them and

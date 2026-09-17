@@ -96,6 +96,18 @@ Orbital records come from the [IAU CPS SatChecker](https://satchecker.cps.iau.or
 service. **No account or credentials are required** — the previous Space-Track login
 file is no longer used, and the `spacetrack` dependency is gone.
 
+The machinery that executes a selection — asking the sources in order, choosing the
+record nearest the observation, reusing the cache, falling back to the other
+archive, and writing and reading the frozen-replay files — is
+[`satchecker-client`](https://github.com/epfl-radio-astro/satchecker-client), shared
+with TABASCAL so there is one implementation of it rather than two. The policy is
+still `tab-sim`'s and is stated on every call: the source order, the defaults
+below, what an acceptable record is, what happens when a satellite cannot be
+resolved, and every message in this section. That dependency is currently pinned to
+an exact commit; it can go back to a released version only once a release contains
+both the record-validation work and the resolver/replay API this uses, and `tab-sim`
+will not claim support for a client version missing them.
+
 Name the satellites you want in the config, either by NORAD catalogue ID or by name:
 
 ```yaml
@@ -138,7 +150,12 @@ A broad name is expensive: SatChecker serves one record per request, so
 
 Records are cached per satellite under the platform user-cache directory
 (`~/.cache/orbit-cache`, `~/Library/Caches/orbit-cache`); set `ORBIT_CACHE_DIR` to
-put it elsewhere. Catalogue searches are cached in the same directory.
+put it elsewhere. Catalogue searches are cached in the same directory. Cached rows
+are the validated copy of what came back, so each states its `RECORD_KIND` and, for
+a TLE, that its checksum digits were verified — no reader has to re-infer either.
+The file scheme is unchanged and the cache is shared with other applications using
+the same client, including older versions of it, so there is nothing to migrate and
+nothing to purge. Records nothing has verified still never enter it.
 
 ```bash
 sim-vis -c observation.yaml                                    # online
@@ -160,6 +177,12 @@ visibility reselection and no `max_n_sat`. Anything missing or ambiguous in them
 stops the run rather than being resolved from somewhere else. Reproducing a run's
 visibilities exactly also assumes the same observation, spectral models, random
 seeds and numerical environment; what replay freezes is the orbital input.
+
+Replay directories are readable in both directions across this change: a pair
+written before it replays now, and a pair written now replays with the earlier
+code. The two files are the same two files, holding the same identities, the same
+retained values and the same checksum provenance — the contract is what reads back,
+not that the bytes match.
 
 `extra_orbit_dir` (`--extra-orbit-dir`, also `-eod`) is a different thing: ordinary
 per-NORAD-ID source precedence, searched ahead of the cache and SatChecker, while
