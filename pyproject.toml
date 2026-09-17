@@ -34,7 +34,7 @@ dependencies = [
     # remedy for a replay it could not read. To be replaced with a released
     # "satchecker-client>=<version>,<0.3" once a release contains *both* PRs and
     # the packaged install is checked; nothing older can run this module.
-    "satchecker-client @ git+https://github.com/epfl-radio-astro/satchecker-client.git@9096df99cab6c268041b7f954a352855500c4101",
+    "satchecker-client @ git+https://github.com/epfl-radio-astro/satchecker-client.git@e2c83d617e09de3561a8674c29b0775c9079700b",
 ]
 
 [project.optional-dependencies]

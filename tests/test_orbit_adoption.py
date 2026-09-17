@@ -135,7 +135,7 @@ OBS_EPOCH_JD = ISS_EPOCH_JD
 
 #: The client dependency this adoption is written against; see §3.6 of the plan
 #: and the comment in ``pyproject.toml``.
-PINNED_CLIENT_SHA = "9096df99cab6c268041b7f954a352855500c4101"
+PINNED_CLIENT_SHA = "e2c83d617e09de3561a8674c29b0775c9079700b"
 PINNED_REQUIREMENT = (
     "satchecker-client @ git+https://github.com/epfl-radio-astro/"
     f"satchecker-client.git@{PINNED_CLIENT_SHA}"
@@ -146,6 +146,7 @@ PINNED_REQUIREMENT = (
 SUPERSEDED_CLIENT_SHAS = (
     "06dcbf5cff5ce581bf694d689bfe08de358c5e72",
     "bb7027042b6ed6f5f76049201335d3cdc1dd1c06",
+    "9096df99cab6c268041b7f954a352855500c4101",
 )
 
 
