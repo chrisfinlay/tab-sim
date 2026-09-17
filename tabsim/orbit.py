@@ -1448,16 +1448,29 @@ def save_orbits_for_reuse(path, norad_ids, records) -> str:
     :meth:`OrbitResolution.norad_ids` and :meth:`OrbitResolution.records`, and the
     alignment is checked rather than assumed: ``zip`` would truncate to the shorter
     of the two and write a file that reads back cleanly while describing different
-    satellites than the run propagated.
+    satellites than the run propagated. Each supplied ID is validated rather than
+    cast, for the same reason a record's own identity is — a truncated ID agrees
+    with whichever satellite the truncation happened to name.
 
     Always writes, and returns the path — an empty selection included. Writing
     nothing would make "this run modelled no satellites" and "this directory is
     not a replay" the same state on disk, so a frozen replay of a legitimately
     satellite-free run could not be told from a missing file.
     """
+    # Validated, not cast. `int(25544.5)` is 25544, so casting the supplied IDs
+    # repaired a malformed identity into another catalogue number and then found
+    # it aligned with its record. Checked position by position and with nothing
+    # de-duplicated: this sequence is matched one-to-one against `records`.
     # Not `norad_ids or []`: a dask/NumPy array raises on truth-testing rather
     # than answering "is it empty", which turns a satellite-free run into a crash.
-    ids = [] if norad_ids is None else [int(nid) for nid in norad_ids]
+    ids = (
+        []
+        if norad_ids is None
+        else [
+            norad_id_of({"NORAD_CAT_ID": nid}, f"norad_ids[{position}]")
+            for position, nid in enumerate(norad_ids)
+        ]
+    )
     rows = [] if records is None else list(records)
     if len(ids) != len(rows):
         raise ValueError(

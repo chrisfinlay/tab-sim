@@ -1125,7 +1125,12 @@ class TestNameDiscovery:
         Either number may still fail age coverage and be excluded, as one does
         here. Saying then and there that both are kept as distinct satellites and
         "if they are one object it is modelled twice" describes a resolution that
-        has not happened yet, and in this run does not happen.
+        has not happened yet, and in this run does not happen. What the warning
+        does say is asserted, not only what it no longer says: the whole point is
+        that the replacement describes candidates and a selection that may still
+        drop one of them — see
+        ``test_sim-vis.py::test_shared_designator_candidates_are_not_promised_to_be_modelled``
+        for the case where the selection does.
         """
         rows = [
             search_row(61608, "TWIN SAT", object_id="2024-100A"),
@@ -1149,7 +1154,10 @@ class TestNameDiscovery:
 
         messages = _messages(log_lines, capsys)
         assert "candidate NORAD catalogue ID" in messages
+        assert "may be modelled separately" in messages
+        assert "if both survive" in messages
         assert "both are kept as distinct satellites" not in messages
+        assert "simulated once per number that resolves" not in messages
         # ...and one of the two was in fact excluded.
         assert "No acceptable record for named satellite 72115" in messages
 
@@ -1920,19 +1928,26 @@ class TestReplay:
         with pytest.raises(ValueError):
             orbit.save_orbits_for_reuse(path, [GPS_NORAD_ID], [tle_record()])
 
-    def test_save_rejects_a_lossy_identity_match(self, tmp_path):
+    @pytest.mark.parametrize("damaged", ["record", "aligned_id"])
+    def test_save_rejects_a_lossy_identity_match(self, tmp_path, damaged):
         """25544.5 is not 25544, and truncating it saves a different satellite.
 
-        Both identity checks cast with ``int()``, so a record whose own
-        ``NORAD_CAT_ID`` disagreed with the ID it was filed against passed the
-        alignment check and produced a valid-looking replay file.
+        There are two identities per row and both were cast with ``int()``: the
+        record's own ``NORAD_CAT_ID`` and the ID it is filed against in the
+        caller's aligned sequence. Truncating either one repaired the mismatch
+        into agreement and produced a valid-looking replay file for a satellite
+        the run never propagated.
         """
         record = tle_record()  # valid ISS lines...
-        record["NORAD_CAT_ID"] = 25544.5  # ...under an identity that is not an ID
+        norad_ids = [ISS_NORAD_ID]
+        if damaged == "record":
+            record["NORAD_CAT_ID"] = 25544.5  # ...under an identity that is not an ID
+        else:
+            norad_ids = [25544.5]
 
         with pytest.raises(ValueError, match="25544.5"):
             orbit.save_orbits_for_reuse(
-                tmp_path / "used_orbits.json", [ISS_NORAD_ID], [record]
+                tmp_path / "used_orbits.json", norad_ids, [record]
             )
 
     @pytest.mark.parametrize("value", [float("nan"), None], ids=["nan", "absent"])
