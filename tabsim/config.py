@@ -307,6 +307,10 @@ def load_obs(sim_config: dict) -> Observation:
     times_mjd = start_time_mjd + time_range / (24 * 3600)
     freqs = arange(obs_["start_freq"], obs_["chan_width"], obs_["n_freq"])
 
+    if tel_.get("elevation") is None:
+        # Nothing set it and no named telescope supplied one: the ellipsoid.
+        tel_["elevation"] = 0.0
+
     obs = Observation(
         latitude=tel_["latitude"],
         longitude=tel_["longitude"],
@@ -1010,18 +1014,15 @@ def apply_telescope_definition(tel: dict) -> dict:
     the configuration left unset is taken from the definition.
 
     "Unset" is ``None``, which is what every field a definition supplies is in
-    ``sim_config_base.yaml`` — so a template default and an absent key are the
-    same state here, and both mean unset. The two fields where that does not hold
-    are handled explicitly:
-
-    * ``elevation``'s own template default is ``0``, not ``null``, and no loaded
-      configuration can tell that apart from a deliberate ``0``. It is treated as
-      unset, because a named telescope's own elevation is the better of the two
-      answers; a run that means sea level at a named site says so through a
-      telescope definition complete enough never to reach this function.
-    * ``name`` is the key that *selected* the definition, so the definition's
-      spelling of it is the canonical form of the same value rather than an
-      override of a different one.
+    ``sim_config_base.yaml`` — ``elevation`` included, whose template default
+    used to be ``0`` and so made a deliberate ``elevation: 0`` at a named site
+    indistinguishable from nothing said — so a template default and an absent
+    key are the same state here, and both mean unset. A configuration that
+    leaves elevation unset and never reaches a definition gets ``0`` from
+    :func:`load_obs`, which is what the old template default gave it. The one
+    field handled explicitly is ``name``: it is the key that *selected* the
+    definition, so the definition's spelling of it is the canonical form of the
+    same value rather than an override of a different one.
 
     The antenna geometry is a choice of source, not a set of independent fields:
     the packaged ``itrf_path`` is applied only when the configuration named
@@ -1035,8 +1036,6 @@ def apply_telescope_definition(tel: dict) -> dict:
         tel_def.pop("itrf_path", None)
     for key, value in tel_def.items():
         if key == "name" or tel.get(key) is None:
-            tel[key] = value
-        elif key == "elevation" and not tel[key]:
             tel[key] = value
     return tel
 

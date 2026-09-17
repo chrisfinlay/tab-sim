@@ -469,10 +469,65 @@ def test_named_telescope_does_not_replace_a_configured_dish_diameter(tmp_path):
 
     assert float(obs.dish_d.compute()) == 25.0
     np.testing.assert_allclose(obs.ITRF.compute(), packaged_positions())
-    # elevation is the one field whose own template default is not null, so a
-    # loaded config cannot tell "nothing said" from a deliberate 0 and the
-    # definition's elevation is applied either way.
+    # Nothing said about elevation, so the named telescope's own applies.
     assert float(obs.elevation.compute()) == PACKAGED_ELEVATION
+
+
+def test_named_telescope_does_not_replace_an_explicit_zero_elevation(tmp_path):
+    """``elevation: 0`` at a named site is a setting, not an omission.
+
+    The template default used to be ``0`` as well, so a loaded configuration
+    could not tell the two apart and the definition's 1050 m won either way —
+    and an ENU array is placed on the ellipsoid through that elevation, so the
+    configured array moved. The template default is now null; only that is
+    unset.
+    """
+    enu = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]])
+    np.savetxt(tmp_path / "mine.enu.txt", enu)
+    telescope = {
+        "enu_path": str(tmp_path / "mine.enu.txt"),
+        "latitude": -30.71333,
+        "longitude": 21.44306,
+        "elevation": 0,
+        "dish_d": None,  # asks the named telescope for its diameter
+    }
+    obs, _ = run_sim_vis(
+        tiny_sim_config(tmp_path / "sim.yaml", tmp_path / "out", telescope=telescope)
+    )
+    assert float(obs.elevation.compute()) == 0.0
+    assert float(obs.dish_d.compute()) == PACKAGED_DISH_D
+
+    # The array really is placed at sea level: the same ENU file at the packaged
+    # elevation gives ITRF positions further from the geocentre.
+    raised, _ = run_sim_vis(
+        tiny_sim_config(
+            tmp_path / "sim2.yaml", tmp_path / "out2",
+            telescope={**telescope, "elevation": PACKAGED_ELEVATION},
+        )
+    )
+    radius = lambda o: np.linalg.norm(o.ITRF.compute(), axis=1)  # noqa: E731
+    assert np.all(radius(raised) > radius(obs))
+    np.testing.assert_allclose(radius(raised) - radius(obs), PACKAGED_ELEVATION, atol=1.0)
+
+
+def test_unset_elevation_without_a_named_telescope_is_sea_level(tmp_path):
+    # A complete custom definition never reaches apply_telescope_definition, so
+    # the old template default has to be supplied somewhere; load_obs does it.
+    enu = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]])
+    np.savetxt(tmp_path / "mine.enu.txt", enu)
+    obs, _ = run_sim_vis(
+        tiny_sim_config(
+            tmp_path / "sim.yaml", tmp_path / "out",
+            telescope={
+                "name": "nowhere",
+                "enu_path": str(tmp_path / "mine.enu.txt"),
+                "latitude": -30.71333,
+                "longitude": 21.44306,
+                "dish_d": 13.5,
+            },
+        )
+    )
+    assert float(obs.elevation.compute()) == 0.0
 
 
 def test_named_telescope_does_not_override_the_configured_antenna_frame(tmp_path):

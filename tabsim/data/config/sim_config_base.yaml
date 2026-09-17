@@ -177,7 +177,7 @@ rfi_sources:
 telescope:
   latitude: null              # Required - Latitude of the telescope location in decimal degrees. North is +ve
   longitude: null             # Required - Longitude of the telescope in decimal degrees. East from Greenwich meridian
-  elevation: 0                # Required - Elevation of the telescope above the WGS84 Earth ellipsoid model in metres.
+  elevation: null             # Elevation above the WGS84 ellipsoid in metres; a named telescope supplies its own, otherwise 0
   dish_d: null                # Required - Dish diameter in metres
   enu_path: null              # Required if itrf_path is null - Path to the csv file of the antennas in East, North, Up frame, in metres, relative to the telescope location 
   itrf_path: null             # Required if enu_path is null - Path to the csv file contaning the antenna positions in International Terrestrial Reference Frame in metres.
