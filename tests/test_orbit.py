@@ -696,12 +696,19 @@ class TestCoverage:
         for nid in norad_ids:
             cache.store(nid, pd.DataFrame([tle_record_at(nid, ISS_EPOCH_JD)]))
 
-        def failing(norad_id, _epoch_jd, *, strict_response=False):
-            # Distinct statuses: a wall of one status is an outage, and the batch
-            # then stops early with fewer errors than there are satellites.
-            raise client.SatCheckerResponseError(
-                f"no answer for {int(norad_id)}", status=500 + int(norad_id) % 5
+        # Built here, one per ID, so the reported map can be compared by object
+        # and not merely by key: distinct statuses too, because a wall of one
+        # status is an outage and the batch then stops early with fewer errors
+        # than there are satellites.
+        errors = {
+            nid: client.SatCheckerResponseError(
+                f"no answer for {nid}", status=500 + nid % 5
             )
+            for nid in norad_ids
+        }
+
+        def failing(norad_id, _epoch_jd, *, strict_response=False):
+            raise errors[int(norad_id)]
 
         monkeypatch.setattr(client, "fetch_nearest_tle", failing)
         monkeypatch.setattr(client, "fetch_nearest_omm", failing)
@@ -719,7 +726,9 @@ class TestCoverage:
 
         # Not fatal: every ID resolved, from the record it already held.
         assert resolution.complete
-        assert sorted(resolution.refresh_errors) == norad_ids
+        # The exceptions themselves, against all thirteen IDs: equal messages
+        # rebuilt per ID would satisfy any weaker comparison.
+        assert resolution.refresh_errors == errors
         assert resolution.missing == []
         assert orbit.require_complete_coverage(resolution) is resolution
 
