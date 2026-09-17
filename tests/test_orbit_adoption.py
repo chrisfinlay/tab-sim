@@ -852,3 +852,274 @@ def test_client_source_codes_map_to_tabsim_labels(source, endpoint, label, monke
     assert resolution.resolved[accepted_id].provider == (
         None if source == SOURCE_EXTRA else "spacetrack"
     )
+
+
+# ---------------------------------------------------------------------------
+# Coverage: what counts as knowing a satellite has nothing
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "with_rejection", [False, True], ids=["no-rejection", "over-age-rejection"]
+)
+def test_outage_blocked_not_sent_is_fatal_for_named_coverage(
+    with_rejection, monkeypatch
+):
+    """An answer that was never asked for is not an answer.
+
+    With two archives and fallback on, an unresolved satellite still needs the
+    second one's reply. An outage that stopped acquisition leaves that reply
+    ``not_sent``, and the client deliberately files such an ID under neither
+    ``service_errors`` nor ``unavailable`` — so "no error recorded" cannot mean
+    "the archives have nothing", which is how an outage used to become a
+    complete-looking observation with no satellite RFI in it.
+    """
+    stub_endpoints(monkeypatch)
+    blocked, answered = ISS_NORAD_ID, GPS_NORAD_ID
+    outage = SatCheckerTransportError("SatChecker is unreachable.")
+    result = client_result(
+        [blocked, answered],
+        resolved={
+            answered: client_resolved(
+                answered, SOURCE_SERVICE, endpoint=TLE_ENDPOINT, offset_days=-0.1
+            )
+        },
+        rejected=(
+            {blocked: client_rejected(blocked, SOURCE_CACHE, offset_days=-4.2)}
+            if with_rejection
+            else {}
+        ),
+        attempts=attempts_of(blocked, ATTEMPT_EMPTY, ATTEMPT_NOT_SENT),
+        events=[
+            ResolutionEvent(
+                code=EVENT_OUTAGE,
+                norad_ids=(blocked,),
+                endpoint=TLE_ENDPOINT,
+                error=outage,
+            )
+        ],
+    )
+    deliver(monkeypatch, result)
+    resolution = orbit.resolve_orbits([blocked, answered], OBS_EPOCH_JD)
+
+    with pytest.raises(orbit.OrbitError) as raised:
+        orbit.report_named_coverage(resolution)
+    message = str(raised.value)
+    assert str(blocked) in message
+    assert "SatChecker could not answer" in message
+    assert TLE_ENDPOINT in message
+    assert "unreachable" in message
+    if with_rejection:
+        # The measurable near-miss survives alongside the inability to ask for a
+        # closer one: it is what says which ceiling to change.
+        assert "4.200" in message
+
+    # Numbered coverage rejects every gap, as it always has.
+    with pytest.raises(orbit.OrbitError):
+        orbit.require_complete_coverage(resolution)
+
+    # The client's own result was read, not rewritten.
+    assert blocked not in result.service_errors
+
+
+def test_outage_blocked_fallback_through_real_client(monkeypatch):
+    """The same case, produced by the real resolver rather than described to it.
+
+    One worker, so the order is the order the IDs were passed in: the first
+    satellite's archive answers empty, the second's raises, and the batch stops
+    before the fallback goes out. That leaves the first satellite with a reply
+    from one archive and silence from the other — and no failure of its own.
+    """
+    blocked, failing = ISS_NORAD_ID, GPS_NORAD_ID  # blocked sorts first
+    outage = SatCheckerTransportError("connection refused")
+    nearest_tle, nearest_omm = stub_endpoints(
+        monkeypatch, tle={blocked: None, failing: outage}
+    )
+
+    resolution = orbit.resolve_orbits(
+        [blocked, failing], OBS_EPOCH_JD, max_workers=1
+    )
+
+    # Asking a service that cannot serve us a different question is still asking
+    # a service that cannot serve us.
+    assert nearest_tle.requested == [blocked, failing]
+    assert nearest_omm.calls == []
+
+    assert [
+        (attempt.endpoint, attempt.status) for attempt in resolution.attempts[blocked]
+    ] == [(TLE_ENDPOINT, ATTEMPT_EMPTY), (OMM_ENDPOINT, ATTEMPT_NOT_SENT)]
+    assert blocked not in resolution.service_errors
+    assert blocked not in resolution.unavailable
+    assert failing in resolution.service_errors
+
+    with pytest.raises(orbit.OrbitError) as raised:
+        orbit.report_named_coverage(resolution)
+    for_blocked = [
+        line
+        for line in str(raised.value).splitlines()
+        if line.strip().startswith(f"{blocked}:")
+    ]
+    assert for_blocked, f"no coverage line for {blocked} in:\n{raised.value}"
+    assert "SatChecker could not answer" in for_blocked[0]
+
+
+def test_not_sent_cache_hits_are_not_coverage_failures(monkeypatch):
+    """Failing closed is about what is *missing*, not about what was not asked.
+
+    A cached record fresh enough to suppress the request has ``not_sent`` at
+    every endpoint, and a satellite resolved from an explicit file never reached
+    the remote group at all. Both are ordinary, complete runs; treating an
+    unsent request as uncertainty wherever it appears would make them fatal.
+    """
+    stub_endpoints(monkeypatch)
+    cached_id, extra_id = ISS_NORAD_ID, GPS_NORAD_ID
+    result = client_result(
+        [cached_id, extra_id],
+        resolved={
+            cached_id: client_resolved(cached_id, SOURCE_CACHE, offset_days=0.25),
+            extra_id: client_resolved(
+                extra_id, SOURCE_EXTRA, offset_days=-1.0, provider=None
+            ),
+        },
+        attempts=attempts_of(cached_id, ATTEMPT_NOT_SENT, ATTEMPT_NOT_SENT),
+    )
+    spy = deliver(monkeypatch, result)
+
+    resolution = orbit.resolve_orbits([cached_id, extra_id], OBS_EPOCH_JD)
+
+    assert len(spy.calls) == 1
+    assert resolution.missing == []
+    assert orbit.require_complete_coverage(resolution) is resolution
+    assert orbit.report_named_coverage(resolution) is resolution
+
+
+def evidence_cases():
+    """``id -> (client fields for the unresolved ID, tabsim settings, fatal?)``.
+
+    One satellite, asked for by name, with nothing accepted for it. What differs
+    is the evidence about *why*, and only two kinds of evidence are an answer
+    from the catalogue: both archives replied and had nothing, or what they had
+    was measurably too old and the acquisition that measured it finished.
+    """
+    unresolved = ISS_NORAD_ID
+    over_age = client_rejected(
+        unresolved, SOURCE_SERVICE, endpoint=OMM_ENDPOINT, offset_days=-4.2
+    )
+    invalid = client_rejected(
+        unresolved,
+        SOURCE_EXTRA,
+        provider=None,
+        reason_code=REASON_INVALID,
+        ceiling_days=None,
+        limit_name=None,
+    )
+    return {
+        # Both archives answered and neither holds one: a real catalogue answer.
+        "absent": (
+            dict(
+                attempts=attempts_of(unresolved, ATTEMPT_EMPTY, ATTEMPT_EMPTY),
+                unavailable={unresolved: UNAVAILABLE_ABSENT},
+            ),
+            {},
+            False,
+        ),
+        # A record was seen and measured, and the acquisition that measured it
+        # finished: the age ceiling is the answer, and it says which one.
+        "completed_over_age": (
+            dict(
+                rejected={unresolved: over_age},
+                attempts=attempts_of(unresolved, ATTEMPT_OVER_AGE, ATTEMPT_OVER_AGE),
+            ),
+            {},
+            False,
+        ),
+        # An unusable local candidate is not a claim about the archives, and two
+        # successful empty replies afterwards still are.
+        "invalid_local_then_two_empty_replies": (
+            dict(
+                rejected={unresolved: invalid},
+                attempts=attempts_of(unresolved, ATTEMPT_EMPTY, ATTEMPT_EMPTY),
+                unavailable={unresolved: UNAVAILABLE_ABSENT},
+            ),
+            {},
+            False,
+        ),
+        # Nothing was asked, so nothing was answered — about this machine's
+        # state, not about the catalogue.
+        "offline": (
+            dict(
+                offline=True,
+                attempts=attempts_of(unresolved, ATTEMPT_NOT_SENT, ATTEMPT_NOT_SENT),
+                unavailable={unresolved: UNAVAILABLE_OFFLINE},
+            ),
+            {"offline": True},
+            True,
+        ),
+        "offline_over_age_local": (
+            dict(
+                offline=True,
+                rejected={
+                    unresolved: client_rejected(
+                        unresolved,
+                        SOURCE_CACHE,
+                        offset_days=-10.0,
+                        limit_name="remote_max_age_days",
+                    )
+                },
+                attempts=attempts_of(unresolved, ATTEMPT_NOT_SENT, ATTEMPT_NOT_SENT),
+                unavailable={unresolved: UNAVAILABLE_OFFLINE},
+            ),
+            {"offline": True},
+            True,
+        ),
+        # The only local evidence was unusable and nothing reached an archive.
+        "invalid_local": (
+            dict(
+                rejected={unresolved: invalid},
+                unavailable={unresolved: UNAVAILABLE_INVALID_LOCAL},
+            ),
+            {},
+            True,
+        ),
+        "not_attempted": (
+            dict(unavailable={unresolved: UNAVAILABLE_NOT_ATTEMPTED}),
+            {},
+            True,
+        ),
+        # One archive answered, the other never did, and nothing says why.
+        "unexplained_incomplete": (
+            dict(attempts=attempts_of(unresolved, ATTEMPT_EMPTY, ATTEMPT_NOT_SENT)),
+            {},
+            True,
+        ),
+    }
+
+
+EVIDENCE_CASES = evidence_cases()
+
+
+@pytest.mark.parametrize("case", list(EVIDENCE_CASES))
+def test_named_exclusion_requires_completed_acquisition_evidence(case, monkeypatch):
+    """A name is a query, so "nothing there" is an answer — and only that is."""
+    fields, settings, fatal = EVIDENCE_CASES[case]
+    stub_endpoints(monkeypatch)
+    unresolved = ISS_NORAD_ID
+    deliver(monkeypatch, client_result([unresolved], **fields))
+
+    resolution = orbit.resolve_orbits([unresolved], OBS_EPOCH_JD, **settings)
+
+    if fatal:
+        with pytest.raises(orbit.OrbitError) as raised:
+            orbit.report_named_coverage(resolution)
+        assert str(unresolved) in str(raised.value)
+        return
+
+    logged: list[str] = []
+    assert orbit.report_named_coverage(resolution, log=logged.append) is resolution
+    report = "\n".join(logged)
+    assert "No acceptable record" in report
+    assert str(unresolved) in report
+    if case == "completed_over_age":
+        # The exclusion says how far off, from where, and against which ceiling.
+        assert "4.200" in report
+        assert LABEL_OMM in report
+        assert "remote_max_age_days=3" in report
