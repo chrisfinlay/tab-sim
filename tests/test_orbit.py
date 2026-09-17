@@ -51,6 +51,7 @@ from orbit_helpers import (
     ISS_NORAD_ID,
     STATUS_UNVERIFIED,
     STATUS_VERIFIED,
+    forbid_orbit_acquisition,
     forbid_search,
     forbidden,
     jd,
@@ -68,6 +69,7 @@ from orbit_helpers import (
     tle_record_at,
     with_stray_backslash,
     without_checksum,
+    write_replay_dir,
 )
 
 
@@ -123,33 +125,6 @@ def reject_json_constant(name):
     cannot show a replay file contains none.
     """
     raise AssertionError(f"replay file carries the non-standard JSON literal {name}")
-
-
-def write_replay_dir(directory, norad_ids, records):
-    """Write the two files a frozen replay reads, as a completed run would."""
-    directory.mkdir(parents=True, exist_ok=True)
-    orbit.save_orbits_for_reuse(
-        directory / "used_orbits.json", list(norad_ids), list(records)
-    )
-    (directory / "norad_ids.yaml").write_text(
-        "".join(f"{int(nid)}\n" for nid in norad_ids)
-    )
-    return directory
-
-
-def forbid_every_orbit_source(monkeypatch, tmp_path):
-    """Make every way of obtaining a record other than the replay file fail.
-
-    Raising rather than answering nothing: a replay that quietly fell back to the
-    cache would still produce a plausible simulation, and the test would pass.
-    """
-    monkeypatch.setenv("ORBIT_CACHE_DIR", str(tmp_path / "empty-cache"))
-    monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
-    monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
-    monkeypatch.setattr(orbit, "TextOrbitCache", forbidden("the managed orbit cache"))
-    monkeypatch.setattr(
-        tle_module, "check_satellite_visibilibities", forbidden("the visibility search")
-    )
 
 
 class TestPropagation:
@@ -1579,7 +1554,7 @@ class TestChecksumPolicy:
         record = tle_record_at(norad_id, ISS_EPOCH_JD)
         record[CHECKSUM_STATUS_FIELD] = STATUS_UNVERIFIED
         replay_dir = write_replay_dir(tmp_path / "input_data", [norad_id], [record])
-        forbid_every_orbit_source(monkeypatch, tmp_path)
+        forbid_orbit_acquisition(monkeypatch, tmp_path)
 
         if not allow:
             with pytest.raises(orbit.OrbitError, match="allow_missing_checksum"):
@@ -1626,7 +1601,7 @@ class TestChecksumPolicy:
         replay_dir = write_replay_dir(
             tmp_path / "input_data", first.norad_ids(), saved_records
         )
-        forbid_every_orbit_source(monkeypatch, tmp_path)
+        forbid_orbit_acquisition(monkeypatch, tmp_path)
 
         ids, records = orbit.load_replay_orbits(
             str(replay_dir), allow_missing_checksum=True
@@ -1882,7 +1857,7 @@ class TestReplay:
         replay_dir = write_replay_dir(
             tmp_path / "input_data", [ISS_NORAD_ID], [tle_record()]
         )
-        forbid_every_orbit_source(monkeypatch, tmp_path)
+        forbid_orbit_acquisition(monkeypatch, tmp_path)
 
         ids, records = orbit.load_replay_orbits(str(replay_dir))
 
@@ -1950,7 +1925,7 @@ class TestReplay:
             records_path.write_text(json.dumps(payload))
             ids_path.write_text(f"{ISS_NORAD_ID}\n99999\n")
 
-        forbid_every_orbit_source(monkeypatch, tmp_path)
+        forbid_orbit_acquisition(monkeypatch, tmp_path)
 
         with pytest.raises(orbit.OrbitError) as excinfo:
             orbit.load_replay_orbits(str(replay_dir))
@@ -1962,7 +1937,7 @@ class TestReplay:
         replay_dir = write_replay_dir(tmp_path / "input_data", [], [])
         assert (replay_dir / "used_orbits.json").exists()
         assert (replay_dir / "norad_ids.yaml").exists()
-        forbid_every_orbit_source(monkeypatch, tmp_path)
+        forbid_orbit_acquisition(monkeypatch, tmp_path)
 
         ids, records = orbit.load_replay_orbits(str(replay_dir))
 
@@ -1988,7 +1963,7 @@ class TestReplay:
                 record["BSTAR"] = 3.2e-05
 
         replay_dir = write_replay_dir(tmp_path / "input_data", ids, records)
-        forbid_every_orbit_source(monkeypatch, tmp_path)
+        forbid_orbit_acquisition(monkeypatch, tmp_path)
 
         replayed_ids, replayed = orbit.load_replay_orbits(str(replay_dir))
 
@@ -2119,7 +2094,7 @@ class TestReplaySelection:
         replay_dir = write_replay_dir(
             tmp_path / "input_data", [ISS_NORAD_ID, GPS_NORAD_ID], [tle_record(), gps]
         )
-        forbid_every_orbit_source(monkeypatch, tmp_path)
+        forbid_orbit_acquisition(monkeypatch, tmp_path)
         obs = FakeObservation()
 
         config_module.add_tle_satellite_sources(
@@ -2141,7 +2116,7 @@ class TestReplaySelection:
             [unknown],
             [tle_record_at(unknown, ISS_EPOCH_JD)],
         )
-        forbid_every_orbit_source(monkeypatch, tmp_path)
+        forbid_orbit_acquisition(monkeypatch, tmp_path)
 
         with pytest.raises(orbit.OrbitError) as excinfo:
             config_module.add_tle_satellite_sources(
@@ -2157,7 +2132,7 @@ class TestReplaySelection:
         replay_dir = write_replay_dir(
             tmp_path / "input_data", [ISS_NORAD_ID], [tle_record()]
         )
-        forbid_every_orbit_source(monkeypatch, tmp_path)
+        forbid_orbit_acquisition(monkeypatch, tmp_path)
         obs = FakeObservation()
 
         config_module.add_tle_satellite_sources(

@@ -22,11 +22,15 @@ from pathlib import Path
 
 import pandas as pd
 
+import satchecker_client
 from satchecker_client import client
 from satchecker_client.client import SEARCH_COLUMNS
 from satchecker_client.records import KIND_FIELD, KIND_OMM, KIND_TLE
 from satchecker_client.tle_parse import parse_tle_elements, tle_checksum
 from satchecker_client import datetime_to_jd, jd_to_datetime
+
+from tabsim import orbit
+from tabsim import tle as tle_module
 
 
 def jd(year, month, day, hour=0, minute=0, second=0) -> float:
@@ -170,35 +174,6 @@ def forbidden(what: str):
     return refuse
 
 
-def stub_service(monkeypatch, records_by_id, endpoint="tle"):
-    """Serve *records_by_id* from the nearest-record endpoint of the given kind.
-
-    Each call is recorded as ``(norad_id, epoch_jd, strict_response)``; the third
-    element is the opt-in without which an HTTP-200 error envelope reads as "this
-    satellite has no record".
-    """
-    calls = []
-
-    def fetch(norad_id, epoch_jd, *, strict_response=False):
-        calls.append((int(norad_id), float(epoch_jd), strict_response))
-        record = records_by_id.get(int(norad_id))
-        if record is None:
-            return pd.DataFrame()
-        return pd.DataFrame([record])
-
-    def empty(norad_id, epoch_jd, *, strict_response=False):
-        calls.append((int(norad_id), float(epoch_jd), strict_response))
-        return pd.DataFrame()
-
-    monkeypatch.setattr(
-        client, "fetch_nearest_tle", fetch if endpoint == "tle" else empty
-    )
-    monkeypatch.setattr(
-        client, "fetch_nearest_omm", fetch if endpoint == "omm" else empty
-    )
-    return calls
-
-
 class EndpointStub:
     """One nearest-record endpoint with scripted per-ID answers, recording calls.
 
@@ -207,12 +182,15 @@ class EndpointStub:
     saying it has no such record.
     """
 
-    def __init__(self, label, answers=None, default=None):
+    def __init__(self, label, answers=None, default=None, calls=None):
         self.label = label
         self.answers = dict(answers or {})
         self.default = default
-        #: ``(norad_id, epoch_jd, strict_response)`` per call, as it arrived.
-        self.calls: list[tuple] = []
+        #: ``(norad_id, epoch_jd, strict_response)`` per call, as it arrived. A
+        #: list passed in is shared with the other endpoint, which is how a test
+        #: asserts the order two archives were asked in rather than two
+        #: unordered per-endpoint lists.
+        self.calls: list[tuple] = [] if calls is None else calls
 
     def __call__(self, norad_id, epoch_jd, *, strict_response=False):
         self.calls.append((int(norad_id), float(epoch_jd), strict_response))
@@ -230,7 +208,9 @@ class EndpointStub:
         return [norad_id for norad_id, _, _ in self.calls]
 
 
-def stub_endpoints(monkeypatch, *, tle=None, omm=None, tle_default=None, omm_default=None):
+def stub_endpoints(
+    monkeypatch, *, tle=None, omm=None, tle_default=None, omm_default=None, calls=None
+):
     """Install an :class:`EndpointStub` on each nearest-record endpoint.
 
     Returns ``(nearest_tle, nearest_omm)`` in the order
@@ -238,37 +218,168 @@ def stub_endpoints(monkeypatch, *, tle=None, omm=None, tle_default=None, omm_def
     pre-handover epoch, so a test can assert what each archive was asked.
     """
     stubs = (
-        EndpointStub("nearest-TLE", tle, tle_default),
-        EndpointStub("nearest-OMM", omm, omm_default),
+        EndpointStub("nearest-TLE", tle, tle_default, calls),
+        EndpointStub("nearest-OMM", omm, omm_default, calls),
     )
     monkeypatch.setattr(client, "fetch_nearest_tle", stubs[0])
     monkeypatch.setattr(client, "fetch_nearest_omm", stubs[1])
     return stubs
 
 
+def stub_service(monkeypatch, records_by_id, endpoint="tle"):
+    """Serve *records_by_id* from the nearest-record endpoint of the given kind.
+
+    The other endpoint answers empty. Returns one ordered stream of
+    ``(norad_id, epoch_jd, strict_response)`` across both, the third element being
+    the opt-in without which an HTTP-200 error envelope reads as "no record".
+    """
+    calls: list[tuple] = []
+    served = dict(records_by_id)
+    stub_endpoints(
+        monkeypatch,
+        tle=served if endpoint == "tle" else None,
+        omm=served if endpoint == "omm" else None,
+        calls=calls,
+    )
+    return calls
+
+
 def stub_failing_service(monkeypatch, error, endpoint=None):
     """Make one or both nearest-record endpoints raise *error*.
 
-    *endpoint* is ``"tle"``, ``"omm"`` or ``None`` for both. Raised fresh per call
-    so one exception instance is not shared between the threads of a batch.
+    *endpoint* is ``"tle"``, ``"omm"`` or ``None`` for both; the other answers
+    empty. Returns the same combined call stream as :func:`stub_service`.
     """
-    calls = []
-
-    def fail(norad_id, epoch_jd, *, strict_response=False):
-        calls.append((int(norad_id), float(epoch_jd), strict_response))
-        raise error
-
-    def empty(norad_id, epoch_jd, *, strict_response=False):
-        calls.append((int(norad_id), float(epoch_jd), strict_response))
-        return pd.DataFrame()
-
-    monkeypatch.setattr(
-        client, "fetch_nearest_tle", fail if endpoint in (None, "tle") else empty
-    )
-    monkeypatch.setattr(
-        client, "fetch_nearest_omm", fail if endpoint in (None, "omm") else empty
+    calls: list[tuple] = []
+    stub_endpoints(
+        monkeypatch,
+        tle_default=error if endpoint in (None, "tle") else None,
+        omm_default=error if endpoint in (None, "omm") else None,
+        calls=calls,
     )
     return calls
+
+
+def write_orbit_json(path, records) -> Path:
+    """*records* as one column-oriented orbit table, the shape the readers read."""
+    rows = [dict(record) for record in records]
+    columns: list[str] = []
+    for row in rows:
+        columns += [column for column in row if column not in columns]
+    payload = {
+        column: {str(index): row.get(column) for index, row in enumerate(rows)}
+        for column in columns
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload))
+    return path
+
+
+def write_replay_dir(directory, norad_ids, records) -> Path:
+    """The two files a frozen replay reads, as a completed run would write them."""
+    directory.mkdir(parents=True, exist_ok=True)
+    orbit.save_orbits_for_reuse(
+        directory / "used_orbits.json", list(norad_ids), list(records)
+    )
+    (directory / "norad_ids.yaml").write_text(
+        "".join(f"{int(nid)}\n" for nid in norad_ids)
+    )
+    return directory
+
+
+def write_replay_pair(directory, norad_ids, records) -> Path:
+    """The two replay files, written exactly as given and validated by nothing.
+
+    Deliberately not :func:`write_replay_dir`, whose writer exists to refuse
+    producing some of the corruption the loader cases need.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    write_orbit_json(directory / "used_orbits.json", records)
+    (directory / "norad_ids.yaml").write_text(
+        "".join(f"{int(norad_id)}\n" for norad_id in norad_ids)
+    )
+    return directory
+
+
+def forbid_orbit_acquisition(monkeypatch, tmp_path=None) -> None:
+    """Every route to a record other than the two replay files, made to raise.
+
+    Raising rather than answering nothing: a replay that quietly resolved a
+    satellite from the cache or the service would still produce a plausible
+    simulation, just not the one it claims to reproduce.
+    """
+    if tmp_path is not None:
+        monkeypatch.setenv("ORBIT_CACHE_DIR", str(tmp_path / "empty-cache"))
+    monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
+    monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
+    monkeypatch.setattr(orbit, "TextOrbitCache", forbidden("the managed orbit cache"))
+    monkeypatch.setattr(
+        satchecker_client, "resolve_orbits", forbidden("the client resolver")
+    )
+    monkeypatch.setattr(
+        satchecker_client, "read_extra_orbit_dir", forbidden("the directory scan")
+    )
+    monkeypatch.setattr(
+        satchecker_client, "search_satellites", forbidden("the catalogue search")
+    )
+    monkeypatch.setattr(
+        tle_module, "check_satellite_visibilibities", forbidden("the visibility search")
+    )
+
+
+#: Every client function tabsim must look up on the package module at call time.
+#: A module-scope ``from satchecker_client import ...`` would bind it at import,
+#: make it unpatchable, and for the endpoints freeze the archive choice.
+CLIENT_SEAM_NAMES = (
+    "resolve_orbits",
+    "read_extra_orbit_dir",
+    "save_orbits_for_reuse",
+    "save_replay_orbits",
+    "load_replay_orbits",
+)
+
+
+class Spy:
+    """One client function, recorded and then called.
+
+    Wraps the real implementation by default: a spy that swallowed the call would
+    pass against an adapter that does nothing useful.
+    """
+
+    def __init__(self, name, target):
+        self.name = name
+        self.target = target
+        self.calls: list[tuple] = []
+
+    def __call__(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return self.target(*args, **kwargs)
+
+    @property
+    def call(self) -> tuple:
+        assert len(self.calls) == 1, (
+            f"expected exactly one call to satchecker_client.{self.name}, got "
+            f"{len(self.calls)}"
+        )
+        return self.calls[0]
+
+    def argument(self, position: int, name: str):
+        """The *name* argument of the single call, given or passed positionally."""
+        args, kwargs = self.call
+        if len(args) > position:
+            return args[position]
+        assert name in kwargs, (
+            f"satchecker_client.{self.name} was called without {name}"
+        )
+        return kwargs[name]
+
+
+def spy_on(monkeypatch, name: str, answer=None) -> Spy:
+    """Record calls to ``satchecker_client.<name>``; *answer* replaces the real one."""
+    assert name in CLIENT_SEAM_NAMES, f"{name} is not one of the adopted seams"
+    spy = Spy(name, getattr(satchecker_client, name) if answer is None else answer)
+    monkeypatch.setattr(satchecker_client, name, spy)
+    return spy
 
 
 def search_row(

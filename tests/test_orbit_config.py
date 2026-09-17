@@ -23,6 +23,7 @@ from orbit_helpers import (
     ISS_NORAD_ID,
     forbidden,
     restored_stdout,
+    write_replay_dir,
     write_sim_config,
 )
 
@@ -225,12 +226,8 @@ class TestReplaySelection:
         The startup guard that skips satellite handling when ``max_n_sat`` is zero
         would otherwise discard a non-empty replay.
         """
-        from tabsim import orbit
-
-        replay_dir = tmp_path / "input_data"
-        replay_dir.mkdir()
-        orbit.save_orbits_for_reuse(
-            replay_dir / "used_orbits.json",
+        replay_dir = write_replay_dir(
+            tmp_path / "input_data",
             [ISS_NORAD_ID],
             [
                 {
@@ -241,7 +238,6 @@ class TestReplaySelection:
                 }
             ],
         )
-        (replay_dir / "norad_ids.yaml").write_text(f"{ISS_NORAD_ID}\n")
 
         config_path = write_sim_config(
             tmp_path / "sim.yaml",

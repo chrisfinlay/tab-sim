@@ -31,13 +31,15 @@ from orbit_helpers import (
     GPS_NORAD_ID,
     ISS_EPOCH_JD,
     ISS_NORAD_ID,
-    forbidden,
+    forbid_orbit_acquisition,
     omm_record_at,
     restored_stdout,
     search_frame,
     search_row,
     serve_search,
+    stub_endpoints,
     tle_record_at,
+    write_replay_dir,
     write_sim_config,
 )
 
@@ -53,23 +55,6 @@ SIM_IDS = [ISS_NORAD_ID, GPS_NORAD_ID]
 TELESCOPE_DIR = Path(str(files("tabsim.data").joinpath("telescopes")))
 PACKAGED_DISH_D = 13.5
 PACKAGED_ELEVATION = 1050.0
-
-
-def stub_records(monkeypatch, tle=None, omm=None):
-    """Serve records per endpoint, so one run can mix the two archives."""
-    tle, omm = tle or {}, omm or {}
-
-    def server(records):
-        def fetch(norad_id, epoch_jd, *, strict_response=False):
-            record = records.get(int(norad_id))
-            if record is None:
-                return pd.DataFrame()
-            return pd.DataFrame([record])
-
-        return fetch
-
-    monkeypatch.setattr(client, "fetch_nearest_tle", server(tle))
-    monkeypatch.setattr(client, "fetch_nearest_omm", server(omm))
 
 
 def tiny_sim_config(path, output_path, telescope=None, **tle_satellite):
@@ -168,18 +153,6 @@ def spec_model(path, norad_ids, power=CUSTOM_POWER):
     return str(path)
 
 
-def write_replay_dir(directory, norad_ids, records):
-    """The two files a frozen replay reads, as a completed run would write them."""
-    directory.mkdir(parents=True, exist_ok=True)
-    orbit.save_orbits_for_reuse(
-        directory / "used_orbits.json", list(norad_ids), list(records)
-    )
-    (directory / "norad_ids.yaml").write_text(
-        "".join(f"{int(nid)}\n" for nid in norad_ids)
-    )
-    return directory
-
-
 def final_ids(obs):
     """The NORAD IDs the observation actually propagated, flattened once."""
     if not len(obs.norad_ids):
@@ -268,11 +241,11 @@ def test_sim_vis_offline_frozen_replay(tmp_path, monkeypatch, archives):
     tle_records = {nid: tle_record_at(nid, ISS_EPOCH_JD) for nid in SIM_IDS}
     omm_records = {nid: omm_record_at(nid, ISS_EPOCH_JD) for nid in SIM_IDS}
     if archives == "tle":
-        stub_records(monkeypatch, tle=tle_records)
+        stub_endpoints(monkeypatch, tle=tle_records)
     elif archives == "omm":
-        stub_records(monkeypatch, omm=omm_records)
+        stub_endpoints(monkeypatch, omm=omm_records)
     else:
-        stub_records(
+        stub_endpoints(
             monkeypatch,
             tle={ISS_NORAD_ID: tle_records[ISS_NORAD_ID]},
             omm={GPS_NORAD_ID: omm_records[GPS_NORAD_ID]},
@@ -292,10 +265,7 @@ def test_sim_vis_offline_frozen_replay(tmp_path, monkeypatch, archives):
     if archives == "omm":
         assert set(tle_line_slots(obs).ravel()) == {""}
 
-    # Nothing but the saved files: no cache, no service, no name search.
-    monkeypatch.setenv("ORBIT_CACHE_DIR", str(tmp_path / "empty-cache"))
-    monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
-    monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
+    forbid_orbit_acquisition(monkeypatch, tmp_path)  # nothing but the saved files
 
     replay_config = tiny_sim_config(
         tmp_path / "replay.yaml", tmp_path / "replay", norad_ids=[]
@@ -348,7 +318,7 @@ def test_configured_spectral_model_is_not_replaced_by_the_packaged_one(
     satellite only the user's model covers was left out of the simulation.
     """
     unknown = 99999  # deliberately absent from the shipped norad_satellite.rfimodel
-    stub_records(monkeypatch, tle={unknown: tle_record_at(unknown, ISS_EPOCH_JD)})
+    stub_endpoints(monkeypatch, tle={unknown: tle_record_at(unknown, ISS_EPOCH_JD)})
     config_path = tiny_sim_config(
         tmp_path / "sim.yaml",
         tmp_path / "out",
@@ -370,8 +340,7 @@ def test_configured_spectral_model_survives_into_a_frozen_replay(
     replay_dir = write_replay_dir(
         tmp_path / "input_data", [unknown], [tle_record_at(unknown, ISS_EPOCH_JD)]
     )
-    monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
-    monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
+    forbid_orbit_acquisition(monkeypatch, tmp_path)
     config_path = tiny_sim_config(
         tmp_path / "replay.yaml",
         tmp_path / "out",
@@ -390,7 +359,7 @@ def test_configured_spectral_model_sets_the_simulated_power(tmp_path, monkeypatc
     The quiet half of the same defect: the run completes and models the satellite,
     with its emission power from a file the configuration replaced.
     """
-    stub_records(
+    stub_endpoints(
         monkeypatch, tle={ISS_NORAD_ID: tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD)}
     )
     packaged, _ = run_sim_vis(
@@ -544,7 +513,7 @@ def test_shared_designator_candidates_are_not_promised_to_be_modelled(
         monkeypatch,
         {"TWIN": [search_row(nid, "TWIN SAT", object_id="2024-100A") for nid in SIM_IDS]},
     )
-    stub_records(
+    stub_endpoints(
         monkeypatch, tle={nid: tle_record_at(nid, ISS_EPOCH_JD) for nid in SIM_IDS}
     )
 
@@ -575,8 +544,7 @@ def test_replay_logs_an_ignored_numpy_id_array(tmp_path, monkeypatch, capsys):
         SIM_IDS,
         [tle_record_at(nid, ISS_EPOCH_JD) for nid in SIM_IDS],
     )
-    monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
-    monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
+    forbid_orbit_acquisition(monkeypatch, tmp_path)
     sim_config = load_config(
         tiny_sim_config(
             tmp_path / "replay.yaml",
@@ -607,8 +575,7 @@ def test_replay_runs_with_a_deleted_original_id_file(tmp_path, monkeypatch):
         SIM_IDS,
         [tle_record_at(nid, ISS_EPOCH_JD) for nid in SIM_IDS],
     )
-    monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
-    monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
+    forbid_orbit_acquisition(monkeypatch, tmp_path)
     config_path = tiny_sim_config(
         tmp_path / "replay.yaml",
         tmp_path / "out",

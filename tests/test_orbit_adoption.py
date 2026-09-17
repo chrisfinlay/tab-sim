@@ -8,8 +8,8 @@ back through that seam still has tabsim's shape, labels and wording.
 **The seam.** Every adopted client function is looked up on the package module at
 call time, never bound by a module-scope ``from ... import``, which would make it
 unpatchable here and would freeze the archive choice at import.
-:data:`CLIENT_SEAM_NAMES` is the list and :func:`spy_on` the only way these tests
-install anything on it.
+``orbit_helpers.CLIENT_SEAM_NAMES`` is the list and its ``spy_on`` the only way
+these tests install anything on it.
 
 **Public API only.** Nothing patches the client's resolver internals. Delegation
 spies wrap the *real* function wherever the behaviour is also asserted, so a test
@@ -57,13 +57,18 @@ from orbit_helpers import (
     ISS_NORAD_ID,
     STATUS_UNVERIFIED,
     STATUS_VERIFIED,
+    Spy,
     comparable_record,
     compat_fixture,
+    forbid_orbit_acquisition,
     forbidden,
     omm_record_at,
+    spy_on,
     stub_endpoints,
     tle_record_at,
     without_checksum,
+    write_orbit_json,
+    write_replay_pair,
 )
 
 
@@ -124,59 +129,6 @@ SUPERSEDED_CLIENT_SHAS = (
 )
 
 
-#: Every client function tabsim must look up on the package module at call time.
-CLIENT_SEAM_NAMES = (
-    "resolve_orbits",
-    "read_extra_orbit_dir",
-    "save_orbits_for_reuse",
-    "save_replay_orbits",
-    "load_replay_orbits",
-)
-
-
-class Spy:
-    """One client function, recorded and then called.
-
-    Wraps the real implementation by default: a spy that swallowed the call would
-    pass against an adapter that does nothing useful.
-    """
-
-    def __init__(self, name, target):
-        self.name = name
-        self.target = target
-        self.calls: list[tuple] = []
-
-    def __call__(self, *args, **kwargs):
-        self.calls.append((args, kwargs))
-        return self.target(*args, **kwargs)
-
-    @property
-    def call(self) -> tuple:
-        assert len(self.calls) == 1, (
-            f"expected exactly one call to satchecker_client.{self.name}, got "
-            f"{len(self.calls)}"
-        )
-        return self.calls[0]
-
-    def argument(self, position: int, name: str):
-        """The *name* argument of the single call, given or passed positionally."""
-        args, kwargs = self.call
-        if len(args) > position:
-            return args[position]
-        assert name in kwargs, (
-            f"satchecker_client.{self.name} was called without {name}"
-        )
-        return kwargs[name]
-
-
-def spy_on(monkeypatch, name: str, answer=None) -> Spy:
-    """Record calls to ``satchecker_client.<name>``; *answer* replaces the real one."""
-    assert name in CLIENT_SEAM_NAMES, f"{name} is not one of the adopted seams"
-    spy = Spy(name, getattr(satchecker_client, name) if answer is None else answer)
-    monkeypatch.setattr(satchecker_client, name, spy)
-    return spy
-
-
 def deliver(monkeypatch, result) -> Spy:
     """Make the public client resolver answer with *result*, whatever is asked.
 
@@ -184,26 +136,6 @@ def deliver(monkeypatch, result) -> Spy:
     client's own dataclasses, so only the adaptation is under test.
     """
     return spy_on(monkeypatch, "resolve_orbits", lambda *args, **kwargs: result)
-
-
-def forbid_replay_fallbacks(monkeypatch) -> None:
-    """Every source a frozen replay must not touch, made to raise.
-
-    Raising rather than answering nothing: a replay that quietly resolved from the
-    cache would still produce a plausible simulation.
-    """
-    monkeypatch.setattr(
-        satchecker_client, "resolve_orbits", forbidden("the client resolver")
-    )
-    monkeypatch.setattr(
-        satchecker_client, "read_extra_orbit_dir", forbidden("the directory scan")
-    )
-    monkeypatch.setattr(
-        satchecker_client, "search_satellites", forbidden("the catalogue search")
-    )
-    monkeypatch.setattr(orbit, "TextOrbitCache", forbidden("the managed orbit cache"))
-    monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
-    monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
 
 
 def canonical(record) -> dict:
@@ -278,21 +210,6 @@ def attempts_of(norad_id, *statuses) -> dict:
             for label, status in zip((TLE_ENDPOINT, OMM_ENDPOINT), statuses)
         ]
     }
-
-
-def write_orbit_json(path, records) -> Path:
-    """*records* as one column-oriented orbit table, the shape the readers read."""
-    rows = [dict(record) for record in records]
-    columns: list[str] = []
-    for row in rows:
-        columns += [column for column in row if column not in columns]
-    payload = {
-        column: {str(index): row.get(column) for index, row in enumerate(rows)}
-        for column in columns
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload))
-    return path
 
 
 def awkward_omm(norad_id, epoch_jd, **extra) -> dict:
@@ -1507,7 +1424,7 @@ def test_single_file_writer_delegates(case, monkeypatch, tmp_path):
 
 def test_replay_loader_delegates_and_keeps_tabsim_messages(monkeypatch, capsys):
     """A replay reads two files and has no second source, by design."""
-    forbid_replay_fallbacks(monkeypatch)
+    forbid_orbit_acquisition(monkeypatch)
     spy = spy_on(monkeypatch, "load_replay_orbits")
 
     directory, expected = compat_fixture("mixed_tle_first")
@@ -1543,20 +1460,6 @@ def test_replay_loader_delegates_and_keeps_tabsim_messages(monkeypatch, capsys):
     assert str(missing) in str(raised.value)
 
 
-def write_replay_pair(directory, norad_ids, records) -> Path:
-    """The two replay files, written exactly as given.
-
-    Deliberately not through the pair writer, which exists to refuse producing
-    some of the corruption these cases need.
-    """
-    directory.mkdir(parents=True, exist_ok=True)
-    write_orbit_json(directory / "used_orbits.json", records)
-    (directory / "norad_ids.yaml").write_text(
-        "".join(f"{int(norad_id)}\n" for norad_id in norad_ids)
-    )
-    return directory
-
-
 def replay_refusal_cases():
     """``case -> (saved IDs, saved records, is the checksum opt-in the remedy?)``.
 
@@ -1589,7 +1492,7 @@ def test_the_checksum_remedy_is_offered_only_where_it_is_one(
     a setting that cannot change the outcome.
     """
     norad_ids, records, remediable = REPLAY_REFUSAL_CASES[case]
-    forbid_replay_fallbacks(monkeypatch)
+    forbid_orbit_acquisition(monkeypatch)
     directory = write_replay_pair(tmp_path / "input_data", norad_ids, records)
 
     with pytest.raises(orbit.OrbitError) as raised:
@@ -1729,7 +1632,7 @@ def test_pr44_replay_loads_through_client_adapter(case, monkeypatch):
     to survive is the saved selection, the retained doubles, the checksum
     provenance and the trajectories — not the bytes.
     """
-    forbid_replay_fallbacks(monkeypatch)
+    forbid_orbit_acquisition(monkeypatch)
     spy = spy_on(monkeypatch, "load_replay_orbits")
     directory, expected = compat_fixture(case)
     policy = expected["allow_missing_checksum"]
