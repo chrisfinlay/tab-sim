@@ -19,10 +19,14 @@ from astropy.time import Time
 from tabsim.dask.observation import Observation
 from tabsim.sky import generate_random_sky
 from tabsim.write import write_ms, mk_obs_name, mk_obs_dir
-from tabsim.jax.coordinates import calculate_fringe_frequency, jd_to_mjd
+from tabsim.jax.coordinates import calculate_fringe_frequency, jd_to_mjd, mjd_to_jd
 from tabsim.tle import get_visible_satellite_tles, id_generator
 from tabsim.orbit import OrbitError, load_replay_orbits, save_orbits_for_reuse
-from tabsim.orbit_config import normalise_orbit_config, reject_obsolete_keys
+from tabsim.orbit_config import (
+    normalise_orbit_config,
+    observation_epoch_jd,
+    reject_obsolete_keys,
+)
 
 from daskms import xds_from_ms
 
@@ -590,6 +594,12 @@ def add_tle_satellite_sources(obs: Observation, sim_config: dict) -> None:
     else:
         from astropy.time import Time
 
+        # The grid the visibility search steps over runs vis_step *past* the last
+        # sample, so an observation ending just before midnight has a grid whose
+        # mean lands on the next day. Which satellites existed, which record is
+        # nearest and how old it is are all questions about the observation's own
+        # epoch, so that is derived from the observation and passed separately.
+        obs_epoch_jd = observation_epoch_jd(mjd_to_jd(np.asarray(obs.times_mjd)))
         jd_step = sat_["vis_step"] / (24 * 60)
         times_check = Time(
             np.arange(obs.times_mjd[0], obs.times_mjd[-1] + jd_step, jd_step),
@@ -614,6 +624,7 @@ def add_tle_satellite_sources(obs: Observation, sim_config: dict) -> None:
             search_cache_max_age_days=orbit_config.search_cache_max_age_days,
             offline=orbit_config.offline,
             allow_missing_checksum=orbit_config.allow_missing_checksum,
+            obs_epoch_jd=obs_epoch_jd,
         )
 
     print(f"NORAD IDs included : {list(norad_ids)}")

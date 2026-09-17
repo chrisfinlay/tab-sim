@@ -38,6 +38,7 @@ from tabsim.orbit import (  # noqa: F401  OrbitError re-exported for callers
     resolve_names,
     resolve_orbits,
 )
+from tabsim.orbit_config import observation_epoch_jd
 from satchecker_client.records import KIND_TLE, record_elements, record_kind
 
 
@@ -318,13 +319,16 @@ def get_visible_satellite_tles(
     search_cache_max_age_days: Optional[float] = DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS,
     offline: bool = False,
     allow_missing_checksum: bool = False,
+    obs_epoch_jd: Optional[float] = None,
 ) -> tuple:
     """Get the orbit records of satellites that satisfy the conditions given.
 
     Parameters
     ----------
     times : ArrayLike
-        Times to consider in Astropy.time.Time format.
+        Times to consider in Astropy.time.Time format. This is the grid the
+        visibility search steps over, which is not necessarily the observation's
+        own sampling — see *obs_epoch_jd*.
     observer_lat : float
         Observer latitude in degrees.
     observer_lon : float
@@ -365,6 +369,12 @@ def get_visible_satellite_tles(
     allow_missing_checksum : bool, optional
         Accept TLE lines with no checksum digit, on every route, carrying them as
         unverified for the life of the record.
+    obs_epoch_jd : float, optional
+        The observation's own mean epoch, which every catalogue question and age
+        comparison is answered at. Defaults to the mean of *times*, which is right
+        only when the checking grid *is* the observation's sampling: a grid built
+        by stepping past the last sample can have its mean on a different date,
+        and "which satellites existed" is a question about the observation's date.
 
     Returns
     -------
@@ -374,7 +384,9 @@ def get_visible_satellite_tles(
           [])`` when nothing passes.
     """
 
-    epoch_jd = float(np.mean(times.jd))
+    epoch_jd = (
+        observation_epoch_jd(times.jd) if obs_epoch_jd is None else float(obs_epoch_jd)
+    )
 
     resolution = resolve_orbits(
         norad_ids,

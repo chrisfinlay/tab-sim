@@ -1745,11 +1745,15 @@ class TestReplay:
 class FakeObservation:
     """The little of ``Observation`` that satellite source selection touches."""
 
-    def __init__(self, epoch_jd=ISS_EPOCH_JD):
+    def __init__(self, epoch_jd=ISS_EPOCH_JD, times_jd=None):
         import dask.array as da
 
         mjd = epoch_jd - 2400000.5
-        self.times_mjd = np.array([mjd - 5e-5, mjd + 5e-5])
+        self.times_mjd = (
+            np.array([mjd - 5e-5, mjd + 5e-5])
+            if times_jd is None
+            else np.asarray(times_jd, dtype=float) - 2400000.5
+        )
         self.latitude, self.longitude, self.elevation = -30.7, 21.44, 1050.0
         self.ra, self.dec = 27.0, -30.0
         self.freqs = da.asarray([1.227e9])
@@ -1760,8 +1764,8 @@ class FakeObservation:
         self.added.append((list(int(n) for n in norad_ids), list(orbits)))
 
 
-def replay_sim_config(replay_dir, **overrides):
-    """The ``rfi_sources`` section a replayed simulation runs with."""
+def sim_rfi_config(**overrides):
+    """The ``rfi_sources`` section the simulation's satellite selection reads."""
     from importlib.resources import files
 
     rfi_dir = files("tabsim.data").joinpath("rfi").__str__()
@@ -1777,7 +1781,7 @@ def replay_sim_config(replay_dir, **overrides):
         "extra_orbit_max_age_days": None,
         "remote_max_age_days": 3,
         "cache_reuse_max_age_days": 1,
-        "replay_orbit_dir": str(replay_dir),
+        "replay_orbit_dir": None,
         "offline": False,
         "allow_missing_checksum": False,
         "vis_step": 1.0,
@@ -1785,6 +1789,59 @@ def replay_sim_config(replay_dir, **overrides):
     }
     tle_satellite.update(overrides)
     return {"rfi_sources": {"tle_satellite": tle_satellite}}
+
+
+def replay_sim_config(replay_dir, **overrides):
+    """The same section, with a frozen replay selected."""
+    return sim_rfi_config(replay_orbit_dir=str(replay_dir), **overrides)
+
+
+class TestSelectionEpoch:
+    def test_selection_epoch_is_the_observation_not_the_visibility_grid(
+        self, monkeypatch
+    ):
+        """Satellites are judged at the observation's epoch, not the check grid's.
+
+        The visibility grid steps ``vis_step`` from the first sample to *past* the
+        last, so an observation ending at 23:59:50 with a one-minute step has a
+        grid of 23:59:40 and next-day 00:00:40 — a mean on the following date. A
+        satellite the catalogue says decayed on the observation's own date was
+        excluded from a simulation it belongs in, and the record request and every
+        age comparison used the shifted epoch too.
+        """
+        from tabsim import config as config_module
+
+        epoch_jd = jd(2023, 2, 21, 23, 59, 45)
+        times_jd = [jd(2023, 2, 21, 23, 59, 40), jd(2023, 2, 21, 23, 59, 50)]
+        serve_search(
+            monkeypatch,
+            {
+                "THING": [
+                    search_row(
+                        ISS_NORAD_ID,
+                        "THING ONE",
+                        launch_date="2000-01-01",
+                        decay_date="2023-02-21",
+                    )
+                ]
+            },
+        )
+        calls = stub_service(
+            monkeypatch, {ISS_NORAD_ID: tle_record_at(ISS_NORAD_ID, epoch_jd)}
+        )
+        monkeypatch.setattr(
+            tle_module,
+            "check_satellite_visibilibities",
+            lambda *args, **kwargs: pd.DataFrame({"norad_id": [ISS_NORAD_ID]}),
+        )
+        obs = FakeObservation(times_jd=times_jd)
+
+        config_module.add_tle_satellite_sources(
+            obs, sim_rfi_config(sat_names=["thing"], vis_step=1.0)
+        )
+
+        assert [nid for ids, _ in obs.added for nid in ids] == [ISS_NORAD_ID]
+        assert calls[0][1] == pytest.approx(epoch_jd, abs=1e-6)
 
 
 class TestReplaySelection:
