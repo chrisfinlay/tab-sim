@@ -88,7 +88,7 @@ from __future__ import annotations
 
 import importlib.metadata as _metadata
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -209,7 +209,8 @@ class ResolvedOrbit:
 
     A display adapter over the client's own accepted entry: the same facts, with
     tabsim's source label and tabsim's field order, which callers build
-    positionally.
+    positionally. Anything the client added is keyword-only, so the positions a
+    caller may rely on are exactly the six this type has always had.
     """
 
     norad_id: int
@@ -218,7 +219,7 @@ class ResolvedOrbit:
     provider: Optional[str]
     epoch_jd: float
     offset_days: float          # signed: record epoch minus observation epoch
-    endpoint: Optional[str] = None
+    endpoint: Optional[str] = field(default=None, kw_only=True)
 
     @property
     def age_days(self) -> float:
@@ -236,7 +237,8 @@ class RejectedOrbit:
 
     ``reason`` is the sentence a user acts on; ``reason_code``, ``ceiling_days``
     and ``limit_name`` are the same rejection as structure, for a caller that
-    would otherwise have to parse it.
+    would otherwise have to parse it. They are keyword-only, so the positions a
+    caller may rely on are exactly the six this type has always had.
     """
 
     norad_id: int
@@ -245,10 +247,10 @@ class RejectedOrbit:
     epoch_jd: Optional[float]
     offset_days: Optional[float]
     reason: str
-    reason_code: Optional[str] = None
-    ceiling_days: Optional[float] = None
-    limit_name: Optional[str] = None
-    endpoint: Optional[str] = None
+    reason_code: Optional[str] = field(default=None, kw_only=True)
+    ceiling_days: Optional[float] = field(default=None, kw_only=True)
+    limit_name: Optional[str] = field(default=None, kw_only=True)
+    endpoint: Optional[str] = field(default=None, kw_only=True)
 
     @property
     def age_days(self) -> Optional[float]:

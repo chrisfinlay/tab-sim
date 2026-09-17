@@ -925,6 +925,19 @@ def test_tabsim_result_constructors_keep_their_positional_order():
     assert refused.reason == "extra_orbit_max_age_days=5.0"
     assert refused.age_days == 9.0
 
+    # Keyword-only, so the positions are the six each type has always had and a
+    # seventh cannot be read as one of them by a caller written against #44.
+    with pytest.raises(TypeError):
+        orbit.ResolvedOrbit(
+            ISS_NORAD_ID, record, LABEL_CACHE, "spacetrack", OBS_EPOCH_JD, -0.5,
+            TLE_ENDPOINT,
+        )
+    with pytest.raises(TypeError):
+        orbit.RejectedOrbit(
+            ISS_NORAD_ID, LABEL_EXTRA, None, None, None, "invalid record",
+            REASON_INVALID,
+        )
+
     failure = SatCheckerResponseError("boom")
     refresh = SatCheckerResponseError("stale")
     resolution = orbit.OrbitResolution(
