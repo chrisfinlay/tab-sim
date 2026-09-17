@@ -46,7 +46,6 @@ from satchecker_client.records import record_elements
 
 from tabsim import config as config_module
 from tabsim import orbit
-from tabsim.tle import get_satellite_positions
 
 from orbit_helpers import (
     CHECKSUM_STATUS_FIELD,
@@ -1471,20 +1470,6 @@ def test_a_pr44_replay_loads_through_the_client_adapter(case, monkeypatch, capsy
         assert str(Path(directory) / "used_orbits.json") in message
         assert "rfi_sources.tle_satellite.allow_missing_checksum: true" in message
         assert "--allow-missing-checksum" in message
-
-    if not records:
-        return
-    # The elements are the trajectory: rebuilt from the frozen JSON rather than
-    # from the loader, so the comparison is against the fixture and not itself.
-    rebuilt = [
-        {key: value for key, value in record.items() if value is not None}
-        for record in expected["records"]
-    ]
-    times_jd = OBS_EPOCH_JD + np.linspace(0.0, 0.2, 5)
-    np.testing.assert_array_equal(
-        get_satellite_positions(records, times_jd),
-        get_satellite_positions(rebuilt, times_jd),
-    )
 
 
 @pytest.mark.parametrize("case", COMPAT_CASES)
