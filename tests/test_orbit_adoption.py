@@ -1477,9 +1477,17 @@ def test_config_saves_one_validated_replay_pair(case, monkeypatch, tmp_path, cap
     assert f"Orbit records used written to : {records_path}" in capsys.readouterr().out
     replayed_ids, replayed = orbit.load_replay_orbits(save_path)
     assert replayed_ids == norad_ids
-    assert [comparable_record(record) for record in replayed] == [
-        comparable_record(record) for record in records
-    ]
+    for original, loaded in zip(records, replayed):
+        expected = comparable_record(original)
+        read_back = comparable_record(loaded)
+        for key, value in expected.items():
+            assert read_back[key] == value, key
+        # One column-oriented table holding both kinds gives each row the other
+        # kind's columns as nulls, which is the format, not an invention: an OMM
+        # row reads back with a null TLE_LINE1. Nothing else may appear.
+        assert {key for key, value in read_back.items() if value is not None} <= set(
+            expected
+        )
 
 
 @pytest.mark.parametrize(
@@ -1584,13 +1592,17 @@ def test_adopted_replay_is_readable_by_pr44_loader(case, monkeypatch, tmp_path):
             key for key, value in read_back.items() if value is not None
         } <= set(expected)
     if records:
+        # Every TLE that went in comes back carrying its checksum provenance, and
+        # only a TLE does: the format makes no checksum claim about an OMM, so an
+        # OMM-only selection legitimately has no such row.
         status = STATUS_UNVERIFIED if unverified else STATUS_VERIFIED
         tle_rows = [
             record for record in back_records if record.get("RECORD_KIND") == "tle"
         ]
-        assert tle_rows and all(
-            record[CHECKSUM_STATUS_FIELD] == status for record in tle_rows
+        assert len(tle_rows) == sum(
+            1 for record in records if record.get("RECORD_KIND") == "tle"
         )
+        assert all(record[CHECKSUM_STATUS_FIELD] == status for record in tle_rows)
 
 
 # ---------------------------------------------------------------------------

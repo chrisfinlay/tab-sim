@@ -109,17 +109,13 @@ from satchecker_client.tle_parse import (  # noqa: E402
     tle_epoch_jd,  # noqa: F401  re-export
     validate_tle_pair,  # noqa: F401  re-export
 )
-# Format dispatch. Nothing below this line asks whether a record is a TLE or an
-# OMM: it asks for its epoch, its elements, or whether it is valid, and these
-# answer for either kind.
+# Format dispatch. Nothing here asks whether a record is a TLE or an OMM: the
+# checksum status is the one field this module reads off a record, and it means
+# the same thing on every route one can arrive by.
 from satchecker_client.records import (  # noqa: E402
     CHECKSUM_STATUS_FIELD,
     CHECKSUM_UNVERIFIED_MISSING,
-    record_elements,  # noqa: F401  re-export
-    record_epoch_jd,  # noqa: F401  re-export
-    record_kind,  # noqa: F401  re-export
     validate_record,  # noqa: F401  re-export
-    validated_record,  # noqa: F401  re-export
 )
 # The client's stable vocabulary. Its codes are what the evidence below is read
 # in; the words a tabsim user sees are this module's, a few lines further down.
