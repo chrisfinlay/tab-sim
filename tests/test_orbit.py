@@ -362,12 +362,28 @@ class TestSourcePrecedence:
     def test_service_response_is_cached_for_later_runs(
         self, monkeypatch, isolated_cache
     ):
-        stub_service(monkeypatch, {ISS_NORAD_ID: tle_record()})
-        orbit.resolve_orbits([ISS_NORAD_ID], ISS_EPOCH_JD)
+        """What is cached is the copy that was judged, not the wire row that came.
+
+        A row with no stated kind or checksum provenance is one every other reader
+        of the shared cache has to re-infer, at whatever version each is on.
+        """
+        served = tle_record()
+        served.pop(KIND_FIELD)  # the endpoint does not send one
+        calls = stub_service(monkeypatch, {ISS_NORAD_ID: served})
+        assert orbit.resolve_orbits([ISS_NORAD_ID], ISS_EPOCH_JD).complete
 
         cached = TextOrbitCache(isolated_cache).get(ISS_NORAD_ID)
         assert len(cached) == 1
-        assert cached["TLE_LINE1"].iloc[0] == ISS_LINE1
+        row = cached.iloc[0]
+        assert row["TLE_LINE1"] == ISS_LINE1
+        assert row[KIND_FIELD] == KIND_TLE
+        assert row[CHECKSUM_STATUS_FIELD] == STATUS_VERIFIED
+
+        # ...and the next run at the same epoch uses it without asking again.
+        calls.clear()
+        again = orbit.resolve_orbits([ISS_NORAD_ID], ISS_EPOCH_JD)
+        assert again.resolved[ISS_NORAD_ID].source.endswith("cache")
+        assert calls == []
 
     def test_strict_response_is_requested_from_both_endpoints(self, monkeypatch):
         """Every nearest-record request must opt in to strict response parsing.
@@ -677,37 +693,15 @@ class TestCoverage:
         assert str(ISS_NORAD_ID) in out
         assert "cache" in out.lower()
 
-    def test_refresh_failure_names_the_source_that_answered(self, monkeypatch, capsys):
-        """The warning has to name the record the run actually continued with.
-
-        An ID rescued by the other archive is bookkept as a failed refresh, and
-        was reported as continuing from a cached record the run never held.
-        """
-
-        def failing_tle(norad_id, _epoch_jd, *, strict_response=False):
-            raise client.SatCheckerResponseError("unreadable reply", status=500)
-
-        def nearest_omm(norad_id, _epoch_jd, *, strict_response=False):
-            return pd.DataFrame([omm_record_from_tle()])
-
-        monkeypatch.setattr(client, "fetch_nearest_tle", failing_tle)
-        monkeypatch.setattr(client, "fetch_nearest_omm", nearest_omm)
-
-        resolution = orbit.resolve_orbits([ISS_NORAD_ID], ISS_EPOCH_JD)
-
-        assert resolution.complete
-        assert ISS_NORAD_ID in resolution.refresh_errors
-        out = capsys.readouterr().out
-        assert "nearest-OMM" in out
-        assert "cached record" not in out
-
-    def test_refresh_failure_detail_honours_the_log_switch(
-        self, monkeypatch, isolated_cache, capsys
+    @pytest.mark.parametrize("detail", [False, True], ids=["truncated", "detailed"])
+    def test_the_refresh_failure_summary_honours_the_log_switch(
+        self, monkeypatch, isolated_cache, capsys, detail
     ):
-        """``TABSIM_TLE_LOG_DETAIL=1`` has to reach the refresh summary too.
+        """A failed refresh is not fatal, and ``TABSIM_TLE_LOG_DETAIL`` reaches here.
 
-        It sliced to the first twelve whatever the switch said, so the one thing
-        that recovers a full per-satellite listing could not recover this one.
+        The summary sliced to the first twelve whatever the switch said, so the
+        one thing that recovers a full per-satellite listing could not recover
+        this one; each entry names the source its satellite is continuing from.
         """
         norad_ids = list(range(7500, 7513))  # thirteen: one over the grouping limit
         cache = TextOrbitCache(isolated_cache)
@@ -723,7 +717,10 @@ class TestCoverage:
 
         monkeypatch.setattr(client, "fetch_nearest_tle", failing)
         monkeypatch.setattr(client, "fetch_nearest_omm", failing)
-        monkeypatch.setenv("TABSIM_TLE_LOG_DETAIL", "1")
+        if detail:
+            monkeypatch.setenv("TABSIM_TLE_LOG_DETAIL", "1")
+        else:
+            monkeypatch.delenv("TABSIM_TLE_LOG_DETAIL", raising=False)
 
         resolution = orbit.resolve_orbits(
             norad_ids,
@@ -732,30 +729,24 @@ class TestCoverage:
             cache_reuse_max_age_days=1.0,
         )
 
+        # Not fatal: every ID resolved, from the record it already held.
         assert resolution.complete
+        assert sorted(resolution.refresh_errors) == norad_ids
+        assert resolution.missing == []
+        assert orbit.require_complete_coverage(resolution) is resolution
+
         out = capsys.readouterr().out
-        for nid in norad_ids:
-            # tabsim's own summary entry, not the client's per-request log line.
-            assert f"{nid} — no answer for {nid} (from " in out
-
-    def test_fallback_success_clears_prior_failure(self, monkeypatch):
-        """A per-ID failure from one archive is not a failure of the run."""
-        record = omm_record_from_tle()
-
-        def failing_tle(norad_id, _epoch_jd, *, strict_response=False):
-            raise client.SatCheckerResponseError("unreadable reply", status=500)
-
-        def nearest_omm(norad_id, _epoch_jd, *, strict_response=False):
-            return pd.DataFrame([record])
-
-        monkeypatch.setattr(client, "fetch_nearest_tle", failing_tle)
-        monkeypatch.setattr(client, "fetch_nearest_omm", nearest_omm)
-
-        resolution = orbit.resolve_orbits([ISS_NORAD_ID], ISS_EPOCH_JD)
-
-        assert resolution.complete
-        assert resolution.service_errors == {}
-        orbit.require_complete_coverage(resolution)
+        assert f"warning: a SatChecker request failed for {len(norad_ids)} ID(s)" in out
+        # tabsim's own summary entry, not the client's per-request log line.
+        entry = "{0} — no answer for {0} (from managed per-satellite cache)".format
+        for nid in norad_ids[:12]:
+            assert entry(nid) in out
+        if detail:
+            assert entry(norad_ids[-1]) in out
+            assert "more (set TABSIM_TLE_LOG_DETAIL=1" not in out
+        else:
+            assert entry(norad_ids[-1]) not in out
+            assert "and 1 more (set TABSIM_TLE_LOG_DETAIL=1 for the full list)" in out
 
     # -- offline -------------------------------------------------------------
 

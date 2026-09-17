@@ -1179,20 +1179,26 @@ def test_one_healthy_run_says_each_thing_once_and_warns_about_nothing(
     assert "offline" not in out
 
 
+@pytest.mark.parametrize(
+    "retained", [False, True], ids=["omm-rescue", "cache-and-omm-rescue"]
+)
 def test_a_refresh_failure_reaches_the_summary_through_the_real_callbacks(
-    monkeypatch, isolated_cache, capsys
+    retained, monkeypatch, isolated_cache, capsys
 ):
-    """The same warning, driven by the client's own event sequence.
+    """The failed-refresh warning, driven by the client's own event sequence.
 
-    The parametrised case below tests the reporting but not the wiring: that the
-    resolver's ``on_event`` callbacks, its error bookkeeping and its final result
-    agree about which satellites failed a refresh and what each continues from.
+    What has to agree is the resolver's ``on_event`` callbacks, its error
+    bookkeeping and its final result: which satellites failed a refresh, and what
+    each is continuing from — never the cache for an ID the second archive
+    rescued, which is a record the run never held.
     """
-    from_cache, rescued = ISS_NORAD_ID, GPS_NORAD_ID
-    epoch_jd = ISS_EPOCH_JD
-    TextOrbitCache(isolated_cache).store(
-        from_cache, pd.DataFrame([tle_record_at(from_cache, epoch_jd + 2.0)])
-    )
+    rescued, epoch_jd = GPS_NORAD_ID, ISS_EPOCH_JD
+    expected = {rescued: LABEL_OMM}
+    if retained:
+        expected[ISS_NORAD_ID] = LABEL_CACHE
+        TextOrbitCache(isolated_cache).store(
+            ISS_NORAD_ID, pd.DataFrame([tle_record_at(ISS_NORAD_ID, epoch_jd + 2.0)])
+        )
     outage = SatCheckerResponseError("nearest-TLE answered 503")
     stub_endpoints(
         monkeypatch,
@@ -1201,84 +1207,23 @@ def test_a_refresh_failure_reaches_the_summary_through_the_real_callbacks(
         omm_default=outage,
     )
 
-    resolution = orbit.resolve_orbits([from_cache, rescued], epoch_jd)
+    resolution = orbit.resolve_orbits(sorted(expected), epoch_jd)
     out = capsys.readouterr().out
 
     assert resolution.complete
     assert orbit.require_complete_coverage(resolution) is resolution
-    assert sorted(resolution.refresh_errors) == sorted([from_cache, rescued])
+    assert sorted(resolution.refresh_errors) == sorted(expected)
     assert resolution.service_errors == {}
-    assert resolution.resolved[from_cache].source == LABEL_CACHE
-    assert resolution.resolved[rescued].source == LABEL_OMM
 
-    assert "warning: a SatChecker request failed for 2 ID(s)" in out
-    for norad_id, label in ((from_cache, LABEL_CACHE), (rescued, LABEL_OMM)):
+    assert f"warning: a SatChecker request failed for {len(expected)} ID(s)" in out
+    for norad_id, label in expected.items():
+        assert resolution.resolved[norad_id].source == label
         assert (
             f"{norad_id} — {resolution.refresh_errors[norad_id]} (from {label})" in out
         )
-
-
-@pytest.mark.parametrize("detail", [False, True], ids=["truncated", "detailed"])
-def test_client_refresh_failures_produce_tabsim_summary(detail, monkeypatch, capsys):
-    """A failed refresh is not fatal, and the run is not quite the one asked for.
-
-    The warning names the source each satellite is *continuing from*, which is
-    not always the cache: an ID rescued by the second archive is bookkept here
-    too, and "from the cache" would describe a record the run never held.
-    """
-    if detail:
-        monkeypatch.setenv("TABSIM_TLE_LOG_DETAIL", "1")
-    else:
-        monkeypatch.delenv("TABSIM_TLE_LOG_DETAIL", raising=False)
-    stub_endpoints(monkeypatch)
-
-    # Thirteen, one past the grouping threshold, so the truncation is exercised.
-    norad_ids = [ISS_NORAD_ID + offset for offset in range(13)]
-    from_cache, rescued = norad_ids[0], norad_ids[1]
-    errors = {
-        norad_id: SatCheckerResponseError(f"nearest-TLE answered 503 for {norad_id}")
-        for norad_id in norad_ids
-    }
-    resolved = {
-        norad_id: client_resolved(norad_id, SOURCE_CACHE, offset_days=0.75)
-        for norad_id in norad_ids
-    }
-    resolved[rescued] = client_resolved(
-        rescued, SOURCE_SERVICE, endpoint=OMM_ENDPOINT, offset_days=-0.1
-    )
-    events = [
-        ResolutionEvent(
-            code=EVENT_REFRESH_FAILED,
-            norad_ids=(norad_id,),
-            source=resolved[norad_id].source,
-            endpoint=resolved[norad_id].endpoint,
-            error=errors[norad_id],
-        )
-        for norad_id in norad_ids
-    ]
-    deliver(
-        monkeypatch,
-        client_result(
-            norad_ids, resolved=resolved, refresh_errors=errors, events=events
-        ),
-    )
-
-    resolution = orbit.resolve_orbits(norad_ids, OBS_EPOCH_JD)
-    out = capsys.readouterr().out
-
-    assert resolution.refresh_errors == errors
-    assert resolution.missing == []
-    assert orbit.require_complete_coverage(resolution) is resolution
-
-    assert "warning: a SatChecker request failed for" in out
-    assert f"{from_cache} — {errors[from_cache]} (from {LABEL_CACHE})" in out
-    assert f"{rescued} — {errors[rescued]} (from {LABEL_OMM})" in out
-    if detail:
-        for norad_id in norad_ids:
-            assert f"{norad_id} — {errors[norad_id]}" in out
-        assert "more (set TABSIM_TLE_LOG_DETAIL=1" not in out
-    else:
-        assert "and 1 more (set TABSIM_TLE_LOG_DETAIL=1 for the full list)" in out
+    if not retained:
+        # Nothing was held, so nothing may claim a cached record was kept.
+        assert "cached record" not in out
 
 
 def test_extra_reader_delegates_and_preserves_contextual_errors(monkeypatch, tmp_path):
@@ -1632,29 +1577,6 @@ def test_adopted_replay_is_readable_by_pr44_loader(case, monkeypatch, tmp_path):
             1 for record in records if record.get("RECORD_KIND") == "tle"
         )
         assert all(record[CHECKSUM_STATUS_FIELD] == status for record in tle_rows)
-
-
-def test_resolver_cache_writes_canonical_verified_records(monkeypatch, isolated_cache):
-    """The cache keeps the copy that was judged, not the wire row that arrived.
-
-    A row with no stated kind or checksum provenance is one every reader of the
-    shared cache has to re-infer, at whatever version each is on.
-    """
-    served = tle_record_at(ISS_NORAD_ID, OBS_EPOCH_JD, DATA_SOURCE="spacetrack")
-    served.pop("RECORD_KIND")  # the endpoint does not send one
-    stub_endpoints(monkeypatch, tle={ISS_NORAD_ID: served})
-
-    resolution = orbit.resolve_orbits([ISS_NORAD_ID], OBS_EPOCH_JD)
-    assert resolution.complete
-
-    stored = TextOrbitCache(orbit.orbit_cache_dir()).get(ISS_NORAD_ID)
-    assert len(stored) == 1
-    assert "RECORD_KIND" in stored.columns
-    assert CHECKSUM_STATUS_FIELD in stored.columns
-    row = stored.iloc[0]
-    assert row["RECORD_KIND"] == "tle"
-    assert row[CHECKSUM_STATUS_FIELD] == STATUS_VERIFIED
-    assert row["TLE_LINE1"] == served["TLE_LINE1"]
 
 
 def test_satchecker_dependency_pins_resolver_head():
