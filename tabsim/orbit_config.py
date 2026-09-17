@@ -54,7 +54,8 @@ DEFAULT_CACHE_REUSE_MAX_AGE_DAYS = 1.0
 
 #: Wall-clock age at which a cached catalogue search is refreshed: a day keeps a
 #: repeated run off the search endpoint while still noticing a launch, a decay or
-#: a new alias. ``None`` reuses a snapshot indefinitely; ``0`` always refreshes.
+#: a new alias. ``None`` reuses a snapshot indefinitely; ``0`` refreshes on every
+#: online lookup, while an offline one still reuses whatever snapshot it holds.
 DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS = 1.0
 
 #: Keys that used to decide where orbital records came from and now do nothing.

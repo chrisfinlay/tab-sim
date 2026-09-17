@@ -35,9 +35,10 @@ Each source offers the candidate nearest the observation epoch *that this run ca
 use*, so a record the checksum policy refuses is not a candidate: it neither
 displaces a usable one nor provokes a request. ``allow_missing_checksum`` governs
 only a line that arrived without its checksum digit — a present but wrong one is
-always refused — identically on every route, and accepted records carry
-:data:`CHECKSUM_STATUS_FIELD` for life and stay out of the shared cache that
-other applications read.
+always refused — identically on every route. Every accepted record carries
+:data:`CHECKSUM_STATUS_FIELD` for life, and the ones accepted *unverified* that
+way stay out of the shared cache other applications read; verified records are
+cached as usual.
 
 Coverage fails closed. Every numbered satellite must end up with a record
 (:func:`require_complete_coverage`); a *named* one may be excluded when the
