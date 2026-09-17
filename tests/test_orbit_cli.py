@@ -172,6 +172,40 @@ class TestPolicyFlags:
         )
         assert satellites["replay_orbit_dir"] == str(work / "previous" / "input_data")
 
+    def test_replay_does_not_process_the_id_file_it_overrides(
+        self, layout, monkeypatch
+    ):
+        """A replay must not even look at the ID-file setting it overrides.
+
+        ``norad_ids_path`` went through ``get_abs_path`` before the replay was
+        loaded, and ``os.path.join`` raises ``TypeError`` on a value that is not a
+        path at all — so a leftover the run will never read stopped it before it
+        started.
+        """
+        conf, work = layout
+        config_path = write_sim_config(
+            conf / "sim.yaml",
+            tle_satellite={
+                "replay_orbit_dir": "previous/input_data",
+                "norad_ids_path": 123,
+            },
+        )
+
+        satellites = run_sim_vis(monkeypatch, config_path, cwd=work)
+
+        assert satellites["norad_ids_path"] == 123, "left exactly as written"
+        assert satellites["replay_orbit_dir"] == str(conf / "previous" / "input_data")
+
+    def test_an_id_file_is_still_resolved_without_a_replay(self, layout, monkeypatch):
+        """...and an ordinary run still resolves it against the config directory."""
+        conf, work = layout
+        config_path = write_sim_config(
+            conf / "sim.yaml", tle_satellite={"norad_ids_path": "ids.txt"}
+        )
+
+        satellites = run_sim_vis(monkeypatch, config_path, cwd=work)
+
+        assert satellites["norad_ids_path"] == str(conf / "ids.txt")
 
     @pytest.mark.parametrize(
         "args,expected",

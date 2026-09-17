@@ -183,9 +183,14 @@ def main():
         )
 
     sim_config["output"]["path"] = get_abs_path(sim_config["output"]["path"], work_dir)
-    sim_config["rfi_sources"]["tle_satellite"]["norad_ids_path"] = get_abs_path(
-        sim_config["rfi_sources"]["tle_satellite"]["norad_ids_path"], work_dir
-    )
+    # A frozen replay never opens the original ID file — its saved IDs are the
+    # selection — so the setting is not an input of this run and is left exactly as
+    # written. Processing it anyway made a leftover nothing will read able to stop
+    # the run: os.path.join raises on a value that is not a path at all.
+    if not satellites["replay_orbit_dir"]:
+        satellites["norad_ids_path"] = get_abs_path(
+            satellites["norad_ids_path"], work_dir
+        )
     sim_config["rfi_sources"]["tle_satellite"]["norad_spec_model"] = get_abs_path(
         sim_config["rfi_sources"]["tle_satellite"]["norad_spec_model"], work_dir
     )

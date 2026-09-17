@@ -566,7 +566,10 @@ def add_tle_satellite_sources(obs: Observation, sim_config: dict) -> None:
         # Raw, straight from the configuration: these are precisely the settings
         # the replay does not read, so they are reported as written rather than
         # validated first. A malformed leftover here must not stop a run that will
-        # never look at it.
+        # never look at it — which is also why every field is reported rather than
+        # the set ones: deciding which those are means truth-testing a value of
+        # whatever type the configuration happened to hold, and `if value` on a
+        # NumPy array of IDs, a shape this run accepts everywhere else, raises.
         overridden = [
             f"{name}={value!r}"
             for name, value in (
@@ -577,7 +580,6 @@ def add_tle_satellite_sources(obs: Observation, sim_config: dict) -> None:
                 ("max_ang_sep", sat_.get("max_ang_sep")),
                 ("min_alt", sat_.get("min_alt")),
             )
-            if value
         ]
         print()
         print(
@@ -586,8 +588,7 @@ def add_tle_satellite_sources(obs: Observation, sim_config: dict) -> None:
         )
         print(
             "  the saved NORAD IDs and records are authoritative; this run's own "
-            "satellite selection is overridden"
-            + (f" ({', '.join(overridden)})" if overridden else "")
+            f"satellite selection is overridden ({', '.join(overridden)})"
         )
     elif not (orbit_config.norad_ids or orbit_config.sat_names):
         return
