@@ -28,7 +28,7 @@ from satchecker_client import client
 from satchecker_client.client import SEARCH_COLUMNS
 from satchecker_client.records import KIND_FIELD, KIND_OMM, KIND_TLE
 from satchecker_client.tle_parse import parse_tle_elements, tle_checksum
-from satchecker_client._time import datetime_to_jd, jd_to_datetime
+from satchecker_client import datetime_to_jd, jd_to_datetime
 
 
 def jd(year, month, day, hour=0, minute=0, second=0) -> float:

@@ -116,7 +116,7 @@ from satchecker_client.records import (  # noqa: E402
     validate_record,  # noqa: F401  re-export
     validated_record,
 )
-from satchecker_client._time import jd_to_datetime  # noqa: E402
+from satchecker_client import jd_to_datetime  # noqa: E402
 from tabsim.orbit_config import (  # noqa: E402,F401  re-exported for callers
     DEFAULT_CACHE_REUSE_MAX_AGE_DAYS,
     DEFAULT_REMOTE_MAX_AGE_DAYS,
