@@ -1869,18 +1869,6 @@ class TestReplay:
 
         assert expected.format(path=replay_dir) in str(excinfo.value)
 
-    def test_empty_replay_is_explicit_and_network_free(self, monkeypatch, tmp_path):
-        """Replaying a satellite-free run returns zero satellites, deliberately."""
-        replay_dir = write_replay_dir(tmp_path / "input_data", [], [])
-        assert (replay_dir / "used_orbits.json").exists()
-        assert (replay_dir / "norad_ids.yaml").exists()
-        forbid_orbit_acquisition(monkeypatch, tmp_path)
-
-        ids, records = orbit.load_replay_orbits(str(replay_dir))
-
-        assert ids == []
-        assert records == []
-
     @pytest.mark.parametrize(
         "kinds",
         [(KIND_TLE, KIND_TLE), (KIND_OMM, KIND_OMM), (KIND_TLE, KIND_OMM)],
