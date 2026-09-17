@@ -22,12 +22,15 @@ dependencies = [
     "jax", "dask", "xarray", "zarr<3.0.0",
     "dask-ms>=0.2.21", "scipy", "tqdm", "matplotlib",
     "astropy", "skyfield", "sgp4", "platformdirs", "numpy", "pyyaml", "pandas",
-    # Pinned to the satchecker-client commit that carries strict_response,
-    # validated_record, read_orbit_file and the public Julian-date conversions
-    # (PR epfl-radio-astro/satchecker-client#4). To be replaced with
-    # "satchecker-client>=0.2.0,<0.3" once 0.2.0 is released and the packaged
-    # install is checked; nothing older can run this module.
-    "satchecker-client @ git+https://github.com/epfl-radio-astro/satchecker-client.git@06dcbf5cff5ce581bf694d689bfe08de358c5e72",
+    # Pinned to the satchecker-client commit that carries the resolver and replay
+    # API tabsim.orbit is an adapter over — resolve_orbits, read_extra_orbit_dir,
+    # save_orbits_for_reuse, save_replay_orbits, load_replay_orbits and the
+    # OrbitResolution result types (PR epfl-radio-astro/satchecker-client#5) — on
+    # top of the strict_response, validated_record, read_orbit_file and public
+    # Julian-date conversions of PR #4. To be replaced with a released
+    # "satchecker-client>=<version>,<0.3" once a release contains *both* PRs and
+    # the packaged install is checked; nothing older can run this module.
+    "satchecker-client @ git+https://github.com/epfl-radio-astro/satchecker-client.git@bb7027042b6ed6f5f76049201335d3cdc1dd1c06",
 ]
 
 [project.optional-dependencies]

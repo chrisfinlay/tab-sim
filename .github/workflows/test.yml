@@ -59,6 +59,28 @@ jobs:
           python -m pip install --upgrade pip
           pip install --no-cache-dir .[test]
 
+      # tabsim.orbit is an adapter: the selection, acquisition and replay
+      # machinery is the client's, and a client without those public names
+      # installs cleanly and then fails at the first simulation. Checked against
+      # what the project metadata actually installed — an editable sibling
+      # checkout or an older release would hide exactly this.
+      - name: Confirm the installed client carries the adopted API
+        run: |
+          python -c "
+          import satchecker_client as sc
+          required = [
+              'resolve_orbits', 'read_extra_orbit_dir', 'OrbitResolution',
+              'ResolvedOrbit', 'RejectedOrbit', 'EndpointAttempt',
+              'ResolutionEvent', 'OrbitInputError', 'save_orbits_for_reuse',
+              'save_replay_orbits', 'load_replay_orbits', 'REPLAY_IDS_FILE',
+              'REPLAY_RECORDS_FILE', 'nearest_endpoints_for', 'TextOrbitCache',
+          ]
+          missing = [name for name in required if not hasattr(sc, name)]
+          assert not missing, f'installed satchecker-client lacks {missing}'
+          print('satchecker_client', sc.__version__, 'from', sc.__file__)
+          "
+          python -m pip show satchecker-client
+
       # Orbital records come from IAU CPS SatChecker, which needs no credentials,
       # so there is nothing to restore here any more.
       - name: Run tests
