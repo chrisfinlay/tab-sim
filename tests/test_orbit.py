@@ -59,6 +59,7 @@ from orbit_helpers import (
     omm_record_from_tle,
     record_at,
     search_frame,
+    search_payload,
     search_row,
     serve_raw_search,
     serve_search,
@@ -370,6 +371,36 @@ class TestSourcePrecedence:
         assert resolution.complete
         assert resolution.resolved[ISS_NORAD_ID].source.endswith("cache")
 
+    def test_closer_cached_record_survives_a_worse_refresh(
+        self, monkeypatch, isolated_cache
+    ):
+        """A successful response further from the observation must not displace it.
+
+        The rule is strictly fresher, not most recently seen. A service that
+        answers a refresh with a record further away than the cached one would
+        otherwise quietly make the simulation worse than it already was, and the
+        log would report a successful fetch.
+        """
+        epoch_jd = ISS_EPOCH_JD + 2.0
+        TextOrbitCache(isolated_cache).store(
+            ISS_NORAD_ID, pd.DataFrame([tle_record_at(ISS_NORAD_ID, epoch_jd - 0.5)])
+        )
+        calls = stub_service(
+            monkeypatch, {ISS_NORAD_ID: tle_record_at(ISS_NORAD_ID, epoch_jd - 2.0)}
+        )
+
+        resolution = orbit.resolve_orbits(
+            [ISS_NORAD_ID],
+            epoch_jd,
+            remote_max_age_days=3.0,
+            cache_reuse_max_age_days=0.1,
+        )
+
+        assert calls, "a cached record outside the reuse threshold still gets asked"
+        entry = resolution.resolved[ISS_NORAD_ID]
+        assert entry.source.endswith("cache")
+        assert entry.age_days == pytest.approx(0.5, abs=1e-3)
+
     def test_service_response_is_cached_for_later_runs(
         self, monkeypatch, isolated_cache
     ):
@@ -579,6 +610,35 @@ class TestCoverage:
 
         with pytest.raises(orbit.OrbitError) as excinfo:
             select_visible(monkeypatch, visible=None, **kwargs)
+
+        message = str(excinfo.value)
+        assert str(norad_id) in message
+        assert "SatChecker could not answer" in message
+
+    def test_http_200_error_envelope_is_an_outage_not_an_absent_satellite(
+        self, monkeypatch
+    ):
+        """Through the real endpoint wrappers: an error envelope is not an empty reply.
+
+        SatChecker has been observed reporting its own failures with HTTP 200 and
+        an ``error`` field, which the lenient reading normalises to an empty frame
+        — so the named route would exclude the satellite and the run would finish
+        without it. Every other test here stubs ``fetch_nearest_tle`` itself and
+        records the ``strict_response`` argument; this one goes through the real
+        wrapper from the transport up, so what is under test is that the opt-in
+        reaches the parser and changes the answer.
+        """
+        norad_id = 7002
+
+        def fake_get(url, timeout=None):
+            if "search-satellites" in url:
+                return search_payload([search_row(norad_id, "THING ONE")])
+            return json.dumps({"error": "service unavailable"}).encode()
+
+        monkeypatch.setattr(client, "_http_get", fake_get)
+
+        with pytest.raises(orbit.OrbitError) as excinfo:
+            select_visible(monkeypatch, names=["thing"], visible=None)
 
         message = str(excinfo.value)
         assert str(norad_id) in message
@@ -1247,6 +1307,59 @@ class TestNameDiscovery:
         assert str(len(rows)) in messages      # how many rows it holds
         assert str(error) in messages          # and why the refresh failed
 
+    def test_zero_search_freshness_refreshes_every_online_lookup(
+        self, monkeypatch, isolated_cache
+    ):
+        """``search_cache_max_age_days: 0`` refreshes, however new the snapshot is.
+
+        Not "reuse anything younger than zero days", which a snapshot fetched this
+        instant satisfies: the setting exists to say *always ask*, and the run has
+        to use what comes back.
+        """
+        from tabsim import satchecker_names
+
+        cache = TextOrbitCache(isolated_cache)
+        cache.store_search(
+            "THING",
+            search_frame([search_row(3001, "THING A")]),
+            fetched_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        monkeypatch.setattr(
+            satchecker_names, "_utc_now", lambda: datetime(2026, 1, 1, tzinfo=UTC)
+        )
+        calls = serve_search(monkeypatch, {"THING": [search_row(3002, "THING B")]})
+
+        ids = orbit.resolve_names(
+            ["thing"], ISS_EPOCH_JD, search_cache_max_age_days=0, log=lambda *_: None
+        )
+
+        assert ids == [3002]
+        assert len(calls) == 1
+        assert sorted(cache.get_search("THING").found["NORAD_CAT_ID"]) == [3002]
+
+    def test_null_search_freshness_reuses_a_snapshot_indefinitely(
+        self, monkeypatch, isolated_cache
+    ):
+        """``null`` is the opt-out from refreshing at all, at any age."""
+        from tabsim import satchecker_names
+
+        TextOrbitCache(isolated_cache).store_search(
+            "THING",
+            search_frame([search_row(3001, "THING A")]),
+            fetched_at=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        monkeypatch.setattr(
+            satchecker_names, "_utc_now", lambda: datetime(2026, 1, 1, tzinfo=UTC)
+        )
+        forbid_search(monkeypatch)  # six years old, and still no request
+
+        assert orbit.resolve_names(
+            ["thing"],
+            ISS_EPOCH_JD,
+            search_cache_max_age_days=None,
+            log=lambda *_: None,
+        ) == [3001]
+
     @pytest.mark.parametrize(
         "error",
         [
@@ -1489,6 +1602,59 @@ class TestChecksumPolicy:
         assert resolution.complete
         accepted = resolution.resolved[norad_id].record
         assert accepted[CHECKSUM_STATUS_FIELD] == STATUS_UNVERIFIED
+
+    @pytest.mark.parametrize("allow", [False, True])
+    def test_unverified_provenance_survives_valid_lines_from_a_file(
+        self, monkeypatch, tmp_path, allow
+    ):
+        """A record marked unverified stays unverified however well its lines parse.
+
+        This is the laundering case, and the only one where provenance is doing
+        work no current evidence could: these lines carry correct checksum digits,
+        so every check passes on what the record holds *now*. What it says is that
+        nothing ever verified the digits its source omitted, which saving and
+        re-reading cannot change.
+        """
+        norad_id = 7301
+        record = tle_record_at(norad_id, ISS_EPOCH_JD)
+        record[CHECKSUM_STATUS_FIELD] = STATUS_UNVERIFIED
+        stub_service(monkeypatch, {})
+        pd.DataFrame([record]).to_json(tmp_path / "mine.json")
+
+        resolution = orbit.resolve_orbits(
+            [norad_id],
+            ISS_EPOCH_JD,
+            extra_orbit_dir=str(tmp_path),
+            allow_missing_checksum=allow,
+        )
+
+        if not allow:
+            assert not resolution.complete
+            return
+        assert (
+            resolution.resolved[norad_id].record[CHECKSUM_STATUS_FIELD]
+            == STATUS_UNVERIFIED
+        )
+
+    @pytest.mark.parametrize("allow", [False, True])
+    def test_unverified_provenance_survives_valid_lines_through_replay(
+        self, monkeypatch, tmp_path, allow
+    ):
+        """...and through the replay reader, which sees only what was written."""
+        norad_id = 7302
+        record = tle_record_at(norad_id, ISS_EPOCH_JD)
+        record[CHECKSUM_STATUS_FIELD] = STATUS_UNVERIFIED
+        replay_dir = write_replay_dir(tmp_path / "input_data", [norad_id], [record])
+        forbid_every_orbit_source(monkeypatch, tmp_path)
+
+        if not allow:
+            with pytest.raises(orbit.OrbitError, match="allow_missing_checksum"):
+                orbit.load_replay_orbits(str(replay_dir))
+            return
+        _, records = orbit.load_replay_orbits(
+            str(replay_dir), allow_missing_checksum=True
+        )
+        assert records[0][CHECKSUM_STATUS_FIELD] == STATUS_UNVERIFIED
 
     def test_verified_records_say_so(self, monkeypatch):
         """The status is recorded for good records too, not only for bad ones.
