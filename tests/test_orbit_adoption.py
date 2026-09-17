@@ -1620,3 +1620,31 @@ def test_resolver_cache_writes_canonical_verified_records(monkeypatch, isolated_
     assert row["RECORD_KIND"] == "tle"
     assert row[CHECKSUM_STATUS_FIELD] == STATUS_VERIFIED
     assert row["TLE_LINE1"] == served["TLE_LINE1"]
+
+
+# ---------------------------------------------------------------------------
+# What is installed
+# ---------------------------------------------------------------------------
+
+def test_satchecker_dependency_pins_resolver_head():
+    """The checkout's own metadata, not the installed package's neighbour.
+
+    Under a non-editable install — which is how CI runs — there is no
+    ``pyproject.toml`` beside the module, and the pin is the only thing that
+    says which client the suite is describing.
+    """
+    root = Path(__file__).resolve().parents[1]
+    pyproject = (root / "pyproject.toml").read_text()
+
+    assert PINNED_REQUIREMENT in pyproject
+    assert SUPERSEDED_CLIENT_SHA not in pyproject
+
+    workflow = (root / ".github" / "workflows" / "test.yml").read_text()
+    installs = [line for line in workflow.splitlines() if "pip install" in line]
+    assert any(".[test]" in line for line in installs), installs
+    # Nothing may install the client another way: an editable sibling checkout
+    # or an older release would hide a public API the pin is there to require.
+    assert not any(
+        "satchecker" in line or "-e " in line or "--editable" in line
+        for line in installs
+    ), installs
