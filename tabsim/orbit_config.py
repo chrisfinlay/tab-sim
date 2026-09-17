@@ -39,9 +39,7 @@ from satchecker_client import SatCheckerError as TLEError
 from satchecker_client.records import norad_id_of
 
 
-# ---------------------------------------------------------------------------
 # Defaults
-# ---------------------------------------------------------------------------
 
 #: Hard ceiling on the age of an orbital record accepted from SatChecker or its
 #: managed cache. An emergency backstop against obviously unsuitable remote
@@ -83,9 +81,7 @@ class TLEConfigurationError(TLEError, ValueError):
     """
 
 
-# ---------------------------------------------------------------------------
 # Scalar validation
-# ---------------------------------------------------------------------------
 
 def _as_finite_float(value, name: str) -> float:
     """Coerce *value* to a finite float or raise :class:`TLEConfigurationError`."""
@@ -143,9 +139,7 @@ def reject_obsolete_keys(satellites: dict) -> None:
             raise TLEConfigurationError(migration)
 
 
-# ---------------------------------------------------------------------------
 # NORAD ID validation
-# ---------------------------------------------------------------------------
 
 def _as_norad_id(value, where: str) -> int:
     """Coerce one entry to a positive integral NORAD catalogue ID, exactly.
@@ -230,9 +224,7 @@ def read_norad_ids_file(path) -> list[int]:
     return out
 
 
-# ---------------------------------------------------------------------------
 # Normalised configuration
-# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class OrbitConfig:

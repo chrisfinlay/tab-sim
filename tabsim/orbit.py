@@ -33,8 +33,8 @@ Each source offers the candidate nearest the observation epoch *that this run ca
 use*, so a record the checksum policy refuses is not a candidate: it neither
 displaces a usable one nor provokes a request. ``allow_missing_checksum`` governs
 only a line that arrived without its checksum digit — a present but wrong one is
-always refused — identically on every route. Every accepted record carries
-:data:`CHECKSUM_STATUS_FIELD` for life, and the ones accepted *unverified* that
+always refused — identically on every route. Every accepted TLE record carries
+:data:`CHECKSUM_STATUS_FIELD` for life (an OMM has no checksum to make a claim about), and the ones accepted *unverified* that
 way stay out of the shared cache other applications read; verified records are
 cached as usual.
 
