@@ -1269,9 +1269,15 @@ def _replay_error(error: OrbitInputError, allow_missing_checksum: bool) -> Orbit
     record-level refusal under this run's strict policy gets that sentence: the
     original run had to opt in to accept those lines, and the replay has to say
     so again.
+
+    Which refusals those are is the client's ``code``, not the fact that a
+    satellite is named: a duplicated ID line and a listed satellite with no saved
+    record both name one, and no checksum policy repairs either. Offering the
+    opt-in there sends a user to a setting that cannot change the outcome and
+    reads as though the run were refusing something it is willing to accept.
     """
     lines = [str(error)]
-    if error.norad_id is not None and not allow_missing_checksum:
+    if error.code == INPUT_CHECKSUM_POLICY and not allow_missing_checksum:
         lines.append(
             "If the original run accepted TLE lines without their checksum "
             "digits, the replay has to say so too — set "

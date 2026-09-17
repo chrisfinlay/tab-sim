@@ -1559,6 +1559,83 @@ def test_replay_loader_delegates_and_keeps_tabsim_messages(monkeypatch, capsys):
     assert str(missing) in str(raised.value)
 
 
+def write_replay_pair(directory, norad_ids, records) -> Path:
+    """The two replay files, written exactly as given.
+
+    Deliberately not through the pair writer: these cases are about what the
+    *loader* says when a saved selection does not hold together, and the writer
+    exists to refuse producing some of them.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    write_orbit_json(directory / "used_orbits.json", records)
+    (directory / "norad_ids.yaml").write_text(
+        "".join(f"{int(norad_id)}\n" for norad_id in norad_ids)
+    )
+    return directory
+
+
+def replay_refusal_cases():
+    """``case -> (saved IDs, saved records, is the checksum opt-in the remedy?)``.
+
+    Every case names a satellite, which is exactly why the satellite cannot be
+    the evidence: a duplicated ID line and a listed satellite with no record are
+    failures of the saved *selection*, and no checksum policy repairs either.
+    """
+    unverified = canonical(tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD))
+    unverified[CHECKSUM_STATUS_FIELD] = STATUS_UNVERIFIED
+    corrupt = canonical(tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD))
+    corrupt["TLE_LINE1"] = corrupt_checksum(corrupt["TLE_LINE1"])
+    intact = canonical(tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD))
+    return {
+        "duplicate_id_line": ([ISS_NORAD_ID, ISS_NORAD_ID], [intact], False),
+        "listed_id_with_no_record": ([ISS_NORAD_ID, GPS_NORAD_ID], [intact], False),
+        "unverified_record": ([ISS_NORAD_ID], [unverified], True),
+        "corrupt_checksum": ([ISS_NORAD_ID], [corrupt], False),
+    }
+
+
+REPLAY_REFUSAL_CASES = replay_refusal_cases()
+
+
+@pytest.mark.parametrize("case", list(REPLAY_REFUSAL_CASES))
+def test_the_checksum_remedy_is_offered_only_where_it_is_one(
+    case, monkeypatch, tmp_path
+):
+    """The opt-in is suggested for the refusal it lifts, and for no other.
+
+    tabsim's own sentence is the only thing the client's message cannot supply,
+    and it is worth nothing unless it is true: telling a user to enable
+    ``--allow-missing-checksum`` for a duplicated ID line sends them to a
+    setting that cannot change the outcome, and reads as though the run were
+    refusing something it is willing to accept.
+    """
+    norad_ids, records, remediable = REPLAY_REFUSAL_CASES[case]
+    forbid_replay_fallbacks(monkeypatch)
+    directory = write_replay_pair(tmp_path / "input_data", norad_ids, records)
+
+    with pytest.raises(orbit.OrbitError) as raised:
+        orbit.load_replay_orbits(directory)
+    message = str(raised.value)
+
+    assert str(directory) in message  # the file it stopped on, whichever it is
+    remedy = "rfi_sources.tle_satellite.allow_missing_checksum: true"
+    assert (remedy in message) is remediable
+    assert ("--allow-missing-checksum" in message) is remediable
+
+    if remediable:
+        # ...and it really is the remedy: the same files load with it set.
+        loaded_ids, loaded = orbit.load_replay_orbits(
+            directory, allow_missing_checksum=True
+        )
+        assert loaded_ids == norad_ids
+        assert loaded[0][CHECKSUM_STATUS_FIELD] == STATUS_UNVERIFIED
+    else:
+        # A permissive run fails the same way, so the remedy would have been a
+        # suggestion to re-run and get the identical error.
+        with pytest.raises(orbit.OrbitError):
+            orbit.load_replay_orbits(directory, allow_missing_checksum=True)
+
+
 class SavedObservation:
     """The little of ``Observation`` that ``tabsim.config.save_inputs`` reads."""
 
