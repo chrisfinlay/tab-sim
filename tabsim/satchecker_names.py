@@ -1,40 +1,33 @@
 """Satellite-name discovery: which satellites a configured name selects.
 
 tabsim lets an observation name its RFI satellites (``sat_names``) instead of
-listing catalogue numbers, which TABASCAL does not — so this module exists, and
-holds the *application policy* around the catalogue search:
+listing catalogue numbers, so this module holds the *application policy* around
+the catalogue search: how a configured name becomes a query (stripped,
+upper-cased, de-duplicated); how long a cached result may be reused, in
+wall-clock time; what happens when the search cannot be run, offline or through
+a failed refresh; which matched satellites were in orbit at the **observation**
+epoch; and what the whole thing cost, in satellites rather than catalogue rows.
 
-- how a configured name becomes a query (stripped, upper-cased, de-duplicated);
-- how long a cached search result may be reused, in wall-clock time;
-- what happens when the search cannot be run: offline, or a failed refresh;
-- which of the matched satellites were in orbit at the **observation** epoch;
-- what the whole thing cost, reported in satellites rather than catalogue rows.
-
-The transport, the response envelope and the epoch arithmetic are the client's:
-:func:`satchecker_client.search_satellites`,
-:meth:`~satchecker_client.TextOrbitCache.get_search` /
-:meth:`~satchecker_client.TextOrbitCache.store_search` and
-:func:`~satchecker_client.in_orbit_candidates`. Nothing here parses a reply or
-builds a URL — a private copy of the client's transport is exactly how a
-malformed response used to become "no satellite matches this name".
+The transport, the response envelope and the epoch arithmetic are the client's.
+Nothing here parses a reply or builds a URL — a private copy of the client's
+transport is exactly how a malformed response used to become "no satellite
+matches this name".
 
 **Matching semantics.** ``search-satellites`` matches the query *anywhere* in a
 catalogue name, so ``"navstar"`` finds all the ``NAVSTAR nn (USA nnn)`` entries
-and ``"starlink"`` finds every Starlink. That is what Space-Track's
-``op.like(name)`` did — its ``~~`` operator wraps the pattern in wildcards — so
+and ``"starlink"`` every Starlink — what Space-Track's ``op.like(name)`` did, so
 configurations written against the old backend keep selecting the same
 satellites. The match is **case-sensitive** against a catalogue written almost
-entirely in upper case, so the query is upper-cased before it goes out, as tabsim
-always did for Space-Track (``op.like(name.upper())``). Two edges survive that
-and are the service's, not ours: a handful of catalogue names are mixed case
-(``DMSat-1``), which no single spelling of a query reaches; and ``%`` and ``_``
+entirely in upper case, so the query is upper-cased before it goes out. Two
+edges are the service's, not ours: a handful of catalogue names are mixed case
+(``DMSat-1``), which no single spelling of a query reaches, and ``%`` and ``_``
 are SQL ``LIKE`` wildcards, unescaped.
 
 **Which satellites existed is a question about the observation's date**, not
 about today. A satellite that decayed between a 2019 observation and now belongs
 in that simulation, and one launched since does not, so the epoch filter runs per
-observation against the full cached search result — never against a result
-already reduced to some other epoch's candidates.
+observation against the full cached search result — never against one already
+reduced to some other epoch's candidates.
 """
 
 from __future__ import annotations
@@ -56,9 +49,8 @@ from tabsim.orbit_config import (
 
 
 #: Above this many satellites a name query is worth a warning before the requests
-#: go out. SatChecker's nearest-record endpoints are per-satellite, so a broad
-#: name — "starlink" matches over twenty thousand objects — turns into that many
-#: requests and that many propagations.
+#: go out: the nearest-record endpoints are per-satellite, so a broad name —
+#: "starlink" matches over twenty thousand objects — is that many requests.
 WIDE_NAME_MATCH_THRESHOLD = 500
 
 #: How many IDs a report lists before it summarises instead. The full listing is
@@ -69,8 +61,8 @@ _LIST_LIMIT = 12
 def _utc_now() -> datetime:
     """Now, as a timezone-aware UTC datetime.
 
-    A seam, deliberately: search freshness is measured against wall-clock time,
-    so this is the one thing a freshness test has to be able to freeze.
+    A deliberate seam: search freshness is measured against wall-clock time, so
+    this is the one thing a freshness test has to be able to freeze.
     """
     return datetime.now(timezone.utc)
 
@@ -121,17 +113,15 @@ def search_satellites(
 
     The **full** result is what is cached and what comes back: every alias row,
     with its launch and decay dates. Those rows are the evidence the epoch filter
-    works from, and one observation's candidate list cannot answer another
-    observation's question — so a snapshot reduced to IDs would be useless to the
-    next run and misleading to this one.
+    works from, so a snapshot reduced to one observation's IDs would be useless
+    to the next run and misleading to this one.
 
     Reuse policy, in order:
 
-    - ``offline``: a snapshot is reused whatever its age, and no request is made.
+    - ``offline``: a snapshot is reused whatever its age and no request is made.
       Without one, that is a missing-local-state failure and says so — it is not
       a statement about the catalogue.
-    - ``max_age_days`` is ``None``: reuse indefinitely.
-    - within ``max_age_days``: reuse.
+    - ``max_age_days`` ``None``: reuse indefinitely. Within it: reuse.
     - otherwise refresh, **replacing** the snapshot. A satellite absent from the
       new result is absent from the catalogue as it stands; keeping it because an
       older search saw it would resurrect exactly the rows the refresh was for.
@@ -140,8 +130,7 @@ def search_satellites(
     included, which is a valid answer — with a warning carrying the query, when
     it was fetched, how old that makes it, how many rows it holds and why the
     refresh failed. With nothing cached the failure is raised: reporting it as an
-    unmatched name would drop every satellite the query selects and blame the
-    configuration for it.
+    unmatched name would drop every satellite the query selects.
     """
     query = str(query).strip().upper()
     cache = TextOrbitCache(orbit_cache_dir()) if cache is None else cache
@@ -234,15 +223,15 @@ def norad_ids_from_names(
 ) -> list[int]:
     """NORAD IDs the configured *names* select at *obs_epoch_jd*.
 
-    Every distinct query's full result is collected and the rows are combined
+    Every distinct query's full result is collected and the rows combined
     *before* the epoch filter and the per-ID de-duplication. That order matters:
     a null or later launch date on one alias row means that row does not say, not
     that the satellite had not launched, so reading the dates off whichever row
-    survived a de-duplication rules out satellites the catalogue never ruled out.
+    survived de-duplication rules out satellites the catalogue never ruled out.
 
-    Distinct catalogue numbers are preserved even when two of them share an
-    ``OBJECT_ID``. Nothing in the response says which is current, so the ambiguity
-    is reported and both are kept rather than guessing an identity merge.
+    Distinct catalogue numbers are kept even when two share an ``OBJECT_ID``:
+    nothing says which is current, so the ambiguity is reported rather than
+    guessing an identity merge.
     """
     queries = list(
         dict.fromkeys(
@@ -337,16 +326,14 @@ def norad_ids_from_names(
 def _warn_shared_designators(combined: pd.DataFrame, selected: set, log) -> None:
     """Report *candidate* satellites that share an international designator.
 
-    One object can be listed under two NORAD IDs — a reassigned catalogue number —
-    with the same name and ``OBJECT_ID`` on each, and nothing in the response says
-    which is current. Guessing a merge would silently drop a satellite, so both
-    are kept and the ambiguity is named.
+    One object can be listed under two NORAD IDs — a reassigned catalogue number
+    — with nothing in the response saying which is current, so both are kept and
+    the ambiguity is named rather than guessing a merge.
 
     This runs at discovery, before any record is acquired, so it can only speak
-    about candidates: either number may still turn out to have no acceptable
-    record and be excluded — or to fail the visibility cuts, to have no spectral
-    model, or to fall outside ``max_n_sat``. Promising here that both will be
-    modelled, or one per number that resolves, describes a selection that has not
+    of candidates: either number may still have no acceptable record, fail the
+    visibility cuts, have no spectral model, or fall outside ``max_n_sat``.
+    Promising here that both will be modelled describes a selection that has not
     happened yet.
     """
     designators: dict[str, set[int]] = {}
