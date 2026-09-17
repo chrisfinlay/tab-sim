@@ -799,14 +799,15 @@ def _gap_sentence(gap: _Gap) -> str:
 
 def _blocked_detail(gap: _Gap) -> str:
     """The outage that stopped acquisition, named with the archive it stopped at."""
+    pending = ", ".join(gap.pending)
     if gap.error is None:
         return (
-            f"{list(gap.pending)} was never asked and nothing recorded why, so "
-            "whether SatChecker has a record for it is unknown"
+            f"{pending} was never asked and nothing recorded why, so whether "
+            "SatChecker has a record for this satellite is unknown"
         )
     return (
-        f"acquisition stopped at {gap.endpoint} before {list(gap.pending)} could "
-        f"be asked — {gap.error}"
+        f"acquisition stopped at {gap.endpoint} before {pending} could be asked "
+        f"— {gap.error}"
     )
 
 
