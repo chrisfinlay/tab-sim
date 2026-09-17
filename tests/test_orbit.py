@@ -268,11 +268,10 @@ class TestSourcePrecedence:
     def test_an_unusable_extra_orbit_file_stops_the_run_naming_it(
         self, tmp_path, monkeypatch, damage, expected
     ):
-        """An explicit source we cannot read must name its path, not fall through.
+        """An explicit source we cannot read must name its file, not fall through.
 
         Coercing an identity before validating it dropped the row silently and
-        substituted the service record the file existed to replace; the last case
-        damages a row nobody asked for, which a wanted-ID filter would swallow.
+        substituted the service record the file existed to replace.
         """
         if damage == "broken-json":
             (tmp_path / "used_orbits.json").write_text(
@@ -285,6 +284,8 @@ class TestSourcePrecedence:
             record["NORAD_CAT_ID"] = 25544.5  # ...under something that is not an ID
             pd.DataFrame([record]).to_json(tmp_path / "mine.json")
         else:
+            # The damage is on a row nobody asked for: a wanted-ID filter
+            # applied before validation would swallow it.
             write_orbit_json(
                 tmp_path / "two.json",
                 [
@@ -299,14 +300,19 @@ class TestSourcePrecedence:
         monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
         monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
 
-        with pytest.raises(orbit.OrbitError) as excinfo:
-            orbit.resolve_orbits(
+        # Both ways into the reader: named directly, and named as a run's source.
+        entry_points = (
+            lambda: orbit.read_extra_orbit_dir(tmp_path),
+            lambda: orbit.resolve_orbits(
                 [ISS_NORAD_ID], ISS_EPOCH_JD, extra_orbit_dir=str(tmp_path)
-            )
-
-        message = str(excinfo.value)
-        for fragment in expected:
-            assert fragment in message, fragment
+            ),
+        )
+        for entry_point in entry_points:
+            with pytest.raises(orbit.OrbitError) as excinfo:
+                entry_point()
+            message = str(excinfo.value)
+            for fragment in expected:
+                assert fragment in message, fragment
 
     def test_fresh_cache_avoids_the_request(self, monkeypatch, isolated_cache):
         TextOrbitCache(isolated_cache).store(
