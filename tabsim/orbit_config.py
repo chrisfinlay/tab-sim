@@ -34,7 +34,7 @@ import math
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from numbers import Integral, Real
+from numbers import Real
 from pathlib import Path
 from typing import Optional
 
@@ -168,6 +168,10 @@ def _as_norad_id(value, where: str) -> int:
     conversion and quietly selecting the ISS. A fractional, non-finite,
     non-positive or non-numeric value is a configuration error naming *where*.
     """
+    # bool is Integral and np.bool_ is finite and equal to 0 or 1, so both would
+    # pass an exactness check as satellite 1; neither is an identity.
+    if isinstance(value, (bool, np.bool_)):
+        raise TLEConfigurationError(f"{where}: {value!r} is not a NORAD catalogue ID")
     try:
         return norad_id_of({"NORAD_CAT_ID": value}, where)
     except ValueError as e:

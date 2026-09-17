@@ -2302,7 +2302,10 @@ class TestConfiguration:
 
     @pytest.mark.parametrize(
         "value",
-        [[1.5], [0], [-3], ["abc"], [None], "25544", ["25544.000000000001"]],
+        [
+            [1.5], [0], [-3], ["abc"], [None], "25544", ["25544.000000000001"],
+            [True], [np.bool_(True)], np.array([True, False]),
+        ],
     )
     def test_bad_norad_ids_are_rejected_before_the_resolver(self, value):
         # "25544.000000000001" is the case a float conversion gets wrong: it
