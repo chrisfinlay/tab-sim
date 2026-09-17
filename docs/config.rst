@@ -75,7 +75,8 @@ Sources, offline running and replay
    Directory of your own orbit tables (TLE or OMM JSON), consulted per NORAD ID
    ahead of the managed cache and SatChecker. Ordinary source precedence: the run
    still chooses its own satellites. Every ``*.json`` in it must be a readable
-   orbit table, or the run stops naming the file.
+   orbit table with a usable catalogue number on every row, or the run stops naming
+   the file.
 ``replay_orbit_dir``
    A previous run's ``input_data`` directory. Its ``norad_ids.yaml`` and
    ``used_orbits.json`` *are* the selection: no catalogue search, no cache, no
@@ -84,8 +85,10 @@ Sources, offline running and replay
 ``offline`` (default ``false``)
    Forbid every SatChecker request. Cached searches are reused whatever their age,
    with a warning; cached orbit records still have to satisfy
-   ``remote_max_age_days``. An uncached satellite stops the run saying the local
-   state is insufficient — never that SatChecker has no record for it.
+   ``remote_max_age_days``. A satellite with no acceptable local record — none held
+   at all, or one held only outside that ceiling — stops the run saying the local
+   state is insufficient. Neither case says anything about what SatChecker has:
+   nothing asked it.
 ``allow_missing_checksum`` (default ``false``)
    Accept TLE lines that reached us without their checksum digit (roughly
    2001–2018 in SatChecker's archive) and carry them as
