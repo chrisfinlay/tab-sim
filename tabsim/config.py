@@ -458,6 +458,12 @@ def add_astro_sources(obs: Observation, sim_config: dict) -> None:
         if "n_src" in ast_[key]["random"]:
             if ast_[key]["random"]["n_src"] > 0:
                 rand_ = ast_[key]["random"]
+                if not rand_["I_pow_law"] > 1:
+                    raise ValueError(
+                        f"ast_sources.{key}.random: I_pow_law = "
+                        f"{rand_['I_pow_law']!r} must be greater than 1. Source fluxes "
+                        "are distributed as dN/dI ~ I**-I_pow_law above min_I."
+                    )
                 n_beam = rand_["n_beam"]
                 max_beam = rand_["max_sep"] / 3600 / n_beam
                 beam_width = np.min([obs.syn_bw, max_beam])
@@ -474,6 +480,9 @@ def add_astro_sources(obs: Observation, sim_config: dict) -> None:
                         n_src=rand_["n_src"],
                         min_I=min_I,
                         max_I=max_I,
+                        I_power_law=rand_["I_pow_law"],
+                        spec_idx_mean=rand_["si_mean"],
+                        spec_idx_std=rand_["si_std"],
                         freqs=obs.freqs,
                         fov=fov,
                         beam_width=beam_width,

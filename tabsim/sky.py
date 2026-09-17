@@ -121,6 +121,14 @@ def random_power_law(
     def inv_cdf(x):
         return I_min * (1.0 - x) ** (1.0 / (1.0 - alpha))
 
+    # That is the inverse CDF of dN/dI ~ I**-alpha above `I_min`, which only exists
+    # for alpha > 1. For alpha < 1 it would silently give fluxes below `I_min`.
+    if not alpha > 1:
+        raise ValueError(
+            f"The power law index alpha = {alpha} must be greater than 1 for source "
+            "fluxes distributed as dN/dI ~ I**-alpha above a minimum flux."
+        )
+
     rng = np.random.default_rng(random_seed)
     rand_unif = rng.uniform(size=(n_src,))
     I = np.array(inv_cdf(rand_unif))
