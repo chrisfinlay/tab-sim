@@ -1084,19 +1084,34 @@ def resolve_orbits(
                     "continuing with acceptable cached records"
                 )
             # A refresh that failed for an ID that stays resolved is not fatal,
-            # but the run is then not quite the one that was asked for: it is
-            # modelled from an older record than the one it tried to get.
+            # but the run is then not quite the one that was asked for. Each ID is
+            # named with the source that did answer for it: these are not all
+            # cached incumbents — an ID whose first archive failed and whose second
+            # succeeded is bookkept here too, and saying it continued from the
+            # cache would describe a record the run never held.
             failed_refresh = [
                 nid for nid in to_fetch if nid in resolution.refresh_errors
             ]
             if failed_refresh:
+                shown = (
+                    failed_refresh
+                    if _detail_requested()
+                    else failed_refresh[:_GROUPED_LOG_THRESHOLD]
+                )
                 print(
-                    f"  warning: SatChecker could not be asked for a closer record "
-                    f"for {len(failed_refresh)} ID(s); continuing with the "
-                    f"acceptable cached record(s) already held: "
+                    f"  warning: a SatChecker request failed for "
+                    f"{len(failed_refresh)} ID(s) the run could still resolve; each "
+                    f"is listed with the source it is continuing from: "
                     + "; ".join(
-                        f"{nid} — {resolution.refresh_errors[nid]}"
-                        for nid in failed_refresh[:_GROUPED_LOG_THRESHOLD]
+                        f"{nid} — {resolution.refresh_errors[nid]} "
+                        f"(from {resolution.resolved[nid].source})"
+                        for nid in shown
+                    )
+                    + (
+                        ""
+                        if len(shown) == len(failed_refresh)
+                        else f"; and {len(failed_refresh) - len(shown)} more (set "
+                        f"{_LOG_DETAIL_ENV}=1 for the full list)"
                     )
                 )
         else:

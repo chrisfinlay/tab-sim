@@ -659,6 +659,70 @@ class TestCoverage:
         assert str(ISS_NORAD_ID) in out
         assert "cache" in out.lower()
 
+    def test_refresh_failure_names_the_source_that_answered(self, monkeypatch, capsys):
+        """The warning has to name the record the run actually continued with.
+
+        An ID rescued by the other archive is bookkept as a failed refresh, and
+        every one of those was reported as "continuing with the acceptable cached
+        record(s) already held" — with an empty cache and a record that had just
+        come back from SatChecker.
+        """
+
+        def failing_tle(norad_id, _epoch_jd, *, strict_response=False):
+            raise client.SatCheckerResponseError("unreadable reply", status=500)
+
+        def nearest_omm(norad_id, _epoch_jd, *, strict_response=False):
+            return pd.DataFrame([omm_record_from_tle()])
+
+        monkeypatch.setattr(client, "fetch_nearest_tle", failing_tle)
+        monkeypatch.setattr(client, "fetch_nearest_omm", nearest_omm)
+
+        resolution = orbit.resolve_orbits([ISS_NORAD_ID], ISS_EPOCH_JD)
+
+        assert resolution.complete
+        assert ISS_NORAD_ID in resolution.refresh_errors
+        out = capsys.readouterr().out
+        assert "nearest-OMM" in out
+        assert "cached record" not in out
+
+    def test_refresh_failure_detail_honours_the_log_switch(
+        self, monkeypatch, isolated_cache, capsys
+    ):
+        """``TABSIM_TLE_LOG_DETAIL=1`` has to reach the refresh summary too.
+
+        It sliced to the first twelve whatever the switch said, so the one thing
+        that exists to recover a full per-satellite listing could not recover
+        this one.
+        """
+        norad_ids = list(range(7500, 7513))  # thirteen: one over the grouping limit
+        cache = TextOrbitCache(isolated_cache)
+        for nid in norad_ids:
+            cache.store(nid, pd.DataFrame([tle_record_at(nid, ISS_EPOCH_JD)]))
+
+        def failing(norad_id, _epoch_jd, *, strict_response=False):
+            # Distinct statuses: a wall of one status is an outage, and the batch
+            # then stops early with fewer errors than there are satellites.
+            raise client.SatCheckerResponseError(
+                f"no answer for {int(norad_id)}", status=500 + int(norad_id) % 5
+            )
+
+        monkeypatch.setattr(client, "fetch_nearest_tle", failing)
+        monkeypatch.setattr(client, "fetch_nearest_omm", failing)
+        monkeypatch.setenv("TABSIM_TLE_LOG_DETAIL", "1")
+
+        resolution = orbit.resolve_orbits(
+            norad_ids,
+            ISS_EPOCH_JD + 2.0,
+            remote_max_age_days=3.0,
+            cache_reuse_max_age_days=1.0,
+        )
+
+        assert resolution.complete
+        out = capsys.readouterr().out
+        for nid in norad_ids:
+            # tabsim's own summary entry, not the client's per-request log line.
+            assert f"{nid} — no answer for {nid} (from " in out
+
     def test_fallback_success_clears_prior_failure(self, monkeypatch):
         """A per-ID failure from one archive is not a failure of the run."""
         record = omm_record_from_tle()
@@ -984,6 +1048,40 @@ class TestNameDiscovery:
         assert "OBJECT_ID" in messages
         assert "2024-100A" in messages
         assert "61608" in messages and "72115" in messages
+
+    def test_shared_designator_warning_is_about_candidates(self, monkeypatch, capsys):
+        """The warning is issued at discovery, so it can only speak of candidates.
+
+        Either number may still fail age coverage and be excluded, as one does
+        here. Saying then and there that both are kept as distinct satellites and
+        "if they are one object it is modelled twice" describes a resolution that
+        has not happened yet, and in this run does not happen.
+        """
+        rows = [
+            search_row(61608, "TWIN SAT", object_id="2024-100A"),
+            search_row(72115, "TWIN SAT", object_id="2024-100A"),
+        ]
+        serve_search(monkeypatch, {"TWIN": rows})
+        log_lines = []
+
+        ids = orbit.resolve_names(["twin"], ISS_EPOCH_JD, log=log_lines.append)
+        stub_service(
+            monkeypatch,
+            {
+                61608: tle_record_at(61608, ISS_EPOCH_JD),
+                72115: tle_record_at(72115, ISS_EPOCH_JD - 10.0),
+            },
+        )
+        orbit.report_named_coverage(
+            orbit.resolve_orbits(ids, ISS_EPOCH_JD, remote_max_age_days=3.0),
+            log=log_lines.append,
+        )
+
+        messages = _messages(log_lines, capsys)
+        assert "candidate NORAD catalogue ID" in messages
+        assert "both are kept as distinct satellites" not in messages
+        # ...and one of the two was in fact excluded.
+        assert "No acceptable record for named satellite 72115" in messages
 
     def test_search_snapshot_is_full_and_beside_orbit_files(
         self, monkeypatch, isolated_cache

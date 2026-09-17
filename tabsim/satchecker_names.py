@@ -335,13 +335,17 @@ def norad_ids_from_names(
 
 
 def _warn_shared_designators(combined: pd.DataFrame, selected: set, log) -> None:
-    """Report selected satellites that share an international designator.
+    """Report *candidate* satellites that share an international designator.
 
     One object can be listed under two NORAD IDs — a reassigned catalogue number —
     with the same name and ``OBJECT_ID`` on each, and nothing in the response says
     which is current. Guessing a merge would silently drop a satellite, so both
-    are kept and the ambiguity is named; if they really are one object, it is
-    modelled twice.
+    are kept and the ambiguity is named.
+
+    This runs at discovery, before any record is acquired, so it can only speak
+    about candidates: either number may still turn out to have no acceptable
+    record and be excluded. Promising here that both will be modelled describes a
+    resolution that has not happened yet.
     """
     designators: dict[str, set[int]] = {}
     for norad_id, object_id in zip(
@@ -360,7 +364,9 @@ def _warn_shared_designators(combined: pd.DataFrame, selected: set, log) -> None
     for object_id, ids in sorted(shared.items()):
         log(
             f"  warning: OBJECT_ID {object_id} is carried by more than one "
-            f"selected NORAD catalogue ID: {sorted(ids)}. Nothing in the catalogue "
-            "says which number is current, so both are kept as distinct "
-            "satellites; if they are one object it is modelled twice."
+            f"candidate NORAD catalogue ID: {sorted(ids)}. Nothing in the "
+            "catalogue says which number is current, so none of them is dropped. "
+            "Each that goes on to resolve to an acceptable record is a distinct "
+            "satellite in the simulation, so one object under two numbers is "
+            "simulated once per number that resolves."
         )
