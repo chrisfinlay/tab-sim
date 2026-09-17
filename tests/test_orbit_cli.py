@@ -52,11 +52,9 @@ def run_sim_vis_config(monkeypatch, config_path, *args, cwd=None):
 
 
 def test_the_console_entry_point_exits_zero_on_success(monkeypatch, tmp_path):
-    """``sys.exit(main())`` reads a returned tuple as failure.
+    """``sys.exit(main())`` turns any non-int return into exit status 1.
 
-    Any return that is not ``None`` or an int becomes exit status 1, so a successful
-    run reported failure to every shell that checked. The entry point is ``cli``,
-    which discards what ``main`` returns for Python callers.
+    So the entry point is ``cli``, which discards what ``main`` returns for callers.
     """
     config_path = write_sim_config(tmp_path / "sim.yaml", {"sat_names": ["navstar"]})
     run_sim_vis_config(monkeypatch, config_path)  # installs the capture stub
@@ -180,8 +178,7 @@ class TestPolicyFlags:
     ):
         """A replay must not even look at the ID-file setting it overrides.
 
-        ``norad_ids_path`` went through ``get_abs_path``, which raises on a value
-        that is not a path — so a leftover the run never reads stopped it.
+        ``norad_ids_path: 123`` would raise in ``get_abs_path``, which a replay skips.
         """
         conf, work = layout
         config_path = write_sim_config(
@@ -218,8 +215,7 @@ class TestPolicyFlags:
     ):
         """``-o`` is a boolean flag like the new ones, and omitting it says nothing.
 
-        Defaulting to ``False`` and assigning unconditionally turned
-        ``output.overwrite: true`` back off on every command line without ``-o``.
+        An unconditional ``False`` default would turn the config's ``true`` back off.
         """
         conf, work = layout
         config_path = write_sim_config(conf / "sim.yaml", output={"overwrite": True})
@@ -260,10 +256,7 @@ class TestHelpAndMigration:
         assert excinfo.value.code != 0
 
     def test_tle_region_forwards_the_orbit_policy(self, tmp_path, monkeypatch):
-        """``tle-region`` resolves records too, so the policy is forwarded rather
-        than re-defaulted: a region file drawn from records the simulation would
-        have refused is a region file for a different run.
-        """
+        """``tle-region`` resolves records too, so it forwards the policy unchanged."""
         tle_sat_region = import_tle_sat_region(monkeypatch)
 
         class Column:
@@ -336,11 +329,7 @@ def forbid_spacetrack_imports(monkeypatch):
 
 class TestCredentialFreeRuntime:
     def test_no_space_track_requirement_or_setup_command(self):
-        """The dependency and its credential-setup entry point are both gone.
-
-        A guard: losing it means a dependency CI cannot install and an unattended
-        run that asks for a password.
-        """
+        """The dependency and its credential-setup command are both gone. (A guard.)"""
         pyproject = (Path(__file__).parent.parent / "pyproject.toml").read_text()
 
         assert "spacetrack" not in pyproject.lower()
