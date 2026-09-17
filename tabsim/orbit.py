@@ -1,87 +1,49 @@
 """tabsim's orbit-record policy, executed by the shared SatChecker client.
 
-Records come from the IAU CPS SatChecker service via :mod:`satchecker_client` —
-no account or credentials are required. The machinery that *executes* a
-selection lives there: source precedence per satellite, nearest-epoch choice,
-cache reuse against a hard ceiling, endpoint fallback, telling an absent
-satellite from a failed request, and the replay projection. Both consuming
-applications wrote that twice, identically, and it is now one implementation
-with no policy in it.
+Records come from the IAU CPS SatChecker service via :mod:`satchecker_client`,
+which needs no credentials and which executes the selection. What stays here is
+the policy it has no view on — which sources, in what order, how old a record may
+be, whether an incomplete resolution is fatal, and every sentence a tabsim user
+reads — stated explicitly on one call to
+:func:`satchecker_client.resolve.resolve_orbits` and converted back into the
+public shape :mod:`tabsim.tle` and :mod:`tabsim.config` read. The service holds
+TLEs up to 2026-07-11 and OMM from 2026-07-12 in two non-overlapping archives;
+nothing here branches on which, since :mod:`satchecker_client.records` answers
+every format question.
 
-This module is the tabsim application over that machinery. What stays here is
-everything the client deliberately has no view on: which sources to consult and
-in what order, how old a record may be, whether an incomplete resolution is
-fatal, and every sentence a tabsim user reads about any of it. It states each
-rule explicitly on one call to
-:func:`satchecker_client.resolve.resolve_orbits`, turns the events that call
-reports into tabsim's own log, and converts the result into the public shape
-:mod:`tabsim.tle` and :mod:`tabsim.config` have always read.
+A frozen replay is outside the ordering entirely: :func:`load_replay_orbits`
+*replaces* the selection with a previous run's saved IDs and records, reading
+nothing else, and :func:`tabsim.config.add_tle_satellite_sources` selects it
+first. Otherwise sources are consulted **independently per NORAD ID**:
 
-SatChecker serves two record formats from two non-overlapping archives — TLEs up
-to 2026-07-11, OMM from 2026-07-12 — and a run near that boundary may need
-either. Nothing here branches on which: every format question is answered by
-:mod:`satchecker_client.records`, so the policy below works off an epoch and an
-opaque record.
+  1. ``extra_orbit_dir`` — the user's own files, read strictly (one that is not a
+     readable orbit table stops the run naming itself rather than falling through
+     to the service), accepted within ``extra_orbit_max_age_days`` (``None`` =
+     unlimited) and then final for that ID. The remote age policy never applies
+     to it, and this freezes nothing: it is ordinary per-ID precedence.
+  2. The per-satellite cache — within ``cache_reuse_max_age_days`` a usable
+     cached record avoids a request; older but within the hard ceiling
+     ``remote_max_age_days`` it is the offline fallback while SatChecker is asked
+     for something closer, and only a strictly fresher answer replaces it.
+  3. SatChecker — one exact-epoch lookup per remaining satellite against the
+     archive the epoch falls in, with the other as a fallback for an unusable
+     answer rather than a second opinion: selection is *not* globally nearest
+     across both. Valid responses are cached. ``offline`` skips this step without
+     relaxing the age ceiling.
 
-``replay_orbit_dir`` is not part of the ordering at all: a frozen replay
-(:func:`load_replay_orbits`) *replaces* the selection with a previous run's saved
-IDs and records, reading nothing else — no discovery, no cache, no network. It is
-selected before anything below, by :func:`tabsim.config.add_tle_satellite_sources`.
+Each source offers the candidate nearest the observation epoch *that this run can
+use*, so a record the checksum policy refuses is not a candidate: it neither
+displaces a usable one nor provokes a request. ``allow_missing_checksum`` governs
+only a line that arrived without its checksum digit — a present but wrong one is
+always refused — identically on every route, and accepted records carry
+:data:`CHECKSUM_STATUS_FIELD` for life and stay out of the shared cache that
+other applications read.
 
-For an ordinary run, source precedence is resolved **independently per NORAD ID**:
-
-  1. ``extra_orbit_dir`` — user-supplied local files, of either kind, read
-     strictly: a file that is not a readable orbit table stops the run naming
-     itself, rather than falling through to the service and quietly modelling
-     records the user said not to use. The record closest to the observation
-     epoch *that this run can use* is chosen (see below); it is accepted only if
-     within ``extra_orbit_max_age_days`` (``None`` = unlimited). An accepted
-     record wins outright — later sources are not consulted for that ID. This is
-     *your* data: the remote service's age policy never applies to it. Note that
-     this is ordinary per-ID precedence and freezes nothing: the run's own names,
-     ID list, visibility cuts and ``max_n_sat`` still choose the satellites.
-  2. Per-satellite cache — the usable cached record whose epoch is closest to the
-     observation. If it is within ``cache_reuse_max_age_days``, it avoids a
-     network request. An older record within the hard ceiling remains an offline
-     fallback while tabsim asks SatChecker for something closer.
-  3. SatChecker — exact-epoch lookups run with bounded concurrency for the
-     remaining IDs, against the archive the observation epoch falls in, with the
-     other archive as a fallback. Valid responses are merged into the per-NORAD
-     cache and may serve nearby observations later. ``offline`` skips this step
-     entirely without relaxing the age ceiling: offline is about what can be
-     reached, not about what an acceptable record is.
-
-**Which record, when several are held.** Each source offers the candidate nearest
-the observation epoch *that this run can use*: a record refused by the checksum
-policy is not a candidate, so it neither displaces a usable one nor provokes a
-request the configuration does not ask for. What is selected is still inside every
-ceiling the user set, and an offline run resolves from an acceptable record it holds
-rather than failing because a nearer row is unreadable.
-
-**Checksums.** A TLE line whose checksum is present and wrong is refused under
-every setting. ``allow_missing_checksum`` decides only what happens to a line that
-arrived without its checksum digit at all, as some of SatChecker's 2001–2018
-archive did, and it decides it the same way on every route — remote, local file
-and replay — because a default that rejected them remotely and accepted them from
-a file would advertise strictness whose workaround is to save the record once.
-Accepted ones carry :data:`CHECKSUM_STATUS_FIELD` for the rest of their lives and
-stay out of the shared cache, which other applications also read.
-
-**Coverage.** Every explicitly requested NORAD ID must end up with an accepted
-record, and :func:`require_complete_coverage` raises :class:`OrbitError` naming
-each failure and its remedies if one does not. Satellites named rather than
-numbered (``sat_names``) are a catalogue *query*, so an unrecognised name, a
-genuinely empty reply or a record rejected on age excludes that satellite with its
-reason — :func:`report_named_coverage`. What neither route tolerates is not
-*knowing*: an unresolved request, response or validation failure, an acquisition
-an outage stopped before every archive had answered, and running out of local
-state offline are fatal on both, through the same error. Reporting an outage as an
-absent satellite is how a SatChecker failure used to become a complete-looking
-observation with no satellite RFI in it.
-
-Ported from ``tabascal/orbit.py`` (epfl-radio-astro/tabascal#92), less the
-multi-process broadcast and the Measurement Set preflight, neither of which
-tabsim has: simulation is single-process and builds its own time grid.
+Coverage fails closed. Every numbered satellite must end up with a record
+(:func:`require_complete_coverage`); a *named* one may be excluded when the
+catalogue answered — nothing there, or a record too old — but never when tabsim
+could not find out (:func:`report_named_coverage`), and both routes raise the
+same error for that.
 """
 
 from __future__ import annotations
@@ -108,24 +70,22 @@ from satchecker_client import SatCheckerError as OrbitError
 #: Historical name, from when every record was a TLE.
 TLEError = OrbitError
 
-# The TLE parser lives in satchecker_client.tle_parse so cache validation and
-# element extraction exercise the *same* code; re-exported here under this
-# module's historical names.
+# The parser lives in the client so cache validation and element extraction
+# exercise the *same* code; re-exported under this module's historical names.
 from satchecker_client.tle_parse import (  # noqa: E402
     parse_tle_elements,  # noqa: F401  re-export
     tle_epoch_jd,  # noqa: F401  re-export
     validate_tle_pair,  # noqa: F401  re-export
 )
-# Format dispatch. Nothing here asks whether a record is a TLE or an OMM: the
-# checksum status is the one field this module reads off a record, and it means
-# the same thing on every route one can arrive by.
+# Nothing here asks whether a record is a TLE or an OMM: the checksum status is
+# the one field this module reads off a record.
 from satchecker_client.records import (  # noqa: E402
     CHECKSUM_STATUS_FIELD,
     CHECKSUM_UNVERIFIED_MISSING,
     validate_record,  # noqa: F401  re-export
 )
-# The client's stable vocabulary. Its codes are what the evidence below is read
-# in; the words a tabsim user sees are this module's, a few lines further down.
+# The client's stable vocabulary, in which the evidence below is read; the words
+# a tabsim user sees are this module's.
 from satchecker_client.resolve import (  # noqa: E402
     ATTEMPT_NOT_SENT,
     EVENT_BATCH_STARTED,
@@ -160,9 +120,8 @@ from tabsim.orbit_config import (  # noqa: E402,F401  re-exported for callers
 )
 from tabsim.satchecker_names import norad_ids_from_names  # noqa: E402
 
-# Name tabsim in the shared client's outgoing User-Agent. SatChecker is run as a
-# courtesy to the community, so traffic from here should be attributable to
-# tabsim rather than to the client library every application shares.
+# Name tabsim in the shared client's User-Agent: SatChecker is run as a courtesy,
+# so traffic should be attributable to the application, not to the library.
 try:
     _TABSIM_VERSION = _metadata.version("tabsim")
 except _metadata.PackageNotFoundError:  # a checkout on sys.path, not an install
@@ -181,12 +140,12 @@ satchecker.set_client_identifier(
 _GROUPED_LOG_THRESHOLD = 12
 _LOG_DETAIL_ENV = "TABSIM_TLE_LOG_DETAIL"
 
-# Source labels used in logs, errors and provenance. The client files a record
-# under a stable code; a user is told the name of the thing they configured.
+# Source labels for logs, errors and provenance: the client files a record under
+# a stable code, a user is told the name of the thing they configured. The
+# service label is qualified with the archive that answered, because the two
+# behave differently near the handover.
 _SRC_EXTRA = "extra_orbit_dir"
 _SRC_CACHE = "managed per-satellite cache"
-# Qualified with the endpoint that answered, so a log or a coverage error says
-# which of the two archives a record came from.
 _SRC_SATCHECKER = "SatChecker"
 
 
@@ -207,10 +166,9 @@ def _source_label(source: str, endpoint: Optional[str]) -> str:
 class ResolvedOrbit:
     """One accepted record, with everything needed to explain *why* it was accepted.
 
-    A display adapter over the client's own accepted entry: the same facts, with
-    tabsim's source label and tabsim's field order, which callers build
-    positionally. Anything the client added is keyword-only, so the positions a
-    caller may rely on are exactly the six this type has always had.
+    A display adapter over the client's accepted entry, with tabsim's source
+    label and tabsim's field order. Callers build these positionally, so added
+    metadata is keyword-only and the positions stay the six they have always been.
     """
 
     norad_id: int
@@ -236,9 +194,8 @@ class RejectedOrbit:
     """The best (nearest-epoch) candidate that was found but not acceptable.
 
     ``reason`` is the sentence a user acts on; ``reason_code``, ``ceiling_days``
-    and ``limit_name`` are the same rejection as structure, for a caller that
-    would otherwise have to parse it. They are keyword-only, so the positions a
-    caller may rely on are exactly the six this type has always had.
+    and ``limit_name`` are the same rejection as structure. Keyword-only, so the
+    positions stay the six this type has always had.
     """
 
     norad_id: int
@@ -260,16 +217,14 @@ class RejectedOrbit:
 class OrbitResolution(satchecker.OrbitResolution):
     """The authoritative outcome of resolving one run's satellites.
 
-    The client's result with tabsim's entries in it. ``missing``, ``complete``,
-    ``norad_ids()``, ``records()`` and ``frame()`` are inherited, so the element
-    derivation and the requested-order contract have one implementation; the
-    constructor is stated explicitly because tabsim's callers build these
-    positionally and the client's field order is its own.
+    The client's result with tabsim's entries in it: ``missing``, ``complete``,
+    ``norad_ids()``, ``records()`` and ``frame()`` are inherited, so element
+    derivation and the requested-order contract have one implementation, while
+    the constructor is stated explicitly because callers build these positionally.
 
     ``requested`` is the order the *run* asked in. The client is asked in sorted
-    order — which is the order the records were acquired in before this was a
-    library call, and therefore which requests are reached before an outage stops
-    acquisition — and everything comes back in the run's own order.
+    order — the acquisition order, and so which requests are reached before an
+    outage stops acquisition — and everything comes back in the run's.
     """
 
     def __init__(
@@ -309,14 +264,11 @@ class OrbitResolution(satchecker.OrbitResolution):
 def _rejection_reason(entry) -> str:
     """The sentence tabsim has always shown for a refused candidate.
 
-    An age rejection names the governing limit, because that is the one thing
-    that says what to change; the two limits are spelled as they always were. An
-    unusable candidate has no measurement to report, so the diagnostic is the
-    exception the client attached to *this* rejection — never parsed from the
-    client's log, and never taken from a ``candidate_rejected`` event: only one
-    rejection per satellite survives and it is the first, so with two unusable
-    candidates the last event is the other one's, and pairing the two reports
-    one candidate's defect against the source that supplied the other.
+    An age rejection names the governing limit, the one thing that says what to
+    change. An unusable candidate has no measurement, so the diagnostic is the
+    exception the client attached to *this* rejection — never a
+    ``candidate_rejected`` event: only the first rejection per satellite
+    survives, so the last event may be another candidate's.
     """
     if entry.reason_code == REASON_OVER_AGE and entry.limit_name:
         ceiling = entry.ceiling_days
@@ -332,17 +284,16 @@ def _rejection_reason(entry) -> str:
 def _adapt(result, requested: list[int]) -> OrbitResolution:
     """The client's result as tabsim's, in the run's own request order.
 
-    One conversion boundary, one direction: the client's own result is left
-    exactly as it was, since it is also where the coverage classifier reads its
-    evidence from.
+    One conversion boundary, one direction: the client's own result is left as it
+    was, since it is where the coverage classifier reads its evidence.
     """
     resolved = {
         int(norad_id): ResolvedOrbit(
             norad_id=int(norad_id),
             record=entry.record,
             source=_source_label(entry.source, entry.endpoint),
-            # An explicit file is the user's own data: tabsim has never shown a
-            # provider for it, whatever DATA_SOURCE the file happens to carry.
+            # An explicit file is the user's own data: no provider is shown for
+            # it, whatever DATA_SOURCE the file happens to carry.
             provider=None if entry.source == SOURCE_EXTRA else entry.provider,
             epoch_jd=entry.epoch_jd,
             offset_days=entry.offset_days,
@@ -389,13 +340,10 @@ def _adapt(result, requested: list[int]) -> OrbitResolution:
 def read_extra_orbit_dir(extra_orbit_dir) -> pd.DataFrame:
     """Every orbit table in *extra_orbit_dir*, read strictly, concatenated.
 
-    The client's strict reader, with the sentence that says what tabsim does
-    about a failure. An explicit directory is *named* by the user, so "cannot be
-    read" must never be indistinguishable from "has no record for this
-    satellite": the latter falls through to the managed cache and the service,
-    which would build the simulation from exactly the records the user said not
-    to use, with nothing in the log to say the file they pointed at was never
-    read.
+    An explicit directory is *named* by the user, so "cannot be read" must never
+    be indistinguishable from "has no record for this satellite": the latter
+    falls through to the cache and the service, building the run from exactly the
+    records the user said not to use.
     """
     try:
         return satchecker.read_extra_orbit_dir(extra_orbit_dir)
@@ -424,12 +372,10 @@ def _extra_dir_error(error: OrbitInputError) -> OrbitError:
 class _LazyOrbitCache:
     """The managed cache, opened only if the resolution actually reaches it.
 
-    The client takes an explicit cache and discovers no path of its own, which is
-    right: where a cache lives is the application's decision. tabsim knows the
-    path, but building the object creates the directory, and a run resolved
-    entirely from ``extra_orbit_dir`` has no business doing that. So every call
-    is forwarded to the one :class:`~satchecker_client.cache.TextOrbitCache`
-    built on first use. No policy, no selection and no persistence live here.
+    Where a cache lives is the application's decision, so the client takes an
+    explicit one; but constructing it creates the directory, which a run resolved
+    entirely from ``extra_orbit_dir`` has no business doing. Every call forwards
+    to the one cache built on first use; no policy lives here.
     """
 
     def __init__(self):
@@ -467,8 +413,7 @@ def _id_list(norad_ids) -> str:
     """IDs for a log line, truncated unless ``TABSIM_TLE_LOG_DETAIL`` is set.
 
     Truncated, never summarised away: a report about specific satellites has to
-    name enough of them to act on, and the full list stays one environment
-    variable away.
+    name enough of them to act on.
     """
     ids = sorted(int(nid) for nid in norad_ids)
     if _detail_requested() or len(ids) <= _GROUPED_LOG_THRESHOLD:
@@ -491,11 +436,10 @@ def _describe(entry: ResolvedOrbit) -> str:
 class _Reporter:
     """tabsim's account of a resolution, written from the client's events.
 
-    The client states what happened in stable event codes and writes its own
-    low-level diagnostics to ``log``; the sentences a tabsim user reads are here.
-    Nothing in this class infers state from the client's prose, and nothing
-    decides anything — the summaries that need the outcome rather than the
-    running commentary wait for :meth:`finish`.
+    The client states what happened in stable event codes; the sentences a tabsim
+    user reads are here. Nothing infers state from the client's prose, and the
+    summaries that need the outcome rather than the commentary wait for
+    :meth:`finish`.
     """
 
     def __init__(self, max_workers: int):
@@ -575,8 +519,7 @@ class _Reporter:
         """What the run ended up with, which no single event can say."""
         self._report_extra()
         # A result, so it needs a request: offline, the same records are retained
-        # because nothing was asked, which the skipped-refresh line above already
-        # says. Printing this beside it reports on requests that never went out.
+        # because nothing was asked, which the skipped-refresh line already says.
         retained = [
             nid
             for nid in self.refresh_required
@@ -585,18 +528,17 @@ class _Reporter:
             and resolution.resolved[nid].source == _SRC_CACHE
         ]
         if retained:
-            # A service failure — or a response no fresher than what we hold —
-            # does not invalidate a cached record within the hard ceiling.
+            # A failure, or an answer no fresher than what we hold, does not
+            # invalidate a cached record within the hard ceiling.
             print(
                 f"  SatChecker did not improve {len(retained)} ID(s); "
                 "continuing with acceptable cached records"
             )
         # A refresh that failed for an ID that stays resolved is not fatal, but
-        # the run is then not quite the one that was asked for. Each ID is named
-        # with the source that did answer for it: these are not all cached
-        # incumbents — an ID whose first archive failed and whose second
-        # succeeded is bookkept here too, and saying it continued from the cache
-        # would describe a record the run never held.
+        # the run is then not quite the one asked for. Each ID is named with the
+        # source that did answer for it: an ID whose first archive failed and
+        # whose second succeeded is bookkept here too, and "from the cache" would
+        # describe a record the run never held.
         failed = [
             nid
             for nid in resolution.requested
@@ -626,10 +568,8 @@ class _Reporter:
 def _report_remote_selection(resolution: OrbitResolution) -> None:
     """Log provider, epoch, signed offset and age for every accepted remote record.
 
-    Small ID sets get one line each. Larger ones get a grouped summary — an
-    all-Starlink run would otherwise bury the rest of the log — with the oldest
-    records still named individually, and the full listing available on demand
-    via ``TABSIM_TLE_LOG_DETAIL=1``.
+    Small ID sets get one line each; larger ones a grouped summary that still
+    names the oldest records, with the full listing on ``TABSIM_TLE_LOG_DETAIL=1``.
     """
     remote = [e for e in resolution.resolved.values() if e.remote]
     if not remote:
@@ -691,8 +631,8 @@ def _report_unverified(resolution: OrbitResolution) -> None:
 # ---------------------------------------------------------------------------
 
 #: Why one requested satellite has no record. The first four are tabsim not
-#: *knowing*, which is fatal on both selection routes; the last two are answers
-#: the catalogue actually gave, which a named satellite may be excluded on.
+#: *knowing*, fatal on both selection routes; the last two are answers the
+#: catalogue gave, on which a named satellite may be excluded.
 _GAP_FAILED = "failed"        # the service was asked and did not answer usably
 _GAP_BLOCKED = "blocked"      # an archive the fallback needed was never asked
 _GAP_OFFLINE = "offline"      # nothing was asked, by configuration
@@ -730,22 +670,18 @@ def _classify_gap(resolution: OrbitResolution, norad_id: int) -> _Gap:
     """Why *norad_id* has no record — and whether that is an answer or a gap.
 
     Fails closed. Only two states are the catalogue telling us something: every
-    archive the fallback policy needed answered and none had a record, or one was
-    found, measured against a ceiling and refused by it with that acquisition
-    complete. Everything else is tabsim not knowing, and a satellite excluded on
-    not-knowing is how a SatChecker outage becomes a simulation of a quiet sky.
-
-    In particular, an endpoint that was never asked is not an endpoint that had
-    nothing: with two archives and fallback on, an unresolved ID still needs the
-    second one's reply, and the client deliberately files an ID whose fallback an
-    outage prevented under neither ``service_errors`` nor ``unavailable``.
+    archive the fallback needed answered and none had a record, or one was found,
+    measured against a ceiling and refused by it with the acquisition complete.
+    An endpoint that was never asked is not one that had nothing — the client
+    files an ID whose fallback an outage prevented under neither
+    ``service_errors`` nor ``unavailable``.
     """
     error = resolution.service_errors.get(norad_id)
     if error is not None:
         return _Gap(norad_id, _GAP_FAILED, error=error)
     if resolution.offline:
-        # Including an over-age local record: a ten-day-old cached record is a
-        # fact about this machine, not an answer from the catalogue.
+        # Including an over-age local record: that is a fact about this machine,
+        # not an answer from the catalogue.
         return _Gap(norad_id, _GAP_OFFLINE)
     attempts = resolution.attempts.get(norad_id, ())
     pending = tuple(
@@ -775,9 +711,7 @@ def _gap_sentence(gap: _Gap) -> str:
     if gap.kind == _GAP_BLOCKED:
         return f"SatChecker could not answer — {_blocked_detail(gap)}"
     if gap.kind == _GAP_OFFLINE:
-        # Not "SatChecker has no record": nothing asked it. A cached catalogue
-        # search can say a satellite exists without saying anything about why no
-        # orbit record for it is held here.
+        # Not "SatChecker has no record": nothing asked it.
         return (
             "offline: true, and no acceptable record for it is held locally — "
             "neither in extra_orbit_dir nor in the managed per-satellite cache. "
@@ -849,7 +783,7 @@ def _coverage_error(resolution: OrbitResolution, named: bool = False) -> OrbitEr
                 f"{jd_to_datetime(bad.epoch_jd).isoformat()} UTC, from "
                 f"{bad.source}{provider}) — rejected by {bad.reason}"
             )
-        # Both matter: how close the best record was, *and* that a fresher one
+        # Both matter: how close the best record was, and that a fresher one
         # could not be requested.
         closer = _closer_sentence(gap)
         if closer is not None:
@@ -861,8 +795,8 @@ def _coverage_error(resolution: OrbitResolution, named: bool = False) -> OrbitEr
         f"The remote age ceiling in force is remote_max_age_days="
         f"{'null (disabled)' if limit is None else f'{limit:g}'}. Remedies:",
     ]
-    # A service failure is not the user's configuration being wrong, so lead with
-    # the remedy that actually applies before the ones that change the model.
+    # A service failure is not the configuration being wrong, so lead with the
+    # remedy that applies before the ones that change the model.
     unreachable = [gap for gap in gaps if gap.kind in (_GAP_FAILED, _GAP_BLOCKED)]
     if unreachable:
         retry_after = max(
@@ -913,10 +847,9 @@ def _coverage_error(resolution: OrbitResolution, named: bool = False) -> OrbitEr
 def require_complete_coverage(resolution: OrbitResolution) -> OrbitResolution:
     """Return *resolution* unchanged, or raise the actionable coverage error.
 
-    The policy for satellites asked for **by number**: every one of them must end
-    up with an accepted record. They were named individually, so one dropped for
-    want of a record would be indistinguishable from one that simply never passed
-    the target.
+    The policy for satellites asked for **by number**: each was named
+    individually, so one dropped for want of a record would be indistinguishable
+    from one that simply never passed the target.
     """
     if resolution.requested and not resolution.complete:
         raise _coverage_error(resolution)
@@ -928,20 +861,17 @@ def report_named_coverage(
 ) -> OrbitResolution:
     """Coverage policy for satellites selected by *name*, sharing the numbered one.
 
-    A name is a catalogue *query*, so "nothing acceptable exists for this
-    satellite near this observation" is an answer: the satellite is excluded and
-    the reason — a genuinely empty reply from every archive, or a record rejected
-    on age by an acquisition that finished — is reported.
+    A name is a catalogue *query*, so "nothing acceptable exists near this
+    observation" is an answer: the satellite is excluded with its reason — a
+    genuinely empty reply from every archive, or a record rejected on age by an
+    acquisition that finished.
 
     "We could not find out" is not an answer. An unresolved request or response
-    failure used to be warned about and dropped here, which turned a SatChecker
-    outage into a complete-looking observation with no satellite RFI in it,
-    indistinguishable from a correct simulation of a quiet sky. An archive the
-    fallback needed and never reached, running out of local state offline, and
-    evidence with nothing to explain it are the same kind of not-knowing. All are
-    fatal on this route exactly as they are for a numbered satellite, and through
+    failure, an archive the fallback needed and never reached, running out of
+    local state offline, and evidence with nothing to explain it are all
+    not-knowing, all fatal here exactly as for a numbered satellite and through
     the same error, so the two routes cannot drift apart. The age detail stays in
-    the error — it is what says which limit to change, or which records to fetch.
+    that error: it says which limit to change, or which records to fetch.
     """
     if not resolution.requested:
         return resolution
@@ -996,28 +926,19 @@ def resolve_orbits(
     """Resolve every requested NORAD ID at *obs_epoch_jd*, without raising on gaps.
 
     Returns the full :class:`OrbitResolution` — accepted records, rejected
-    near-misses and the epochs everything was judged against. Callers decide what
-    an incomplete result means; :func:`require_complete_coverage` is the policy
-    tabsim simulations use.
+    near-misses and the epochs everything was judged against; callers decide what
+    an incomplete result means, and :func:`require_complete_coverage` is the
+    policy tabsim simulations use. Every rule is stated explicitly on the one
+    client call, which defaults none of them, while the configuration validation
+    stays here so a bad setting is a :class:`TLEConfigurationError` before
+    anything is asked.
 
-    Every rule below is stated explicitly on one call to
-    :func:`satchecker_client.resolve.resolve_orbits`, which defaults none of them:
-    "which policy is in force" is therefore entirely a question about this call,
-    and the configuration validation stays here so a bad setting is still a
-    :class:`TLEConfigurationError` before anything is asked.
-
-    *offline* forbids every SatChecker request. It does **not** relax the age
-    ceiling: offline is about what can be reached, not about what an acceptable
-    record is, so a cached record outside ``remote_max_age_days`` is refused
-    exactly as it would be online.
-
-    *allow_missing_checksum* accepts TLE lines whose checksum digit the archive
-    omitted — the same policy on every route a record can arrive by, because a
-    default that rejects them remotely and accepts them from a file is the worst
-    combination: the strictness is advertised and the way round it is to save the
-    record once. Such records carry
-    :data:`~satchecker_client.records.CHECKSUM_STATUS_FIELD` for the rest of their
-    lives and never enter the shared cache.
+    *offline* forbids every request without relaxing the age ceiling: a cached
+    record outside ``remote_max_age_days`` is refused exactly as it would be
+    online. *allow_missing_checksum* accepts TLE lines whose checksum digit the
+    archive omitted, on every route a record can arrive by; such records carry
+    :data:`~satchecker_client.records.CHECKSUM_STATUS_FIELD` for the rest of
+    their lives and never enter the shared cache.
     """
     requested = normalise_norad_ids(norad_ids)
     extra_max_age = validate_age_days(
@@ -1029,8 +950,8 @@ def resolve_orbits(
     obs_epoch_jd = float(obs_epoch_jd)
 
     if not requested:
-        # A satellite-free run is a legitimate configuration, and it costs
-        # nothing: no directory is read, no cache is built and nothing is asked.
+        # A satellite-free run is legitimate, and costs nothing: no directory is
+        # read, no cache is built and nothing is asked.
         return OrbitResolution(
             [],
             obs_epoch_jd,
@@ -1059,10 +980,8 @@ def resolve_orbits(
             f"Extra orbit dir        : {Path(extra_orbit_dir).resolve()} "
             f"(max age {'unlimited' if extra_max_age is None else f'{extra_max_age:g} d'})"
         )
-        # A directory that is not there was almost certainly meant to be. Staying
-        # silent turns a typo in a replay path into a run that quietly models
-        # different satellites than the ones asked for, while the line above
-        # implies the directory was searched.
+        # Staying silent turns a typo into a run that models different satellites
+        # than the ones asked for, while the line above implies it was searched.
         if not Path(extra_orbit_dir).is_dir():
             print(
                 "  warning: this extra_orbit_dir does not exist (or is not a "
@@ -1073,9 +992,8 @@ def resolve_orbits(
 
     reporter = _Reporter(max_workers)
     result = satchecker.resolve_orbits(
-        # Sorted, which is the order these records were acquired in before this
-        # was a library call: an outage therefore stops the run after the same
-        # requests it always did. The run's own order is restored below.
+        # Sorted: the acquisition order, so an outage stops the run after the
+        # same requests it always did. The run's own order is restored below.
         sorted(requested),
         obs_epoch_jd,
         source_order=(GROUP_EXTRA, GROUP_REMOTE),
@@ -1085,9 +1003,9 @@ def resolve_orbits(
         replacement=REPLACEMENT_STRICTLY_FRESHER,
         offline=bool(offline),
         allow_missing_checksum=bool(allow_missing_checksum),
-        # Without it an HTTP-200 error envelope — which is how SatChecker has
-        # been observed to report its own failures — normalises to an empty
-        # frame, and an outage becomes "this satellite has no record".
+        # Without it an HTTP-200 error envelope — how SatChecker reports its own
+        # failures — normalises to an empty frame, and an outage becomes "this
+        # satellite has no record".
         strict_response=True,
         # Resolved at call time, from this observation's epoch: the archives do
         # not overlap, and neither endpoint reports "I have nothing that near".
@@ -1121,19 +1039,14 @@ def resolve_names(
 ) -> list[int]:
     """NORAD IDs for satellites named in the configuration, at *obs_epoch_jd*.
 
-    Names are matched as substrings against an upper-case catalogue, reproducing
-    what Space-Track's ``op.like`` did — see :mod:`tabsim.satchecker_names` for the
-    exact semantics and their sharp edges, and for the search-cache and offline
-    policy this forwards.
+    Names are matched as substrings against an upper-case catalogue; see
+    :mod:`tabsim.satchecker_names` for the exact semantics, their sharp edges,
+    and the search-cache and offline policy this forwards.
 
     *obs_epoch_jd* is not optional and not "now": which satellites existed is a
-    question about the observation's date. A satellite that decayed between a 2019
-    observation and today belongs in that simulation; one launched since does not.
-
-    A name the catalogue genuinely does not know contributes no satellites and is
-    reported — there is no satellite for a record to be missing for. A search that
-    could not be *run* is a different thing and stops the run; see
-    :func:`tabsim.satchecker_names.search_satellites`.
+    question about the observation's date. A name the catalogue genuinely does not
+    know contributes no satellites and is reported — there is no satellite for a
+    record to be missing for — while a search that could not be *run* stops it.
     """
     names = [str(name).strip() for name in (names or []) if str(name).strip()]
     if not names:
@@ -1190,14 +1103,13 @@ def save_orbits_for_reuse(path, norad_ids, records) -> str:
     ``sim-vis --replay-orbit-dir <this directory>`` then reproduces this run's
     *selection* and its trajectories, independent of the shared cache, of what
     SatChecker serves by then, and of the remote age ceiling. ``norad_ids`` and
-    ``records`` are aligned sequences, as produced by
-    :meth:`OrbitResolution.norad_ids` and :meth:`OrbitResolution.records`; a
-    misaligned pair is a bug in the caller and raises ``ValueError`` rather than
-    writing a file that reads back cleanly and describes different satellites.
+    ``records`` are aligned sequences, as :meth:`OrbitResolution.norad_ids` and
+    :meth:`OrbitResolution.records` produce them; a misaligned pair is a caller
+    bug and raises ``ValueError`` rather than writing a file that reads back
+    cleanly and describes different satellites.
 
-    Always writes, and returns the path — an empty selection included. Writing
-    nothing would make "this run modelled no satellites" and "this directory is
-    not a replay" the same state on disk.
+    Always writes, and returns the path — an empty selection included: writing
+    nothing would make "modelled no satellites" and "not a replay" the same state.
     """
     return satchecker.save_orbits_for_reuse(path, norad_ids, records)
 
@@ -1206,10 +1118,11 @@ def save_replay_orbits(directory, norad_ids, records) -> tuple[str, str]:
     """Write the two files a frozen replay reads, and return their paths.
 
     ``(ids_path, records_path)``. The IDs and the records a run saves are one
-    decision, so they are written by one call: both are validated and serialised
-    before either destination is opened, and a satellite listed twice is refused
-    — matching one saved record to each saved ID would otherwise be a choice,
-    which is the reselection a replay exists to prevent.
+    decision: both are validated and serialised before either destination is
+    opened — there is no atomic replacement across a filesystem failure, but a
+    validation failure leaves both files untouched — and a satellite listed twice
+    is refused, since matching one record to each ID would be the reselection a
+    replay exists to prevent.
     """
     return satchecker.save_replay_orbits(directory, norad_ids, records)
 
@@ -1221,25 +1134,23 @@ def load_replay_orbits(
 
     Reads only ``norad_ids.yaml`` and ``used_orbits.json`` from
     *replay_orbit_dir* and returns ``(norad_ids, records)`` — the saved IDs in
-    saved order, and one aligned record each. An empty saved selection is
-    ``([], [])``: a completed run that modelled no satellites.
+    saved order, one aligned record each. An empty saved selection is ``([], [])``:
+    a completed run that modelled no satellites.
 
     **There is no second source.** No name discovery, no managed cache, no
     request, no visibility reselection, no ``max_n_sat``, and no age-based
-    replacement: a replay deliberately uses saved records however far their epochs
-    are from the observation, because that is what makes them the same records.
-    Anything short of exact therefore stops the run naming the file or the
-    satellite.
+    replacement: saved records are used however far their epochs are from the
+    observation, because that is what makes them the same records, and anything
+    short of exact stops the run naming the file or the satellite.
 
-    The configured checksum policy still applies, and is passed explicitly
-    because there is no safe default for it. It covers provenance as well as
-    lines: a record saved as ``unverified_missing_checksum`` needs
-    *allow_missing_checksum* on every pass, whatever its lines carry now, so a
-    permissive run cannot be laundered into a strict one by saving it.
+    The configured checksum policy still applies and is passed explicitly, there
+    being no safe default. It covers provenance as well as lines: a record saved
+    as ``unverified_missing_checksum`` needs *allow_missing_checksum* on every
+    pass, whatever its lines carry now, so a permissive run cannot be laundered
+    into a strict one by saving it.
 
-    Exact reproduction of the previous run's trajectories and visibilities assumes
-    the same observation, spectral inputs, random seeds and numerical environment;
-    what this freezes is the orbital input.
+    Exact reproduction of the trajectories assumes the same observation, spectral
+    inputs, seeds and numerical environment; what this freezes is orbital input.
     """
     try:
         norad_ids, records = satchecker.load_replay_orbits(
@@ -1266,17 +1177,12 @@ def load_replay_orbits(
 def _replay_error(error: OrbitInputError, allow_missing_checksum: bool) -> OrbitError:
     """A replay that cannot be read exactly, as a tabsim run failure.
 
-    The client's message already names the file, the row and the satellite. What
-    it cannot name is the tabsim setting that would have allowed the record, so a
-    record-level refusal under this run's strict policy gets that sentence: the
-    original run had to opt in to accept those lines, and the replay has to say
-    so again.
-
-    Which refusals those are is the client's ``code``, not the fact that a
-    satellite is named: a duplicated ID line and a listed satellite with no saved
-    record both name one, and no checksum policy repairs either. Offering the
-    opt-in there sends a user to a setting that cannot change the outcome and
-    reads as though the run were refusing something it is willing to accept.
+    The client's message already names the file, the row and the satellite; what
+    it cannot name is the tabsim setting that would have allowed the record.
+    Which refusals get that sentence is the client's ``code``
+    (:data:`INPUT_CHECKSUM_POLICY`), not the fact that a satellite is named: a
+    duplicated ID line and a listed satellite with no saved record both name one,
+    and no checksum policy repairs either.
     """
     lines = [str(error)]
     if error.code == INPUT_CHECKSUM_POLICY and not allow_missing_checksum:
