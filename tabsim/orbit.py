@@ -109,6 +109,7 @@ from satchecker_client.records import (  # noqa: E402
     KIND_OMM,
     KIND_TLE,
     OMM_ELEMENT_COLUMNS,
+    norad_id_of,
     record_elements,
     record_epoch_jd,
     record_kind,
@@ -305,6 +306,9 @@ def read_extra_orbit_dir(extra_orbit_dir) -> pd.DataFrame:
     explicitly supplied file that is not an orbit table at all is a mistake worth
     stopping for. An explicitly *empty* table is fine — that is a completed run
     stating it selected no satellites.
+
+    Each row's identity is validated here too, while the file it came from is
+    still known, and the returned frame's ``NORAD_CAT_ID`` is a checked integer.
     """
     directory = Path(extra_orbit_dir)
     frames = []
@@ -332,8 +336,35 @@ def read_extra_orbit_dir(extra_orbit_dir) -> pd.DataFrame:
                 f"an OMM's {list(REQUIRED_COLUMNS_BY_KIND[KIND_OMM])}. Move "
                 "non-orbit JSON out of the directory extra_orbit_dir points at."
             )
-        frames.append(frame)
+        frames.append(_checked_extra_ids(frame, path))
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+def _checked_extra_ids(frame: pd.DataFrame, path: Path) -> pd.DataFrame:
+    """*frame* with every ``NORAD_CAT_ID`` validated, or an error naming *path*.
+
+    Validation has to come before coercion, not instead of it. ``to_numeric``
+    turns a malformed identity into a null and the row then simply vanishes from
+    the wanted-ID filter — so an explicitly supplied record disappears with no
+    diagnostic and the service answers for the satellite the file was meant to
+    supply, which is exactly what an explicit directory is supposed to prevent.
+    ``int()`` is worse: 25544.5 truncates to a *different* satellite's number.
+    """
+    ids = []
+    for position, row in enumerate(frame.to_dict(orient="records")):
+        try:
+            ids.append(norad_id_of(row, f"row {position} of {path}"))
+        except ValueError as e:
+            raise OrbitError(
+                f"extra_orbit_dir file {path} carries a row that is not filed "
+                f"against a satellite: {e}. An explicitly supplied record is not "
+                "skipped — the run stops rather than resolving that satellite "
+                "from the managed cache or SatChecker instead. Fix the file, or "
+                "point extra_orbit_dir elsewhere."
+            ) from e
+    frame = frame.copy()
+    frame["NORAD_CAT_ID"] = ids
+    return frame
 
 
 def _select_from_extra_dir(
@@ -358,15 +389,11 @@ def _select_from_extra_dir(
     """
     resolved: dict[int, ResolvedOrbit] = {}
     rejected: dict[int, RejectedOrbit] = {}
+    # Identities were validated against their own files by read_extra_orbit_dir,
+    # which is the only place that still knows which file a row came from.
     records = read_extra_orbit_dir(extra_orbit_dir)
     if not len(records):
         return resolved, rejected
-    records = records.copy()
-    numeric_ids = pd.to_numeric(records["NORAD_CAT_ID"], errors="coerce")
-    valid_ids = numeric_ids.notnull() & np.isfinite(numeric_ids)
-    valid_ids &= numeric_ids == numeric_ids.round()
-    records = records.loc[valid_ids].copy()
-    records["NORAD_CAT_ID"] = numeric_ids.loc[valid_ids].astype(int)
     records = records[records["NORAD_CAT_ID"].isin(wanted)]
     if not len(records):
         return resolved, rejected

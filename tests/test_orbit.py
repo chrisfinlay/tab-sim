@@ -302,6 +302,33 @@ class TestSourcePrecedence:
 
         assert "used_orbits.json" in str(excinfo.value)
 
+    def test_malformed_extra_orbit_identity_is_not_silently_dropped(
+        self, tmp_path, monkeypatch
+    ):
+        """A row whose NORAD_CAT_ID is not an ID stops the run naming the file.
+
+        Coercing identities before validating them made the row disappear: 25544.5
+        became NaN, the filter dropped it with no diagnostic at all, and the
+        service record the user's file existed to replace was substituted for it.
+        An int() cast is worse still — it would truncate to a different
+        satellite's catalogue number.
+        """
+        stub_service(
+            monkeypatch, {ISS_NORAD_ID: tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD)}
+        )
+        record = tle_record()  # valid ISS lines...
+        record["NORAD_CAT_ID"] = 25544.5  # ...under an identity that is not an ID
+        pd.DataFrame([record]).to_json(tmp_path / "mine.json")
+
+        with pytest.raises(orbit.OrbitError) as excinfo:
+            orbit.resolve_orbits(
+                [ISS_NORAD_ID], ISS_EPOCH_JD, extra_orbit_dir=str(tmp_path)
+            )
+
+        message = str(excinfo.value)
+        assert "mine.json" in message
+        assert "25544.5" in message
+
     def test_fresh_cache_avoids_the_request(self, monkeypatch, isolated_cache):
         TextOrbitCache(isolated_cache).store(
             ISS_NORAD_ID, pd.DataFrame([tle_record()])
