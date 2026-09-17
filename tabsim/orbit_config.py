@@ -269,6 +269,8 @@ def read_norad_ids_file(path) -> list[int]:
 class OrbitConfig:
     """Fully validated orbit-record configuration."""
 
+    #: Empty in replay mode: the saved selection is the selection, so the run's
+    #: own IDs and names are not read.
     norad_ids: list[int] = field(default_factory=list)
     sat_names: list[str] = field(default_factory=list)
     extra_orbit_dir: Optional[str] = None
@@ -322,10 +324,12 @@ def normalise_orbit_config(satellites: dict) -> OrbitConfig:
     the network and this does not.
 
     ``replay_orbit_dir`` changes what this function reads. A frozen replay's saved
-    IDs are the selection, so the run's own ``norad_ids_path`` is never opened:
-    a replay of a run whose ID file has since moved must still be possible. The
-    run's ``norad_ids``/``sat_names`` are still validated and returned, so the
-    log can say precisely what the replay overrode.
+    IDs are the selection, so the run's own ``norad_ids``, ``sat_names`` and
+    ``norad_ids_path`` are not inputs at all: they are neither read nor validated,
+    and come back empty. A replay of a run whose ID file has since moved must
+    still be possible, and a leftover value nothing will look at cannot be a
+    reason to refuse the run. What the replay overrode is logged from the raw
+    configuration, by :func:`tabsim.config.add_tle_satellite_sources`.
     """
     satellites = satellites or {}
     reject_obsolete_keys(satellites)
@@ -341,22 +345,26 @@ def normalise_orbit_config(satellites: dict) -> OrbitConfig:
             "one. Letting either win silently would make the other look effective."
         )
 
-    norad_ids = normalise_norad_ids(
-        satellites.get("norad_ids"), "tle_satellite.norad_ids"
-    )
-    ids_path = satellites.get("norad_ids_path")
-    if ids_path and not replay_orbit_dir:
-        seen = set(norad_ids)
-        norad_ids += [
-            nid for nid in read_norad_ids_file(ids_path) if nid not in seen
-        ]
-
-    names = satellites.get("sat_names") or []
-    if isinstance(names, (str, bytes)):
-        raise TLEConfigurationError(
-            f"tle_satellite.sat_names must be a list of names, got {names!r}"
+    if replay_orbit_dir:
+        norad_ids: list[int] = []
+        names: list[str] = []
+    else:
+        norad_ids = normalise_norad_ids(
+            satellites.get("norad_ids"), "tle_satellite.norad_ids"
         )
-    names = [str(name).strip() for name in names if str(name).strip()]
+        ids_path = satellites.get("norad_ids_path")
+        if ids_path:
+            seen = set(norad_ids)
+            norad_ids += [
+                nid for nid in read_norad_ids_file(ids_path) if nid not in seen
+            ]
+
+        names = satellites.get("sat_names") or []
+        if isinstance(names, (str, bytes)):
+            raise TLEConfigurationError(
+                f"tle_satellite.sat_names must be a list of names, got {names!r}"
+            )
+        names = [str(name).strip() for name in names if str(name).strip()]
 
     remote_max_age, cache_reuse_age = validate_remote_ages(
         satellites.get("remote_max_age_days", DEFAULT_REMOTE_MAX_AGE_DAYS),

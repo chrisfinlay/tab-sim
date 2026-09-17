@@ -165,6 +165,33 @@ class TestReplaySelection:
 
         assert config.replay_orbit_dir == str(replay_dir)
 
+    @pytest.mark.parametrize(
+        "ignored",
+        [{"norad_ids": ["bad"]}, {"norad_ids": [1.5]}, {"sat_names": "NAVSTAR"}],
+        ids=["non-numeric-id", "fractional-id", "sat-names-not-a-list"],
+    )
+    def test_replay_does_not_validate_the_selection_it_overrides(
+        self, tmp_path, ignored
+    ):
+        """A value a replay never reads cannot be a reason to refuse the run.
+
+        Validating the original names and IDs "so the log can say what was
+        overridden" made the replay depend on the selection it exists to replace:
+        a malformed leftover in the config stopped a run that would never have
+        looked at it. The raw values can be logged without being validated.
+        """
+        replay_dir = tmp_path / "input_data"
+        replay_dir.mkdir()
+
+        config = normalise_orbit_config(
+            {"replay_orbit_dir": str(replay_dir), **ignored}
+        )
+
+        assert config.replay_orbit_dir == str(replay_dir)
+        # ...and they are not the selection either, so they come back empty.
+        assert config.norad_ids == []
+        assert config.sat_names == []
+
     def test_replay_and_extra_orbit_dir_are_rejected_together(self, tmp_path):
         """Their source-selection contracts differ, so the pair has no meaning.
 

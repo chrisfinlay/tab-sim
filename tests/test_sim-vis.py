@@ -401,6 +401,36 @@ def test_configured_spectral_model_sets_the_simulated_power(tmp_path, monkeypatc
     )
 
 
+def test_replay_runs_with_a_deleted_original_id_file(tmp_path, monkeypatch):
+    """A replay of a run whose ID file has since moved must still complete.
+
+    Two things depended on the selection a replay overrides: normalisation read
+    and validated ``norad_ids_path``, and ``save_inputs`` then copied it into the
+    new run's ``input_data``. Either one turned "replay this previous run" into a
+    requirement that the previous run's inputs still exist, which is most of the
+    reason to save records in the first place.
+    """
+    replay_dir = write_replay_dir(
+        tmp_path / "input_data",
+        SIM_IDS,
+        [tle_record_at(nid, ISS_EPOCH_JD) for nid in SIM_IDS],
+    )
+    monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
+    monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
+    config_path = tiny_sim_config(
+        tmp_path / "replay.yaml",
+        tmp_path / "out",
+        replay_orbit_dir=str(replay_dir),
+        norad_ids_path=str(tmp_path / "gone.txt"),
+        sat_names="NAVSTAR",  # not even a list: the replay never reads it
+    )
+
+    obs, save_path = run_sim_vis(config_path)
+
+    assert final_ids(obs) == SIM_IDS
+    assert not (Path(save_path) / "input_data" / "gone.txt").exists()
+
+
 def test_sim_vis_offline_over_age_record_does_not_silently_drop_a_satellite(
     tmp_path, isolated_cache
 ):

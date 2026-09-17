@@ -559,11 +559,15 @@ def add_tle_satellite_sources(obs: Observation, sim_config: dict) -> None:
             orbit_config.replay_orbit_dir,
             allow_missing_checksum=orbit_config.allow_missing_checksum,
         )
+        # Raw, straight from the configuration: these are precisely the settings
+        # the replay does not read, so they are reported as written rather than
+        # validated first. A malformed leftover here must not stop a run that will
+        # never look at it.
         overridden = [
             f"{name}={value!r}"
             for name, value in (
-                ("sat_names", orbit_config.sat_names),
-                ("norad_ids", orbit_config.norad_ids),
+                ("sat_names", sat_.get("sat_names")),
+                ("norad_ids", sat_.get("norad_ids")),
                 ("norad_ids_path", sat_.get("norad_ids_path")),
                 ("max_n_sat", sat_.get("max_n_sat")),
                 ("max_ang_sep", sat_.get("max_ang_sep")),
@@ -844,7 +848,17 @@ def save_inputs(obs: Observation, sim_config: dict, save_path: str) -> None:
         "geo_path",
         "spec_model",
     ]
+    # A frozen replay never opened the original ID file — it may not exist any
+    # more, which is half the point of saving the records — so it is not an input
+    # of this run and copying it would make the replay depend on it again.
+    skip = (
+        {("tle_satellite", "norad_ids_path")}
+        if sim_config["rfi_sources"]["tle_satellite"].get("replay_orbit_dir")
+        else set()
+    )
     for key1, key2 in zip(key, subkey):
+        if (key1, key2) in skip:
+            continue
         path = sim_config["rfi_sources"][key1][key2]
         if path is not None:
             shutil.copy(path, save_path)
