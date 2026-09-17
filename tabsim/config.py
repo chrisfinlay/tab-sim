@@ -3,6 +3,7 @@ import re
 import os
 import sys
 import shutil
+import math
 import numbers
 
 import collections.abc
@@ -323,6 +324,76 @@ def random_flux_range(key: str, rand_: dict, obs: Observation) -> Tuple[float, f
     return min_I, max_I
 
 
+def random_number(key: str, rand_: dict, name: str) -> Union[float, int]:
+    """Get a setting of random sources that has to be a number and check that it is.
+
+    Parameters
+    ----------
+    key : str
+        Source type, the name of the `ast_sources` section the setting is from.
+    rand_ : dict
+        The `random` section of that source type.
+    name : str
+        Name of the setting.
+
+    Returns
+    -------
+    Union[float, int]
+        The setting as it is in the config.
+    """
+    value = rand_[name]
+    # A number in quotes is a string, a setting left empty is None and a bool is
+    # an int. An int can be too large to be a float.
+    is_number = isinstance(value, numbers.Real) and not isinstance(value, bool)
+    try:
+        is_number = is_number and math.isfinite(value)
+    except OverflowError:
+        is_number = False
+
+    if not is_number:
+        raise ValueError(
+            f"ast_sources.{key}.random: {name} = {value!r} must be a finite number."
+        )
+
+    return value
+
+
+def random_sky_distributions(key: str, rand_: dict) -> Tuple[float, float, float]:
+    """Get the settings of the distributions that the fluxes and the spectral indices
+    of random sources are drawn from and check that they are valid.
+
+    Parameters
+    ----------
+    key : str
+        Source type, the name of the `ast_sources` section the settings are from.
+    rand_ : dict
+        The `random` section of that source type.
+
+    Returns
+    -------
+    Tuple[float, float, float]
+        Power law index of the fluxes, and the mean and standard deviation of the
+        spectral indices.
+    """
+    I_pow_law = random_number(key, rand_, "I_pow_law")
+    si_mean = random_number(key, rand_, "si_mean")
+    si_std = random_number(key, rand_, "si_std")
+
+    if I_pow_law <= 1:
+        raise ValueError(
+            f"ast_sources.{key}.random: I_pow_law = {I_pow_law!r} must be greater "
+            "than 1. Source fluxes are distributed as dN/dI ~ I**-I_pow_law above "
+            "min_I."
+        )
+    if si_std < 0:
+        raise ValueError(
+            f"ast_sources.{key}.random: si_std = {si_std!r} must not be negative. It "
+            "is the standard deviation of the spectral indices."
+        )
+
+    return I_pow_law, si_mean, si_std
+
+
 def load_obs(sim_config: dict) -> Observation:
 
     tel_ = sim_config["telescope"]
@@ -458,12 +529,6 @@ def add_astro_sources(obs: Observation, sim_config: dict) -> None:
         if "n_src" in ast_[key]["random"]:
             if ast_[key]["random"]["n_src"] > 0:
                 rand_ = ast_[key]["random"]
-                if not rand_["I_pow_law"] > 1:
-                    raise ValueError(
-                        f"ast_sources.{key}.random: I_pow_law = "
-                        f"{rand_['I_pow_law']!r} must be greater than 1. Source fluxes "
-                        "are distributed as dN/dI ~ I**-I_pow_law above min_I."
-                    )
                 n_beam = rand_["n_beam"]
                 max_beam = rand_["max_sep"] / 3600 / n_beam
                 beam_width = np.min([obs.syn_bw, max_beam])
@@ -475,14 +540,15 @@ def add_astro_sources(obs: Observation, sim_config: dict) -> None:
                 print(f"Minimum {n_beam*beam_width*3600:.1f} arcsec separation ...")
 
                 min_I, max_I = random_flux_range(key, rand_, obs)
+                I_pow_law, si_mean, si_std = random_sky_distributions(key, rand_)
                 try:
                     I, d_ra, d_dec = generate_random_sky(
                         n_src=rand_["n_src"],
                         min_I=min_I,
                         max_I=max_I,
-                        I_power_law=rand_["I_pow_law"],
-                        spec_idx_mean=rand_["si_mean"],
-                        spec_idx_std=rand_["si_std"],
+                        I_power_law=I_pow_law,
+                        spec_idx_mean=si_mean,
+                        spec_idx_std=si_std,
                         freqs=obs.freqs,
                         fov=fov,
                         beam_width=beam_width,

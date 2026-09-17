@@ -117,17 +117,16 @@ def random_power_law(
             f"The minimum flux I_min = {I_min} is greater than the maximum flux "
             f"I_max = {I_max}, so there is no range to draw source fluxes from."
         )
-
-    def inv_cdf(x):
-        return I_min * (1.0 - x) ** (1.0 / (1.0 - alpha))
-
-    # That is the inverse CDF of dN/dI ~ I**-alpha above `I_min`, which only exists
-    # for alpha > 1. For alpha < 1 it would silently give fluxes below `I_min`.
+    # The inverse CDF below is that of dN/dI ~ I**-alpha above `I_min`, which only
+    # exists for alpha > 1. For alpha < 1 it would silently give fluxes below `I_min`.
     if not alpha > 1:
         raise ValueError(
             f"The power law index alpha = {alpha} must be greater than 1 for source "
             "fluxes distributed as dN/dI ~ I**-alpha above a minimum flux."
         )
+
+    def inv_cdf(x):
+        return I_min * (1.0 - x) ** (1.0 / (1.0 - alpha))
 
     rng = np.random.default_rng(random_seed)
     rand_unif = rng.uniform(size=(n_src,))
@@ -207,7 +206,7 @@ def generate_random_sky(
     Raises:
     -------
     ValueError
-        If `min_I` is greater than `max_I`.
+        If `min_I` is greater than `max_I` or `I_power_law` is not greater than 1.
     SourcePlacementError
         If the sources cannot be placed `n_beam` beam widths apart within the field
         of view. Placement gives up after `MAX_SEP_ROUNDS` rounds or `MAX_SEP_PAIRS`

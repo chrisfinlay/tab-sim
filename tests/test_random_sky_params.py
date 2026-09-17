@@ -242,3 +242,61 @@ def test_config_power_law_index_not_above_one_raises(tmp_path, src_type, I_pow_l
     assert f"I_pow_law = {I_pow_law}" in str(err.value)
     assert "greater than 1" in str(err.value)
     assert getattr(obs, SRC_TYPES[src_type]) == []
+
+
+@pytest.mark.parametrize("src_type", SRC_TYPES)
+def test_config_negative_spectral_index_std_raises(tmp_path, src_type):
+    obs, sim_config = load_small_obs(
+        tmp_path, {src_type: {"random": dict(RANDOM, si_std=-0.2)}}
+    )
+
+    with pytest.raises(ValueError) as err:
+        add_astro_sources(obs, sim_config)
+
+    assert f"ast_sources.{src_type}.random" in str(err.value)
+    assert "si_std = -0.2" in str(err.value)
+    assert "must not be negative" in str(err.value)
+    assert getattr(obs, SRC_TYPES[src_type]) == []
+
+
+# What a config can hold where a number belongs: a number in quotes, a setting left
+# empty, a bool, a list, and numbers that are not finite or too large to be a float
+NOT_NUMBERS = {
+    "quoted": "2.0",
+    "empty": None,
+    "bool": True,
+    "list": [2.0],
+    "nan": float("nan"),
+    "inf": float("inf"),
+    "huge_int": 10**400,
+}
+
+
+@pytest.mark.parametrize("value", list(NOT_NUMBERS.values()), ids=list(NOT_NUMBERS))
+@pytest.mark.parametrize("name", SKY_ARGS)
+def test_config_value_that_is_not_a_finite_number_raises(tmp_path, name, value):
+    """These used to fail, if at all, with an error that did not name the setting."""
+    obs, sim_config = load_small_obs(
+        tmp_path, {"point": {"random": dict(RANDOM, **{name: value})}}
+    )
+    # The value has to survive the config file and the defaults of the base config
+    loaded = sim_config["ast_sources"]["point"]["random"][name]
+    assert type(loaded) is type(value) and repr(loaded) == repr(value)
+
+    with pytest.raises(ValueError) as err:
+        add_astro_sources(obs, sim_config)
+
+    assert "ast_sources.point.random" in str(err.value)
+    assert f"{name} = {value!r} must be a finite number" in str(err.value)
+    assert obs.ast_p_I == []
+
+
+def test_config_integer_values_are_numbers(tmp_path):
+    integers = {"I_pow_law": 2, "si_mean": 1, "si_std": 0}
+
+    kwargs, I = add_random_sources(tmp_path, "point", dict(RANDOM, **integers))
+
+    assert {key: kwargs[arg] for key, arg in SKY_ARGS.items()} == integers
+    np.testing.assert_allclose(
+        spectral_indices(I, np.asarray(kwargs["freqs"])), 1.0, rtol=1e-6
+    )

@@ -19,7 +19,7 @@ ast_sources:
       n_beam: 5               # Required if n_src > 0 - Maximum angular separation between sources based on the theoretical synthesized beam width
       random_seed: 123456     # Required if n_src > 0 - Random seed used for drawing locations, intensities and shapes
       si_mean: 0.7            # Required if n_src > 0 - Mean of the Gaussian distribution to draw spectral indices from
-      si_std: 0.2             # Required if n_src > 0 - Sandard deviation of the Gaussian distribution to draw spectral indices from
+      si_std: 0.2             # Required if n_src > 0 - Standard deviation of the Gaussian distribution to draw spectral indices from. Must not be negative
       size_mean: 30.0         # Required if n_src > 0 - Mean of the Gaussian distribution to draw source sizes from in arcseconds
       size_std: 5.0           # Required if n_src > 0 - Standard deviation of the Gaussian distribution to draw spectral indices from
 #######################################
@@ -40,7 +40,7 @@ ast_sources:
       n_beam: 5               # Required if n_src > 0 - Maximum angular separation between sources based on the theoretical synthesized beam width
       random_seed: 123456     # Required if n_src > 0 - Random seed used for drawing locations, intensities and shapes
       si_mean: 0.7            # Required if n_src > 0 - Mean of the Gaussian distribution to draw spectral indices from
-      si_std: 0.2             # Required if n_src > 0 - Sandard deviation of the Gaussian distribution to draw spectral indices from
+      si_std: 0.2             # Required if n_src > 0 - Standard deviation of the Gaussian distribution to draw spectral indices from. Must not be negative
 ####################################
 # Point shaped astronomical sources
 ####################################
@@ -55,7 +55,7 @@ ast_sources:
       n_beam: 5               # Required if n_src > 0 - Maximum angular separation between sources based on the theoretical synthesized beam width
       random_seed: 123456     # Required if n_src > 0 - Random seed used for drawing locations, intensities and shapes
       si_mean: 0.7            # Required if n_src > 0 - Mean of the Gaussian distribution to draw spectral indices from
-      si_std: 0.2             # Required if n_src > 0 - Sandard deviation of the Gaussian distribution to draw spectral indices from
+      si_std: 0.2             # Required if n_src > 0 - Standard deviation of the Gaussian distribution to draw spectral indices from. Must not be negative
 #################################################
 # Gaussian field realization astronomical source
 #################################################
