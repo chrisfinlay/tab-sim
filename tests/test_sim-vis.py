@@ -194,9 +194,7 @@ def test_missing_config_file():
 def test_simulation_runs_with_config(capsys, tmp_path):
     """The one live check: a real NAVSTAR selection, resolved against SatChecker.
 
-    "It finished" is not the assertion: an outage dropping every named satellite
-    finishes too, so the run must be shown to have modelled satellites and saved the
-    records it modelled them from.
+    An outage dropping every named satellite finishes too, so that is not the assertion.
     """
     config_path = (
         Path(__file__).parent.parent / "examples" / "test" / "sim_test_16A.yaml"
@@ -232,8 +230,7 @@ def test_simulation_runs_with_config(capsys, tmp_path):
 def test_sim_vis_offline_frozen_replay(tmp_path, monkeypatch, archives):
     """A replayed run reproduces the visibilities, from its saved records alone.
 
-    The cache is emptied and every transport seam raises, so anything less than an
-    exact match on ``vis_obs`` means the replay modelled a different sky.
+    Every transport seam raises, so an inexact ``vis_obs`` means a different sky.
     """
     tle_records = {nid: tle_record_at(nid, ISS_EPOCH_JD) for nid in SIM_IDS}
     omm_records = {nid: omm_record_at(nid, ISS_EPOCH_JD) for nid in SIM_IDS}
@@ -283,8 +280,7 @@ def test_sim_vis_named_outage_does_not_write_successful_observation(
 ):
     """A named satellite whose record could not be fetched stops the run.
 
-    This used to finish: the search succeeded, the acquisition failed, and the
-    simulation wrote a complete observation with no satellite RFI in it.
+    The search succeeds and only the acquisition fails, so no observation is written.
     """
     serve_search(monkeypatch, {"THING": [search_row(ISS_NORAD_ID, "THING ONE")]})
 
@@ -312,9 +308,7 @@ def test_a_configured_spectral_model_is_not_replaced_by_the_packaged_one(
 ):
     """Startup's packaged defaults must not overwrite a configured spectral model.
 
-    ``deep_update`` applied the shipped table over the configured one, so a satellite
-    only the user's model covers was left out — and a replay of such a run then
-    reported a spectrum missing that is not missing.
+    ID 99999 is covered only by the configured table, so a merge that loses it shows.
     """
     unknown = 99999  # deliberately absent from the shipped norad_satellite.rfimodel
     settings = {"norad_spec_model": spec_model(tmp_path / "mine.rfimodel", [unknown])}
@@ -345,8 +339,7 @@ def test_a_configured_spectral_model_is_not_replaced_by_the_packaged_one(
 def test_configured_spectral_model_sets_the_simulated_power(tmp_path, monkeypatch):
     """For a satellite both tables cover, the configured power is the one simulated.
 
-    The quiet half of the same defect: the run completes and models the satellite,
-    with its emission power from a file the configuration replaced.
+    The run completes either way, so only the amplitude ratio tells them apart.
     """
     stub_endpoints(
         monkeypatch, tle={ISS_NORAD_ID: tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD)}
@@ -382,9 +375,7 @@ def test_a_named_telescope_completes_the_section_without_replacing_it(
 ):
     """Completing a telescope section must not overwrite the part that was set.
 
-    ``dish_d: null`` is how one asks a named telescope for its diameter, and
-    ``deep_update`` then replaced the configured antenna file with the packaged one;
-    the mirror case turned a 25 m dish into 13.5, changing every amplitude.
+    ``dish_d: null`` is how one asks a named telescope for its own diameter.
     """
     if configured == "antenna-file":
         itrf_path, positions = custom_itrf_file(tmp_path / "mine.itrf.txt")
@@ -409,9 +400,7 @@ def test_a_named_telescope_completes_the_section_without_replacing_it(
 def test_named_telescope_does_not_replace_an_explicit_zero_elevation(tmp_path):
     """``elevation: 0`` at a named site is a setting, not an omission.
 
-    The template default was ``0`` too, so the definition's 1050 m won either way —
-    and an ENU array is placed on the ellipsoid through that elevation, so the
-    configured array moved. The template default is now null.
+    An ENU array is placed on the ellipsoid through it, so the site's 1050 m moves it.
     """
     enu = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]])
     np.savetxt(tmp_path / "mine.enu.txt", enu)
@@ -464,8 +453,7 @@ def test_unset_elevation_without_a_named_telescope_is_sea_level(tmp_path):
 def test_named_telescope_does_not_override_the_configured_antenna_frame(tmp_path):
     """An ENU array is a choice of source, so the packaged ITRF file must not win.
 
-    ``Telescope`` lets ITRF positions replace ENU ones, so filling in the definition's
-    ``itrf_path`` discards the configured array rather than completing it.
+    ``Telescope`` lets ITRF replace ENU, so a filled-in ``itrf_path`` would discard it.
     """
     enu = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]])
     np.savetxt(tmp_path / "mine.enu.txt", enu)
@@ -486,8 +474,7 @@ def test_shared_designator_candidates_are_not_promised_to_be_modelled(
 ):
     """Two candidates under one OBJECT_ID, both resolving, and ``max_n_sat: 1``.
 
-    Discovery promised "simulated once per number that resolves", but it runs
-    before ``max_n_sat`` has its say, which here models one of the two.
+    Discovery runs before ``max_n_sat`` has its say, so it must promise less.
     """
     serve_search(
         monkeypatch,
@@ -515,8 +502,7 @@ def test_shared_designator_candidates_are_not_promised_to_be_modelled(
 def test_replay_logs_an_ignored_numpy_id_array(tmp_path, monkeypatch, capsys):
     """An ignored ``norad_ids`` array must be reportable, not truth-tested.
 
-    The log filtered the overridden settings with ``if value``, on which a NumPy array
-    raises. Driven through ``run_sim_config``, because YAML cannot carry one.
+    Driven through ``run_sim_config``, because YAML cannot carry a NumPy array.
     """
     replay_dir = write_replay_dir(
         tmp_path / "input_data",
@@ -546,8 +532,7 @@ def test_replay_logs_an_ignored_numpy_id_array(tmp_path, monkeypatch, capsys):
 def test_replay_runs_with_a_deleted_original_id_file(tmp_path, monkeypatch):
     """A replay of a run whose ID file has since moved must still complete.
 
-    Normalisation validated ``norad_ids_path`` and ``save_inputs`` copied it, so
-    either one made a replay require the previous run's inputs to still exist.
+    Neither normalisation nor ``save_inputs`` may require the previous run's inputs.
     """
     replay_dir = write_replay_dir(
         tmp_path / "input_data",
@@ -574,9 +559,7 @@ def test_sim_vis_offline_over_age_record_does_not_silently_drop_a_satellite(
 ):
     """Offline, an over-age cached record must stop the run, not exclude the satellite.
 
-    The cached search says the satellite exists and the record is ten days out with
-    nothing asked for a closer one; calling that "the catalogue has nothing
-    acceptable" wrote a complete observation with no satellite RFI.
+    The cached search says it exists; only its record is ten days too old to use.
     """
     cache = TextOrbitCache(isolated_cache)
     cache.store_search(
