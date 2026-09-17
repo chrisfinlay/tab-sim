@@ -117,6 +117,16 @@ def select_visible(
     )
 
 
+def reject_json_constant(name):
+    """Refuse the non-standard JSON literals ``json`` accepts by default.
+
+    ``json.loads`` reads a bare ``NaN`` or ``Infinity`` happily, so parsing a
+    replay file with the defaults cannot show that it contains none. Anything that
+    is not another Python JSON parser would reject the file outright.
+    """
+    raise AssertionError(f"replay file carries the non-standard JSON literal {name}")
+
+
 def write_replay_dir(directory, norad_ids, records):
     """Write the two files a frozen replay reads, as a completed run would."""
     directory.mkdir(parents=True, exist_ok=True)
@@ -1688,7 +1698,12 @@ class TestReplay:
         assert back["BSTAR"] == awkward["BSTAR"]
 
     def test_mixed_kinds_in_one_file_stay_valid_json(self, tmp_path):
-        """A TLE row has no MEAN_MOTION; that must be null, not a bare NaN."""
+        """A TLE row has no MEAN_MOTION; that must be null, not a bare NaN.
+
+        ``json.loads`` accepts the non-standard ``NaN`` literal by default, so the
+        parse alone proves nothing: ``parse_constant`` is what makes the read
+        refuse a file only Python's own parser would accept.
+        """
         path = tmp_path / "used_orbits.json"
         orbit.save_orbits_for_reuse(
             path,
@@ -1700,7 +1715,7 @@ class TestReplay:
                 ),
             ],
         )
-        payload = json.loads(path.read_text())  # bare NaN would raise here
+        payload = json.loads(path.read_text(), parse_constant=reject_json_constant)
         assert payload["MEAN_MOTION"]["1"] is None
         assert payload["TLE_LINE1"]["0"] is None
         assert len(read_legacy_tle_records(tmp_path)) == 2
@@ -1792,23 +1807,29 @@ class TestReplay:
         assert records[0]["TLE_LINE1"] == ISS_LINE1
 
     @pytest.mark.parametrize(
-        "damage",
+        "damage,expected",
         [
-            "missing-records-file",
-            "missing-id-file",
-            "corrupt-json",
-            "missing-id",
-            "extra-id",
-            "duplicate-row",
-            "wrong-embedded-id",
+            ("missing-records-file", "used_orbits.json"),
+            ("missing-id-file", "norad_ids.yaml"),
+            ("corrupt-json", "used_orbits.json"),
+            ("missing-id", "99999"),
+            ("extra-id", str(GPS_NORAD_ID)),
+            ("duplicate-id-line", "more than once"),
+            ("duplicate-record-rows", "holds 2 records"),
+            ("wrong-embedded-id", "not acceptable under this run's policy"),
         ],
     )
-    def test_replay_requires_exact_saved_records(self, monkeypatch, tmp_path, damage):
+    def test_replay_requires_exact_saved_records(
+        self, monkeypatch, tmp_path, damage, expected
+    ):
         """Replay has no second source, so anything short of exact must stop.
 
         Every alternative — skipping a record, taking the first of two, asking
         the cache — silently changes the orbital inputs of a run whose whole
-        purpose is to keep them fixed.
+        purpose is to keep them fixed. Each case is pinned to the rejection it is
+        about: with two rows for one satellite, and with two ID lines for one, both
+        sharing a single "duplicate" fixture, whichever check ran first answered
+        for both.
         """
         gps = tle_record(norad_id=GPS_NORAD_ID, line1=GPS_LINE1, line2=GPS_LINE2)
         replay_dir = write_replay_dir(
@@ -1827,26 +1848,29 @@ class TestReplay:
             ids_path.write_text(f"{ISS_NORAD_ID}\n{GPS_NORAD_ID}\n99999\n")
         elif damage == "extra-id":
             ids_path.write_text(f"{ISS_NORAD_ID}\n")
-        elif damage == "duplicate-row":
+        elif damage == "duplicate-id-line":
             ids_path.write_text(f"{ISS_NORAD_ID}\n{ISS_NORAD_ID}\n")
+        elif damage == "duplicate-record-rows":
+            # Two saved records for one satellite: choosing between them is the
+            # reselection a frozen replay exists to prevent.
+            orbit.save_orbits_for_reuse(
+                records_path,
+                [ISS_NORAD_ID, ISS_NORAD_ID],
+                [tle_record(), tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD - 1.0)],
+            )
+            ids_path.write_text(f"{ISS_NORAD_ID}\n")
         else:  # a row filed under one ID carrying another satellite's lines
             payload = json.loads(records_path.read_text())
-            payload["NORAD_CAT_ID"]["1"] = ISS_NORAD_ID
+            payload["NORAD_CAT_ID"]["1"] = 99999  # unique, so the row IDs still are
             records_path.write_text(json.dumps(payload))
-            ids_path.write_text(f"{ISS_NORAD_ID}\n")
+            ids_path.write_text(f"{ISS_NORAD_ID}\n99999\n")
 
         forbid_every_orbit_source(monkeypatch, tmp_path)
 
         with pytest.raises(orbit.OrbitError) as excinfo:
             orbit.load_replay_orbits(str(replay_dir))
 
-        message = str(excinfo.value)
-        assert (
-            "used_orbits.json" in message
-            or "norad_ids.yaml" in message
-            or str(GPS_NORAD_ID) in message
-            or str(ISS_NORAD_ID) in message
-        )
+        assert expected in str(excinfo.value)
 
     def test_empty_replay_is_explicit_and_network_free(self, monkeypatch, tmp_path):
         """Replaying a satellite-free run returns zero satellites, deliberately."""
