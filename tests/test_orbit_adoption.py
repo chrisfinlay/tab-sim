@@ -134,13 +134,18 @@ OBS_EPOCH_JD = ISS_EPOCH_JD
 
 #: The client dependency this adoption is written against; see §3.6 of the plan
 #: and the comment in ``pyproject.toml``.
-PINNED_CLIENT_SHA = "bb7027042b6ed6f5f76049201335d3cdc1dd1c06"
+PINNED_CLIENT_SHA = "9096df99cab6c268041b7f954a352855500c4101"
 PINNED_REQUIREMENT = (
     "satchecker-client @ git+https://github.com/epfl-radio-astro/"
     f"satchecker-client.git@{PINNED_CLIENT_SHA}"
 )
-#: The PR #4 pin this replaces. Kept so the test can say "and not the old one".
-SUPERSEDED_CLIENT_SHA = "06dcbf5cff5ce581bf694d689bfe08de358c5e72"
+#: Revisions this replaces: PR #4's head, and the PR #5 head that predates
+#: ``RejectedOrbit.error`` and ``OrbitInputError.code``. Kept so the test can say
+#: "and not one of the old ones" — both install cleanly and then misreport.
+SUPERSEDED_CLIENT_SHAS = (
+    "06dcbf5cff5ce581bf694d689bfe08de358c5e72",
+    "bb7027042b6ed6f5f76049201335d3cdc1dd1c06",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1649,7 +1654,8 @@ def test_satchecker_dependency_pins_resolver_head():
     pyproject = (root / "pyproject.toml").read_text()
 
     assert PINNED_REQUIREMENT in pyproject
-    assert SUPERSEDED_CLIENT_SHA not in pyproject
+    for superseded in SUPERSEDED_CLIENT_SHAS:
+        assert superseded not in pyproject
 
     workflow = (root / ".github" / "workflows" / "test.yml").read_text()
     installs = [line for line in workflow.splitlines() if "pip install" in line]
