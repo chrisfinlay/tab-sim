@@ -1192,3 +1192,431 @@ def test_client_refresh_failures_produce_tabsim_summary(detail, monkeypatch, cap
         assert "more (set TABSIM_TLE_LOG_DETAIL=1" not in out
     else:
         assert "and 1 more (set TABSIM_TLE_LOG_DETAIL=1 for the full list)" in out
+
+
+# ---------------------------------------------------------------------------
+# Explicit files
+# ---------------------------------------------------------------------------
+
+def test_extra_reader_delegates_and_preserves_contextual_errors(monkeypatch, tmp_path):
+    """An explicitly named directory is read strictly, and says which file failed.
+
+    "Cannot be read" must never be indistinguishable from "has no record for
+    this satellite": the second falls through to the cache and the service, so
+    the run is built from exactly the records the user said not to use.
+    """
+    spy = spy_on(monkeypatch, "read_extra_orbit_dir")
+
+    good = tmp_path / "good"
+    write_orbit_json(good / "iss.json", [tle_record_at(ISS_NORAD_ID, OBS_EPOCH_JD)])
+    frame = orbit.read_extra_orbit_dir(good)
+
+    assert len(spy.calls) == 1
+    assert Path(str(spy.argument(0, "directory"))) == good
+    assert [int(value) for value in frame["NORAD_CAT_ID"]] == [ISS_NORAD_ID]
+
+    malformed = tmp_path / "malformed"
+    malformed.mkdir()
+    (malformed / "broken.json").write_text("{not json")
+
+    not_a_table = tmp_path / "not_a_table"
+    write_orbit_json(not_a_table / "notes.json", [{"NOTE": "nothing orbital here"}])
+
+    bad_identity = tmp_path / "bad_identity"
+    write_orbit_json(
+        bad_identity / "two.json",
+        [
+            tle_record_at(ISS_NORAD_ID, OBS_EPOCH_JD),
+            dict(
+                tle_record_at(GPS_NORAD_ID, GPS_EPOCH_JD),
+                NORAD_CAT_ID="not-a-satellite",
+            ),
+        ],
+    )
+
+    for directory, offending in (
+        (malformed, "broken.json"),
+        (not_a_table, "notes.json"),
+        (bad_identity, "two.json"),
+    ):
+        with pytest.raises(orbit.OrbitError) as raised:
+            orbit.read_extra_orbit_dir(directory)
+        assert offending in str(raised.value)
+
+    # A malformed identity on a row nobody asked for still stops the run: a bad
+    # identity that survives to a wanted-ID filter simply vanishes from it, and
+    # the service then answers for the satellite the file was meant to supply.
+    monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
+    monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
+    with pytest.raises(orbit.OrbitError) as raised:
+        orbit.resolve_orbits(
+            [ISS_NORAD_ID], OBS_EPOCH_JD, extra_orbit_dir=str(bad_identity)
+        )
+    assert "two.json" in str(raised.value)
+
+    # A failure the client raised keeps everything it knew about it.
+    offending_path = tmp_path / "raised" / "used_orbits.json"
+    supplied = OrbitInputError(
+        "row 3 is not filed against a satellite: NORAD_CAT_ID is 25544.5",
+        path=offending_path,
+        row=3,
+        norad_id=ISS_NORAD_ID,
+    )
+
+    def raise_supplied(*args, **kwargs):
+        raise supplied
+
+    monkeypatch.setattr(satchecker_client, "read_extra_orbit_dir", raise_supplied)
+    with pytest.raises(orbit.OrbitError) as raised:
+        orbit.read_extra_orbit_dir(tmp_path / "anywhere")
+    assert raised.value is not supplied
+    assert raised.value.__cause__ is supplied
+    message = str(raised.value)
+    assert str(offending_path) in message
+    assert "row 3" in message
+    assert str(ISS_NORAD_ID) in message
+    assert "is not filed against a satellite" in message
+
+
+# ---------------------------------------------------------------------------
+# Writing what a run used
+# ---------------------------------------------------------------------------
+
+def writer_cases():
+    tle = tle_record_at(ISS_NORAD_ID, OBS_EPOCH_JD, DATA_SOURCE="spacetrack")
+    omm = awkward_omm(GPS_NORAD_ID, GPS_EPOCH_JD, DATA_SOURCE="spacetrack")
+    return {
+        "empty": ([], [], None),
+        "tle": ([ISS_NORAD_ID], [tle], None),
+        "omm": ([GPS_NORAD_ID], [omm], None),
+        "mixed": ([GPS_NORAD_ID, ISS_NORAD_ID], [omm, tle], None),
+        "misaligned": ([GPS_NORAD_ID, ISS_NORAD_ID], [tle], ValueError),
+        "mismatched_identity": ([GPS_NORAD_ID], [tle], ValueError),
+    }
+
+
+WRITER_CASES = writer_cases()
+
+
+@pytest.mark.parametrize("case", list(WRITER_CASES))
+def test_single_file_writer_delegates(case, monkeypatch, tmp_path):
+    """One writer, in the module that also reads the format back.
+
+    The alignment and identity checks are not incidental validation: ``zip``
+    would truncate to the shorter sequence and write a file that reads back
+    cleanly while describing different satellites than the run propagated. They
+    stay ``ValueError``, because a misaligned call is a bug in the caller and
+    not a failure to obtain an orbit.
+    """
+    norad_ids, records, error = WRITER_CASES[case]
+    spy = spy_on(monkeypatch, "save_orbits_for_reuse")
+    path = tmp_path / "used_orbits.json"
+
+    if error is None:
+        assert orbit.save_orbits_for_reuse(path, norad_ids, records) == str(path)
+        assert path.exists()
+    else:
+        with pytest.raises(error):
+            orbit.save_orbits_for_reuse(path, norad_ids, records)
+
+    assert len(spy.calls) == 1
+    assert str(spy.argument(0, "path")) == str(path)
+    assert list(spy.argument(1, "norad_ids")) == norad_ids
+    assert list(spy.argument(2, "records")) == records
+
+    if error is not None:
+        return
+    written = json.loads(path.read_text())
+    assert "EPOCH_JD" not in written and "SEMIMAJOR_AXIS" not in written
+    if not records:
+        assert written == {}
+        return
+    back = read_legacy_tle_records(tmp_path)
+    assert len(back) == len(records)
+    if case in ("omm", "mixed"):
+        row = back[back["NORAD_CAT_ID"].astype("int64") == GPS_NORAD_ID].iloc[0]
+        # The same double, not a near one: at its maximum precision
+        # DataFrame.to_json writes 0.0066635 as 0.006663499999999999.
+        assert row["ECCENTRICITY"] == 0.0066635
+        assert row["BSTAR"] == 3.2e-05
+        # Provenance is read off the file itself: read_legacy_tle_records keeps
+        # only identity and elements, by its own contract.
+        position = str(norad_ids.index(GPS_NORAD_ID))
+        assert written["DATA_SOURCE"][position] == "spacetrack"
+        assert written["ECCENTRICITY"][position] == 0.0066635
+        assert written["BSTAR"][position] == 3.2e-05
+
+
+# ---------------------------------------------------------------------------
+# Frozen replay
+# ---------------------------------------------------------------------------
+
+def test_replay_loader_delegates_and_keeps_tabsim_messages(monkeypatch, capsys):
+    """A replay reads two files and has no second source, by design."""
+    forbid_replay_fallbacks(monkeypatch)
+    spy = spy_on(monkeypatch, "load_replay_orbits")
+
+    directory, expected = compat_fixture("mixed_tle_first")
+    norad_ids, records = orbit.load_replay_orbits(directory)
+
+    assert len(spy.calls) == 1
+    assert Path(str(spy.argument(0, "directory"))) == Path(directory)
+    # Stated, never defaulted: the client requires it and there is no safe
+    # default for whether unverifiable lines may be replayed.
+    assert spy.call[1]["allow_missing_checksum"] is False
+    assert norad_ids == expected["norad_ids"]  # saved order, not sorted
+    assert [comparable_record(record) for record in records] == expected["records"]
+
+    unverified_dir, unverified = compat_fixture("unverified")
+    _, permissive = orbit.load_replay_orbits(
+        unverified_dir, allow_missing_checksum=True
+    )
+    out = capsys.readouterr().out
+    assert "Unverified TLE: missing checksum" in out
+    assert permissive[0][CHECKSUM_STATUS_FIELD] == STATUS_UNVERIFIED
+
+    # The same records under this run's policy are a stop, with the opt-in named.
+    with pytest.raises(orbit.OrbitError) as raised:
+        orbit.load_replay_orbits(unverified_dir)
+    message = str(raised.value)
+    assert str(unverified_dir / "used_orbits.json") in message
+    assert "rfi_sources.tle_satellite.allow_missing_checksum: true" in message
+    assert "--allow-missing-checksum" in message
+
+    missing = Path(str(directory)) / "not-a-replay"
+    with pytest.raises(orbit.OrbitError) as raised:
+        orbit.load_replay_orbits(missing)
+    assert str(missing) in str(raised.value)
+
+
+class SavedObservation:
+    """The little of ``Observation`` that ``tabsim.config.save_inputs`` reads."""
+
+    def __init__(self, norad_ids, orbit_records):
+        import dask.array as da
+
+        self.norad_ids = (
+            [da.from_array(np.asarray(norad_ids, dtype=np.int64))]
+            if len(norad_ids)
+            else []
+        )
+        self.orbit_records = list(orbit_records)
+
+
+def save_config():
+    """A ``sim_config`` with no input files to copy, so only the pair is written."""
+    return {
+        "telescope": {"enu_path": None, "itrf_path": None},
+        "ast_sources": {},
+        "rfi_sources": {
+            "tle_satellite": {
+                "norad_ids_path": None,
+                "norad_spec_model": None,
+                "replay_orbit_dir": None,
+            },
+            "satellite": {"circ_path": None, "spec_model": None},
+            "stationary": {"geo_path": None, "spec_model": None},
+        },
+    }
+
+
+def save_cases():
+    tle = canonical(tle_record_at(ISS_NORAD_ID, OBS_EPOCH_JD, DATA_SOURCE="spacetrack"))
+    omm = canonical(awkward_omm(GPS_NORAD_ID, GPS_EPOCH_JD, DATA_SOURCE="spacetrack"))
+    return {
+        "records": ([GPS_NORAD_ID, ISS_NORAD_ID], [omm, tle], None),
+        "empty": ([], [], None),
+        "misaligned": ([GPS_NORAD_ID, ISS_NORAD_ID], [omm], ValueError),
+        "duplicate": ([ISS_NORAD_ID, ISS_NORAD_ID], [tle, tle], ValueError),
+    }
+
+
+SAVE_CASES = save_cases()
+
+
+@pytest.mark.parametrize("case", list(SAVE_CASES))
+def test_config_saves_one_validated_replay_pair(case, monkeypatch, tmp_path, capsys):
+    """The IDs and the records a run saves are one decision, written together.
+
+    Writing the ID file separately is what lets the two disagree — and, when the
+    records turn out not to be writable, leaves a directory holding an ID list
+    for records that are not there. The pair writer validates and serialises
+    both before either destination is opened.
+    """
+    norad_ids, records, error = SAVE_CASES[case]
+    pair = spy_on(monkeypatch, "save_replay_orbits")
+    single = spy_on(monkeypatch, "save_orbits_for_reuse")
+
+    save_path = tmp_path / "input_data"
+    save_path.mkdir()
+    ids_path = save_path / "norad_ids.yaml"
+    records_path = save_path / "used_orbits.json"
+    sentinel = "# written by an earlier run\n"
+    ids_path.write_text(sentinel)
+    records_path.write_text(sentinel)
+
+    observation = SavedObservation(norad_ids, records)
+    if error is None:
+        config_module.save_inputs(observation, save_config(), str(save_path))
+    else:
+        with pytest.raises(error):
+            config_module.save_inputs(observation, save_config(), str(save_path))
+
+    assert len(pair.calls) == 1
+    assert single.calls == []
+    assert list(pair.argument(1, "norad_ids")) == norad_ids
+    assert list(pair.argument(2, "records")) == records
+
+    if error is not None:
+        # Nothing that failed validation reached either destination.
+        assert ids_path.read_text() == sentinel
+        assert records_path.read_text() == sentinel
+        return
+
+    assert ids_path.read_text() == "".join(f"{nid}\n" for nid in norad_ids)
+    assert f"Orbit records used written to : {records_path}" in capsys.readouterr().out
+    replayed_ids, replayed = orbit.load_replay_orbits(save_path)
+    assert replayed_ids == norad_ids
+    assert [comparable_record(record) for record in replayed] == [
+        comparable_record(record) for record in records
+    ]
+
+
+@pytest.mark.parametrize(
+    "case", ["empty", "tle_verified", "omm", "mixed_tle_first", "mixed_omm_first",
+             "unverified"]
+)
+def test_pr44_replay_loads_through_client_adapter(case, monkeypatch):
+    """Directories written by #44 replay unchanged, through the client's loader.
+
+    The fixtures are #44's own output, frozen before any of this landed; see
+    ``tests/compat/fixtures/PROVENANCE.txt``. What has to survive is the saved
+    selection, the retained doubles, the checksum provenance and the
+    trajectories — not the bytes.
+    """
+    forbid_replay_fallbacks(monkeypatch)
+    spy = spy_on(monkeypatch, "load_replay_orbits")
+    directory, expected = compat_fixture(case)
+    policy = expected["allow_missing_checksum"]
+
+    norad_ids, records = orbit.load_replay_orbits(
+        directory, allow_missing_checksum=policy
+    )
+
+    assert len(spy.calls) == 1
+    assert spy.call[1]["allow_missing_checksum"] is policy
+    assert norad_ids == expected["norad_ids"]
+    assert [comparable_record(record) for record in records] == expected["records"]
+
+    if policy:
+        # A permissive run cannot be laundered into a strict one by saving it.
+        with pytest.raises(orbit.OrbitError):
+            orbit.load_replay_orbits(directory)
+
+    if not records:
+        return
+    # The elements are the trajectory: rebuilt from the frozen JSON rather than
+    # from the loader, so the comparison is against the fixture and not itself.
+    rebuilt = [
+        {key: value for key, value in record.items() if value is not None}
+        for record in expected["records"]
+    ]
+    times_jd = OBS_EPOCH_JD + np.linspace(0.0, 0.2, 5)
+    np.testing.assert_array_equal(
+        get_satellite_positions(records, times_jd),
+        get_satellite_positions(rebuilt, times_jd),
+    )
+
+
+def adopted_cases():
+    tle = canonical(tle_record_at(ISS_NORAD_ID, OBS_EPOCH_JD, DATA_SOURCE="spacetrack"))
+    omm = canonical(awkward_omm(GPS_NORAD_ID, GPS_EPOCH_JD, DATA_SOURCE="spacetrack"))
+    unverified = tle_record_at(ISS_NORAD_ID, OBS_EPOCH_JD, DATA_SOURCE="spacetrack")
+    unverified["TLE_LINE1"] = without_checksum(unverified["TLE_LINE1"])
+    unverified["TLE_LINE2"] = without_checksum(unverified["TLE_LINE2"])
+    return {
+        "empty": ([], [], False),
+        "tle": ([ISS_NORAD_ID], [tle], False),
+        "omm": ([GPS_NORAD_ID], [omm], False),
+        "mixed": ([GPS_NORAD_ID, ISS_NORAD_ID], [omm, tle], False),
+        "unverified": ([ISS_NORAD_ID], [canonical(unverified)], True),
+    }
+
+
+ADOPTED_CASES = adopted_cases()
+
+
+@pytest.mark.parametrize("case", list(ADOPTED_CASES))
+def test_adopted_replay_is_readable_by_pr44_loader(case, monkeypatch, tmp_path):
+    """And the other direction: #44 can still read what this writes.
+
+    The oracle is #44's real loader, frozen under ``tests/compat/``, because the
+    adopted loader cannot answer this question about itself.
+    """
+    norad_ids, records, unverified = ADOPTED_CASES[case]
+    spy = spy_on(monkeypatch, "save_replay_orbits")
+
+    ids_path, records_path = orbit.save_replay_orbits(tmp_path, norad_ids, records)
+
+    assert len(spy.calls) == 1
+    assert Path(ids_path).name == pr44_loader.REPLAY_IDS_FILE
+    assert Path(records_path).name == pr44_loader.REPLAY_RECORDS_FILE
+
+    if unverified:
+        # #44 refuses unverifiable lines unless the replay opts in, exactly as
+        # the run that accepted them had to.
+        with pytest.raises(pr44_loader.OrbitError):
+            pr44_loader.load_replay_orbits(tmp_path)
+
+    back_ids, back_records = pr44_loader.load_replay_orbits(
+        tmp_path, allow_missing_checksum=unverified
+    )
+    assert back_ids == norad_ids  # saved order, not sorted
+
+    for original, loaded in zip(records, back_records):
+        expected = comparable_record(original)
+        read_back = comparable_record(loaded)
+        for key, value in expected.items():
+            assert read_back[key] == value, key
+        # Nothing invented on the way through: a mixed table's null cells are
+        # the only extra keys a row may come back with.
+        assert {
+            key for key, value in read_back.items() if value is not None
+        } <= set(expected)
+    if records:
+        status = STATUS_UNVERIFIED if unverified else STATUS_VERIFIED
+        tle_rows = [
+            record for record in back_records if record.get("RECORD_KIND") == "tle"
+        ]
+        assert tle_rows and all(
+            record[CHECKSUM_STATUS_FIELD] == status for record in tle_rows
+        )
+
+
+# ---------------------------------------------------------------------------
+# What the resolver leaves in the shared cache
+# ---------------------------------------------------------------------------
+
+def test_resolver_cache_writes_canonical_verified_records(monkeypatch, isolated_cache):
+    """The cache keeps the copy that was judged, not the wire row that arrived.
+
+    The shared cache is read by every application on this package, at whatever
+    version each is on, and a row with no stated kind or checksum provenance is
+    one every reader has to re-infer. Writing the validated copy makes one
+    canonicalisation, applied where the record is judged.
+    """
+    served = tle_record_at(ISS_NORAD_ID, OBS_EPOCH_JD, DATA_SOURCE="spacetrack")
+    served.pop("RECORD_KIND")  # the endpoint does not send one
+    stub_endpoints(monkeypatch, tle={ISS_NORAD_ID: served})
+
+    resolution = orbit.resolve_orbits([ISS_NORAD_ID], OBS_EPOCH_JD)
+    assert resolution.complete
+
+    stored = TextOrbitCache(orbit.orbit_cache_dir()).get(ISS_NORAD_ID)
+    assert len(stored) == 1
+    assert "RECORD_KIND" in stored.columns
+    assert CHECKSUM_STATUS_FIELD in stored.columns
+    row = stored.iloc[0]
+    assert row["RECORD_KIND"] == "tle"
+    assert row[CHECKSUM_STATUS_FIELD] == STATUS_VERIFIED
+    assert row["TLE_LINE1"] == served["TLE_LINE1"]
