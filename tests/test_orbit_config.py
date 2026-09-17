@@ -67,8 +67,7 @@ class TestObsoleteKeys:
     ):
         """...and they stop the run before it builds anything or asks anything.
 
-        ``max_n_sat: 0`` disables satellite simulation entirely, the one
-        configuration where nothing downstream would ever read the section.
+        ``max_n_sat: 0`` is the one config where nothing downstream reads the section.
         """
         config_path = write_sim_config(
             tmp_path / "sim.yaml",
@@ -87,9 +86,7 @@ class TestObsoleteKeys:
     def test_a_failed_run_restores_stdout(self, tmp_path, monkeypatch):
         """A fatal error must not leave the process writing into that run's log.
 
-        ``run_sim_config`` tees ``sys.stdout`` into ``log_sim_*.txt`` and the checks
-        can raise first. Deliberately *without* ``restored_stdout``: this is the
-        guard that it is not needed.
+        Deliberately *without* ``restored_stdout``: the guard that it is not needed.
         """
         config_path = write_sim_config(
             tmp_path / "sim.yaml", tle_satellite={"tle_dir": "gone"}
@@ -118,8 +115,7 @@ class TestNewSettings:
     def test_non_boolean_policy_values_are_rejected(self, key, value):
         """``allow_missing_checksum: 0`` must not mean "on" by truthiness.
 
-        These decide whether unverifiable orbital data is accepted and whether the
-        service is contacted, so a near-miss value must be an error.
+        They gate unverifiable data and network access, so a near miss must be an error.
         """
         with pytest.raises(TLEConfigurationError, match=key):
             normalise_orbit_config({key: value})
@@ -172,8 +168,7 @@ class TestReplaySelection:
     ):
         """A value a replay never reads cannot be a reason to refuse the run.
 
-        The saved IDs are authoritative, so an ID file that has since moved and a
-        malformed leftover in the config must both stop mattering.
+        The saved IDs are the selection, so a moved ID file stops mattering too.
         """
         replay_dir = tmp_path / "input_data"
         replay_dir.mkdir()
@@ -195,8 +190,7 @@ class TestReplaySelection:
     def test_replay_and_extra_orbit_dir_are_rejected_together(self, tmp_path):
         """Their source-selection contracts differ, so the pair has no meaning.
 
-        ``extra_orbit_dir`` is per-ID precedence within the run's own selection;
-        ``replay_orbit_dir`` replaces that selection.
+        ``extra_orbit_dir`` refines the selection; ``replay_orbit_dir`` replaces it.
         """
         with pytest.raises(TLEConfigurationError, match="replay_orbit_dir"):
             normalise_orbit_config(
@@ -211,8 +205,7 @@ class TestReplaySelection:
     ):
         """A replay of a run that limited itself is still the saved selection.
 
-        The startup guard that skips satellite handling when ``max_n_sat`` is zero
-        would otherwise discard a non-empty replay.
+        The startup guard that skips satellites at ``max_n_sat: 0`` must not drop it.
         """
         replay_dir = write_replay_dir(
             tmp_path / "input_data",
