@@ -57,6 +57,7 @@ from orbit_helpers import (
     jd,
     omm_record_from_tle,
     record_at,
+    reject_json_constant,
     search_frame,
     search_payload,
     search_row,
@@ -133,15 +134,6 @@ def select_visible(
         norad_ids=list(norad_ids),
         **policy,
     )
-
-
-def reject_json_constant(name):
-    """Refuse the non-standard JSON literals ``json`` accepts by default.
-
-    ``json.loads`` reads a bare ``NaN`` happily, so parsing with the defaults
-    cannot show a replay file contains none.
-    """
-    raise AssertionError(f"replay file carries the non-standard JSON literal {name}")
 
 
 class TestPropagation:
@@ -1781,6 +1773,7 @@ class TestReplay:
     @pytest.mark.parametrize(
         "damage,expected",
         [
+            ("missing-directory", "input_data"),
             ("missing-records-file", "used_orbits.json"),
             ("missing-id-file", "norad_ids.yaml"),
             ("corrupt-json", "used_orbits.json"),
@@ -1808,7 +1801,11 @@ class TestReplay:
         records_path = replay_dir / "used_orbits.json"
         ids_path = replay_dir / "norad_ids.yaml"
 
-        if damage == "missing-records-file":
+        if damage == "missing-directory":
+            records_path.unlink()
+            ids_path.unlink()
+            replay_dir.rmdir()
+        elif damage == "missing-records-file":
             records_path.unlink()
         elif damage == "missing-id-file":
             ids_path.unlink()

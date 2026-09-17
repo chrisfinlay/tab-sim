@@ -21,6 +21,7 @@ and hands them back through the same seam.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -47,7 +48,6 @@ from tabsim import config as config_module
 from tabsim import orbit
 from tabsim.tle import get_satellite_positions
 
-from compat import pr44_loader
 from orbit_helpers import (
     CHECKSUM_STATUS_FIELD,
     GPS_EPOCH_JD,
@@ -62,10 +62,10 @@ from orbit_helpers import (
     forbid_orbit_acquisition,
     forbidden,
     omm_record_at,
+    reject_json_constant,
     spy_on,
     stub_endpoints,
     tle_record_at,
-    without_checksum,
     write_orbit_json,
     write_replay_pair,
 )
@@ -1267,44 +1267,6 @@ def test_extra_reader_delegates_and_preserves_contextual_errors(monkeypatch, tmp
     assert "is not filed against a satellite" in message
 
 
-def test_replay_loader_delegates_and_keeps_tabsim_messages(monkeypatch, capsys):
-    """A replay reads two files and has no second source, by design."""
-    forbid_orbit_acquisition(monkeypatch)
-    spy = spy_on(monkeypatch, "load_replay_orbits")
-
-    directory, expected = compat_fixture("mixed_tle_first")
-    norad_ids, records = orbit.load_replay_orbits(directory)
-
-    assert len(spy.calls) == 1
-    assert Path(str(spy.argument(0, "directory"))) == Path(directory)
-    # Stated, never defaulted: the client requires it and there is no safe
-    # default for whether unverifiable lines may be replayed.
-    assert spy.call[1]["allow_missing_checksum"] is False
-    assert norad_ids == expected["norad_ids"]  # saved order, not sorted
-    assert [comparable_record(record) for record in records] == expected["records"]
-
-    unverified_dir, unverified = compat_fixture("unverified")
-    _, permissive = orbit.load_replay_orbits(
-        unverified_dir, allow_missing_checksum=True
-    )
-    out = capsys.readouterr().out
-    assert "Unverified TLE: missing checksum" in out
-    assert permissive[0][CHECKSUM_STATUS_FIELD] == STATUS_UNVERIFIED
-
-    # The same records under this run's policy are a stop, with the opt-in named.
-    with pytest.raises(orbit.OrbitError) as raised:
-        orbit.load_replay_orbits(unverified_dir)
-    message = str(raised.value)
-    assert str(unverified_dir / "used_orbits.json") in message
-    assert "rfi_sources.tle_satellite.allow_missing_checksum: true" in message
-    assert "--allow-missing-checksum" in message
-
-    missing = Path(str(directory)) / "not-a-replay"
-    with pytest.raises(orbit.OrbitError) as raised:
-        orbit.load_replay_orbits(missing)
-    assert str(missing) in str(raised.value)
-
-
 def replay_refusal_cases():
     """``case -> (saved IDs, saved records, is the checksum opt-in the remedy?)``.
 
@@ -1466,11 +1428,14 @@ def test_config_saves_one_validated_replay_pair(case, monkeypatch, tmp_path, cap
         )
 
 
-@pytest.mark.parametrize(
-    "case", ["empty", "tle_verified", "omm", "mixed_tle_first", "mixed_omm_first",
-             "unverified"]
-)
-def test_pr44_replay_loads_through_client_adapter(case, monkeypatch):
+#: The three frozen #44 replay directories kept as historical samples: an
+#: explicitly empty selection, a mixed table with unsorted IDs, null cells and
+#: awkward doubles, and a record whose checksum digits were never verified.
+COMPAT_CASES = ["empty", "mixed_tle_first", "unverified"]
+
+
+@pytest.mark.parametrize("case", COMPAT_CASES)
+def test_a_pr44_replay_loads_through_the_client_adapter(case, monkeypatch, capsys):
     """Directories written by #44 replay unchanged, through the client's loader.
 
     The fixtures are #44's own output, frozen before any of this landed. What has
@@ -1485,16 +1450,27 @@ def test_pr44_replay_loads_through_client_adapter(case, monkeypatch):
     norad_ids, records = orbit.load_replay_orbits(
         directory, allow_missing_checksum=policy
     )
+    out = capsys.readouterr().out
 
     assert len(spy.calls) == 1
+    assert Path(str(spy.argument(0, "directory"))) == Path(directory)
+    # Stated, never defaulted: there is no safe default for whether unverifiable
+    # lines may be replayed.
     assert spy.call[1]["allow_missing_checksum"] is policy
-    assert norad_ids == expected["norad_ids"]
+    assert norad_ids == expected["norad_ids"]  # saved order, not sorted
     assert [comparable_record(record) for record in records] == expected["records"]
 
     if policy:
-        # A permissive run cannot be laundered into a strict one by saving it.
-        with pytest.raises(orbit.OrbitError):
+        assert "Unverified TLE: missing checksum" in out
+        assert records[0][CHECKSUM_STATUS_FIELD] == STATUS_UNVERIFIED
+        # A permissive run cannot be laundered into a strict one by saving it,
+        # and the refusal names the file and the setting that would lift it.
+        with pytest.raises(orbit.OrbitError) as raised:
             orbit.load_replay_orbits(directory)
+        message = str(raised.value)
+        assert str(Path(directory) / "used_orbits.json") in message
+        assert "rfi_sources.tle_satellite.allow_missing_checksum: true" in message
+        assert "--allow-missing-checksum" in message
 
     if not records:
         return
@@ -1511,72 +1487,53 @@ def test_pr44_replay_loads_through_client_adapter(case, monkeypatch):
     )
 
 
-def adopted_cases():
-    tle = canonical(tle_record_at(ISS_NORAD_ID, OBS_EPOCH_JD, DATA_SOURCE="spacetrack"))
-    omm = canonical(awkward_omm(GPS_NORAD_ID, GPS_EPOCH_JD, DATA_SOURCE="spacetrack"))
-    unverified = tle_record_at(ISS_NORAD_ID, OBS_EPOCH_JD, DATA_SOURCE="spacetrack")
-    unverified["TLE_LINE1"] = without_checksum(unverified["TLE_LINE1"])
-    unverified["TLE_LINE2"] = without_checksum(unverified["TLE_LINE2"])
-    return {
-        "empty": ([], [], False),
-        "tle": ([ISS_NORAD_ID], [tle], False),
-        "omm": ([GPS_NORAD_ID], [omm], False),
-        "mixed": ([GPS_NORAD_ID, ISS_NORAD_ID], [omm, tle], False),
-        "unverified": ([ISS_NORAD_ID], [canonical(unverified)], True),
-    }
+@pytest.mark.parametrize("case", COMPAT_CASES)
+def test_what_a_run_saves_still_matches_the_frozen_file_format(
+    case, monkeypatch, tmp_path
+):
+    """And the other direction: the pair writer still produces #44's two files.
 
-
-ADOPTED_CASES = adopted_cases()
-
-
-@pytest.mark.parametrize("case", list(ADOPTED_CASES))
-def test_adopted_replay_is_readable_by_pr44_loader(case, monkeypatch, tmp_path):
-    """And the other direction: #44 can still read what this writes.
-
-    The oracle is #44's real loader, because the adopted one cannot answer this
-    question about itself.
+    The expectation is the frozen directory itself, read with the standard
+    library — never re-derived through the client's serialiser or its loader,
+    which would compare the implementation with itself. Executing #44's own
+    loader over this output is historical test-host evidence recorded in the PR,
+    not something this suite still does.
     """
-    norad_ids, records, unverified = ADOPTED_CASES[case]
+    directory, expected = compat_fixture(case)
+    norad_ids = expected["norad_ids"]
+    # #44's own projection of each record, with the null cells one table holding
+    # both kinds gives a row dropped again.
+    records = [
+        {key: value for key, value in record.items() if value is not None}
+        for record in expected["records"]
+    ]
     spy = spy_on(monkeypatch, "save_replay_orbits")
 
     ids_path, records_path = orbit.save_replay_orbits(tmp_path, norad_ids, records)
 
     assert len(spy.calls) == 1
-    assert Path(ids_path).name == pr44_loader.REPLAY_IDS_FILE
-    assert Path(records_path).name == pr44_loader.REPLAY_RECORDS_FILE
+    assert Path(str(spy.argument(0, "directory"))) == tmp_path
+    assert list(spy.argument(1, "norad_ids")) == norad_ids
+    assert list(spy.argument(2, "records")) == records
+    assert Path(ids_path).name == "norad_ids.yaml"
+    assert Path(records_path).name == "used_orbits.json"
 
-    if unverified:
-        # #44 refuses unverifiable lines unless the replay opts in, exactly as
-        # the run that accepted them had to.
-        with pytest.raises(pr44_loader.OrbitError):
-            pr44_loader.load_replay_orbits(tmp_path)
-
-    back_ids, back_records = pr44_loader.load_replay_orbits(
-        tmp_path, allow_missing_checksum=unverified
+    # The saved IDs, in saved order, one per line and nothing else.
+    assert Path(ids_path).read_text() == (directory / "norad_ids.yaml").read_text()
+    # Positional string indices, projected fields, null cells, kinds, checksum
+    # provenance and the exact retained doubles, all in one comparison — and
+    # parse_constant refuses a file only Python's own JSON parser would accept.
+    written = json.loads(
+        Path(records_path).read_text(), parse_constant=reject_json_constant
     )
-    assert back_ids == norad_ids  # saved order, not sorted
-
-    for original, loaded in zip(records, back_records):
-        expected = comparable_record(original)
-        read_back = comparable_record(loaded)
-        for key, value in expected.items():
-            assert read_back[key] == value, key
-        # Nothing invented: a mixed table's null cells are the only extra keys.
-        assert {
-            key for key, value in read_back.items() if value is not None
-        } <= set(expected)
-    if records:
-        # Every TLE that went in comes back carrying its checksum provenance, and
-        # only a TLE does: the format makes no checksum claim about an OMM, so an
-        # OMM-only selection legitimately has no such row.
-        status = STATUS_UNVERIFIED if unverified else STATUS_VERIFIED
-        tle_rows = [
-            record for record in back_records if record.get("RECORD_KIND") == "tle"
-        ]
-        assert len(tle_rows) == sum(
-            1 for record in records if record.get("RECORD_KIND") == "tle"
-        )
-        assert all(record[CHECKSUM_STATUS_FIELD] == status for record in tle_rows)
+    assert written == json.loads(
+        (directory / "used_orbits.json").read_text(),
+        parse_constant=reject_json_constant,
+    )
+    if not records:
+        # An explicitly empty table and an empty ID file, not two absent files.
+        assert written == {}
+        assert Path(ids_path).read_text() == ""
 
 
 def test_satchecker_dependency_pins_resolver_head():

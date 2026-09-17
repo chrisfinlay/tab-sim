@@ -538,6 +538,15 @@ def serve_search(monkeypatch, by_query):
     return calls
 
 
+def reject_json_constant(name):
+    """Refuse the non-standard JSON literals ``json`` accepts by default.
+
+    ``json.loads`` reads a bare ``NaN`` happily, so parsing with the defaults
+    cannot show a replay file contains none.
+    """
+    raise AssertionError(f"replay file carries the non-standard JSON literal {name}")
+
+
 #: Replay directories written by tab-sim e3d957d (PR #44), with what #44's own
 #: loader read back out of each. See ``tests/compat/fixtures/PROVENANCE.txt``.
 COMPAT_FIXTURE_DIR = Path(__file__).resolve().parent / "compat" / "fixtures"
