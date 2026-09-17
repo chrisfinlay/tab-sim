@@ -60,6 +60,37 @@ def deep_update(d: dict, u: dict) -> dict:
     return d
 
 
+def fill_unset(d: dict, defaults: dict) -> dict:
+    """Recursively set *defaults* only where *d* has no value of its own.
+
+    ``deep_update`` is the wrong direction for the packaged data files: it
+    overwrites what the configuration says. A custom ``norad_spec_model`` was
+    replaced by the shipped table at startup, so a satellite only the user's own
+    model covers was left out of the simulation and one in both tables was
+    modelled with the shipped emission power — both silently, and both after the
+    configuration had said otherwise. A default is what applies when nothing was
+    configured, which is what ``null`` in ``sim_config_base.yaml`` means.
+
+    Parameters
+    ----------
+    d : dict
+        Configuration section to fill in, modified in place.
+    defaults : dict
+        Values to use for keys that are absent or ``None``.
+
+    Returns
+    -------
+    dict
+        The filled-in section.
+    """
+    for k, v in defaults.items():
+        if isinstance(v, collections.abc.Mapping):
+            d[k] = fill_unset(d.get(k) or {}, v)
+        elif d.get(k) is None:
+            d[k] = v
+    return d
+
+
 loader = yaml.SafeLoader
 loader.add_implicit_resolver(
     "tag:yaml.org,2002:float",
@@ -978,8 +1009,11 @@ def _run_sim_config(
     elif sim_config is None:
         raise ValueError("sim_config or config_path must be defined.")
 
+    # The packaged tables are defaults, not overrides: a configured
+    # norad_spec_model, stationary geo_path or spec_path is what the run was asked
+    # to use.
     rfi_def = get_rfi_definitions()
-    sim_config["rfi_sources"] = deep_update(sim_config["rfi_sources"], rfi_def)
+    sim_config["rfi_sources"] = fill_unset(sim_config["rfi_sources"], rfi_def)
 
     # Before the observation is built and before any request goes out: an obsolete
     # orbit key changes nothing now, so a run that keeps one has to stop rather

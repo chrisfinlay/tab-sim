@@ -115,10 +115,44 @@ def tiny_sim_config(path, output_path, **tle_satellite):
     )
 
 
+#: Distinguishable from the 0.001 every satellite carries in the shipped
+#: ``norad_satellite.rfimodel``, so which table a run used is visible in the
+#: simulated RFI amplitude rather than only in the log.
+CUSTOM_POWER = 10.0
+PACKAGED_POWER = 0.001
+
+
 def run_sim_vis(config_path, *args):
     argv = ["sim-vis", "--config", str(config_path), "-o", *args]
     with restored_stdout(), patch.object(sys, "argv", argv):
         return sim_vis.main()
+
+
+def spec_model(path, norad_ids, power=CUSTOM_POWER):
+    """A spectral-model CSV for *norad_ids*, in the shipped ``.rfimodel`` shape.
+
+    Same centre frequency and bandwidth as the packaged table, so the emission
+    power is the only thing that differs between the two.
+    """
+    rows = ["norad_id,sat_name,object_id,sig_type,power,freq,band_width"]
+    rows += [
+        f"{int(nid)},TEST {nid},2024-000A,gauss,{power},1000000000.0,1000000000.0"
+        for nid in norad_ids
+    ]
+    Path(path).write_text("\n".join(rows) + "\n")
+    return str(path)
+
+
+def write_replay_dir(directory, norad_ids, records):
+    """The two files a frozen replay reads, as a completed run would write them."""
+    directory.mkdir(parents=True, exist_ok=True)
+    orbit.save_orbits_for_reuse(
+        directory / "used_orbits.json", list(norad_ids), list(records)
+    )
+    (directory / "norad_ids.yaml").write_text(
+        "".join(f"{int(nid)}\n" for nid in norad_ids)
+    )
+    return directory
 
 
 def final_ids(obs):
@@ -283,6 +317,88 @@ def test_sim_vis_named_outage_does_not_write_successful_observation(
 
     assert str(ISS_NORAD_ID) in str(excinfo.value)
     assert list(output_path.glob("**/*.zarr")) == []
+
+
+def test_configured_spectral_model_is_not_replaced_by_the_packaged_one(
+    tmp_path, monkeypatch
+):
+    """Startup's packaged defaults must not overwrite a configured spectral model.
+
+    ``deep_update`` applied the shipped table *over* whatever was configured, so a
+    satellite the user's own model covers and the shipped one does not was left
+    out of the simulation, with nothing in the log but "No NORAD IDs matching in
+    'norad_spec_model' file given".
+    """
+    unknown = 99999  # deliberately absent from the shipped norad_satellite.rfimodel
+    stub_records(monkeypatch, tle={unknown: tle_record_at(unknown, ISS_EPOCH_JD)})
+    config_path = tiny_sim_config(
+        tmp_path / "sim.yaml",
+        tmp_path / "out",
+        norad_ids=[unknown],
+        norad_spec_model=spec_model(tmp_path / "mine.rfimodel", [unknown]),
+    )
+
+    obs, _ = run_sim_vis(config_path)
+
+    assert final_ids(obs) == [unknown]
+    assert obs.n_rfi_tle_satellite == 1
+
+
+def test_configured_spectral_model_survives_into_a_frozen_replay(
+    tmp_path, monkeypatch
+):
+    """...and a replay reports a missing spectrum only when one is really missing."""
+    unknown = 99999
+    replay_dir = write_replay_dir(
+        tmp_path / "input_data", [unknown], [tle_record_at(unknown, ISS_EPOCH_JD)]
+    )
+    monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
+    monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
+    config_path = tiny_sim_config(
+        tmp_path / "replay.yaml",
+        tmp_path / "out",
+        norad_spec_model=spec_model(tmp_path / "mine.rfimodel", [unknown]),
+        replay_orbit_dir=str(replay_dir),
+    )
+
+    obs, _ = run_sim_vis(config_path)
+
+    assert final_ids(obs) == [unknown]
+
+
+def test_configured_spectral_model_sets_the_simulated_power(tmp_path, monkeypatch):
+    """For a satellite both tables cover, the configured power is the one simulated.
+
+    This is the quiet half of the same defect: the run completes, models the
+    satellite it was asked for, and gets its emission power from a file the
+    configuration replaced.
+    """
+    stub_records(
+        monkeypatch, tle={ISS_NORAD_ID: tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD)}
+    )
+    packaged, _ = run_sim_vis(
+        tiny_sim_config(
+            tmp_path / "packaged.yaml", tmp_path / "packaged", norad_ids=[ISS_NORAD_ID]
+        )
+    )
+    custom, _ = run_sim_vis(
+        tiny_sim_config(
+            tmp_path / "custom.yaml",
+            tmp_path / "custom",
+            norad_ids=[ISS_NORAD_ID],
+            norad_spec_model=spec_model(
+                tmp_path / "mine.rfimodel", [ISS_NORAD_ID], power=CUSTOM_POWER
+            ),
+        )
+    )
+
+    # Apparent amplitude goes as the square root of the emission power.
+    ratio = np.max(custom.rfi_tle_satellite_A_app) / np.max(
+        packaged.rfi_tle_satellite_A_app
+    )
+    assert float(ratio) == pytest.approx(
+        np.sqrt(CUSTOM_POWER / PACKAGED_POWER), rel=1e-6
+    )
 
 
 def test_sim_vis_offline_over_age_record_does_not_silently_drop_a_satellite(
