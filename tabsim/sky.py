@@ -64,12 +64,22 @@ def truncated_power_law_inv_cdf(
     I: array_like
         Source fluxes with the same shape as `x`."""
     a = 1.0 - float(alpha)
-    # In terms of the ratio of the limits, as a limit raised to the power of `a`
-    # overflows for a steep power law and nearly equal limits are lost to rounding.
-    q = -np.expm1(a * np.log(np.float64(I_max) / np.float64(I_min)))
-    I = I_min * np.exp(np.log1p(-x * q) / a)
+    lo, hi = np.float64(I_min), np.float64(I_max)
+    # In terms of the logarithm of the ratio of the limits, as a limit raised to the
+    # power of `a` overflows for a steep power law and nearly equal limits are lost
+    # to rounding. Taken from the ratio, which is exact for nearly equal limits,
+    # unless the limits are so far apart that their ratio itself overflows.
+    with np.errstate(over="ignore"):
+        ratio = hi / lo
+        if np.isfinite(ratio) or np.isinf(hi):
+            log_ratio = np.log(ratio)
+        else:
+            log_ratio = np.log(hi) - np.log(lo)
+        log_I = np.log1p(-x * -np.expm1(a * log_ratio)) / a
+        # exp(log_I) can overflow for a tiny `I_min` when `I_min` times it would not
+        I = np.where(log_I < 700.0, lo * np.exp(log_I), np.exp(np.log(lo) + log_I))
 
-    return np.clip(I, I_min, I_max)
+    return np.clip(I, lo, hi)
 
 
 def random_power_law(
@@ -98,7 +108,9 @@ def random_power_law(
     Returns:
     --------
     I: array_like (n_src,)
-        Array of source fluxes."""
+        Array of source fluxes. They are at most `I_max` to the precision of the
+        array: a single precision flux can be the nearest value to a double
+        precision `I_max`, which can be just above it."""
 
     if I_min > I_max:
         raise ValueError(
