@@ -69,7 +69,9 @@ def test_the_console_entry_point_exits_zero_on_success(monkeypatch, tmp_path):
     with patch.object(sys, "argv", argv):
         assert sim_vis.main() == (None, "output-path")
         assert sim_vis.cli() is None
-    text = Path(sim_vis.__file__).parents[2].joinpath("pyproject.toml").read_text()
+    # The checkout's pyproject, not the installed package's neighbour: under a
+    # non-editable install (CI) there is no pyproject.toml beside the module.
+    text = Path(__file__).parents[1].joinpath("pyproject.toml").read_text()
     assert 'sim-vis = "tabsim.scripts.sim_vis:cli"' in text
 
 
