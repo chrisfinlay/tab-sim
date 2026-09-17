@@ -62,6 +62,7 @@ from orbit_helpers import (
     search_row,
     serve_raw_search,
     serve_search,
+    spy_on,
     stub_failing_service,
     stub_service,
     tle_lines,
@@ -69,6 +70,7 @@ from orbit_helpers import (
     tle_record_at,
     with_stray_backslash,
     without_checksum,
+    write_orbit_json,
     write_replay_dir,
 )
 
@@ -246,40 +248,48 @@ class TestSourcePrecedence:
 
         assert not resolution.complete
 
-    def test_unreadable_extra_orbit_file_is_not_silently_skipped(
-        self, tmp_path, monkeypatch
+    @pytest.mark.parametrize(
+        "damage,expected",
+        [
+            ("broken-json", ["used_orbits.json"]),
+            ("not-an-orbit-table", ["notes.json"]),
+            ("fractional-identity", ["mine.json", "25544.5"]),
+            ("identity-on-an-unrequested-row", ["two.json"]),
+        ],
+    )
+    def test_an_unusable_extra_orbit_file_stops_the_run_naming_it(
+        self, tmp_path, monkeypatch, damage, expected
     ):
         """An explicit source we cannot read must name its path, not fall through.
 
-        Skipping it silently builds the run from records the user said not to
-        use, with nothing in the log about the file they pointed at.
+        Coercing an identity before validating it dropped the row silently and
+        substituted the service record the file existed to replace; the last case
+        damages a row nobody asked for, which a wanted-ID filter would swallow.
         """
-        stub_service(monkeypatch, {ISS_NORAD_ID: tle_record()})
-        broken = tmp_path / "used_orbits.json"
-        broken.write_text('{"TLE_LINE1": {"0": "1 25544U 98067A   23055')
-
-        with pytest.raises(orbit.OrbitError) as excinfo:
-            orbit.resolve_orbits(
-                [ISS_NORAD_ID], ISS_EPOCH_JD, extra_orbit_dir=str(tmp_path)
+        if damage == "broken-json":
+            (tmp_path / "used_orbits.json").write_text(
+                '{"TLE_LINE1": {"0": "1 25544U 98067A   23055'
             )
-
-        assert "used_orbits.json" in str(excinfo.value)
-
-    def test_malformed_extra_orbit_identity_is_not_silently_dropped(
-        self, tmp_path, monkeypatch
-    ):
-        """A row whose NORAD_CAT_ID is not an ID stops the run naming the file.
-
-        Coercing before validating dropped the row silently and substituted the
-        service record it existed to replace; ``int()`` truncates to another
-        satellite's catalogue number.
-        """
-        stub_service(
-            monkeypatch, {ISS_NORAD_ID: tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD)}
-        )
-        record = tle_record()  # valid ISS lines...
-        record["NORAD_CAT_ID"] = 25544.5  # ...under an identity that is not an ID
-        pd.DataFrame([record]).to_json(tmp_path / "mine.json")
+        elif damage == "not-an-orbit-table":
+            write_orbit_json(tmp_path / "notes.json", [{"NOTE": "nothing orbital"}])
+        elif damage == "fractional-identity":
+            record = tle_record()  # valid ISS lines...
+            record["NORAD_CAT_ID"] = 25544.5  # ...under something that is not an ID
+            pd.DataFrame([record]).to_json(tmp_path / "mine.json")
+        else:
+            write_orbit_json(
+                tmp_path / "two.json",
+                [
+                    tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD),
+                    dict(
+                        tle_record_at(GPS_NORAD_ID, ISS_EPOCH_JD),
+                        NORAD_CAT_ID="not-a-satellite",
+                    ),
+                ],
+            )
+        # The service must not be asked for what the file was meant to supply.
+        monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
+        monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
 
         with pytest.raises(orbit.OrbitError) as excinfo:
             orbit.resolve_orbits(
@@ -287,8 +297,8 @@ class TestSourcePrecedence:
             )
 
         message = str(excinfo.value)
-        assert "mine.json" in message
-        assert "25544.5" in message
+        for fragment in expected:
+            assert fragment in message, fragment
 
     def test_fresh_cache_avoids_the_request(self, monkeypatch, isolated_cache):
         TextOrbitCache(isolated_cache).store(
@@ -1684,7 +1694,103 @@ class TestChecksumPolicy:
         assert accepted[CHECKSUM_STATUS_FIELD] == STATUS_VERIFIED
 
 
+def writer_cases():
+    """``case -> (saved IDs, saved records, the error a bad pairing must raise)``.
+
+    The accepted records carry ``EPOCH_JD`` and ``SEMIMAJOR_AXIS`` because that is
+    what ``frame()`` puts on everything a run propagates: without them on the
+    input, "the writer does not store them" would prove nothing.
+    """
+    derived = {"EPOCH_JD": ISS_EPOCH_JD, "SEMIMAJOR_AXIS": 6796.0}
+    tle = tle_record(
+        norad_id=GPS_NORAD_ID, line1=GPS_LINE1, line2=GPS_LINE2, **derived
+    )
+    omm = omm_record_from_tle(**derived)
+    # Neither double survives DataFrame.to_json at its maximum precision, which
+    # writes the first as 0.006663499999999999, nor pandas' own float parser.
+    omm["ECCENTRICITY"] = 0.0066635
+    omm["BSTAR"] = 3.2e-05
+    iss = tle_record()
+    return {
+        "empty": ([], [], None),
+        "tle": ([GPS_NORAD_ID], [tle], None),
+        "omm": ([ISS_NORAD_ID], [omm], None),
+        "mixed": ([ISS_NORAD_ID, GPS_NORAD_ID], [omm, tle], None),
+        "more-ids-than-records": ([ISS_NORAD_ID, GPS_NORAD_ID], [iss], ValueError),
+        "more-records-than-ids": ([ISS_NORAD_ID], [iss, tle], ValueError),
+        "mismatched-identity": ([GPS_NORAD_ID], [iss], ValueError),
+    }
+
+
+WRITER_CASES = writer_cases()
+
+
 class TestReplay:
+    @pytest.mark.parametrize("case", list(WRITER_CASES))
+    def test_the_writer_delegates_and_writes_a_replayable_table(
+        self, case, monkeypatch, tmp_path
+    ):
+        """One writer, in the module that also reads the format back.
+
+        ``zip`` would truncate to the shorter sequence and write a file that reads
+        back cleanly while describing different satellites than the run
+        propagated, so a misaligned pair is a ``ValueError`` in the caller.
+        """
+        norad_ids, records, error = WRITER_CASES[case]
+        spy = spy_on(monkeypatch, "save_orbits_for_reuse")
+        path = tmp_path / "used_orbits.json"
+
+        if error is None:
+            assert orbit.save_orbits_for_reuse(path, norad_ids, records) == str(path)
+            assert path.exists()
+        else:
+            with pytest.raises(error):
+                orbit.save_orbits_for_reuse(path, norad_ids, records)
+
+        assert len(spy.calls) == 1
+        assert str(spy.argument(0, "path")) == str(path)
+        assert list(spy.argument(1, "norad_ids")) == norad_ids
+        assert list(spy.argument(2, "records")) == records
+        if error is not None:
+            return
+
+        # parse_constant is what refuses a file only Python's own JSON parser
+        # would take: json.loads reads a bare NaN happily.
+        written = json.loads(path.read_text(), parse_constant=reject_json_constant)
+        # A stored EPOCH_JD could only drift out of step with its elements.
+        assert "EPOCH_JD" not in written and "SEMIMAJOR_AXIS" not in written
+        if not records:
+            # Writing nothing would make "no satellite passed the target" and
+            # "this is not a replay" the same state on disk.
+            assert written == {}
+            return
+
+        back = read_legacy_tle_records(tmp_path)
+        assert len(back) == len(records)
+        kinds = {record[KIND_FIELD] for record in records}
+        for position, record in enumerate(records):
+            cell = str(position)
+            assert written["NORAD_CAT_ID"][cell] == norad_ids[position]
+            assert written["DATA_SOURCE"][cell] == record["DATA_SOURCE"]
+            if len(kinds) > 1:
+                # One table holding both kinds gives each row the other kind's
+                # columns as nulls — the format, not an invention.
+                absent = (
+                    "TLE_LINE1" if record[KIND_FIELD] == KIND_OMM else "MEAN_MOTION"
+                )
+                assert written[absent][cell] is None
+            if record[KIND_FIELD] != KIND_OMM:
+                assert written["TLE_LINE1"][cell] == record["TLE_LINE1"]
+                continue
+            # The same double, not a near one: in the file, and read back out.
+            assert written["ECCENTRICITY"][cell] == record["ECCENTRICITY"]
+            assert written["BSTAR"][cell] == record["BSTAR"]
+            row = back[
+                back["NORAD_CAT_ID"].astype("int64") == int(record["NORAD_CAT_ID"])
+            ].iloc[0]
+            assert row["ECCENTRICITY"] == record["ECCENTRICITY"]
+            assert row["BSTAR"] == record["BSTAR"]
+
     @pytest.mark.parametrize("build", [tle_record, omm_record_from_tle])
     def test_saved_records_read_back_as_themselves(
         self, build, tmp_path, monkeypatch
@@ -1722,95 +1828,6 @@ class TestReplay:
         before = get_satellite_positions(first.records(), times_jd)
         after = get_satellite_positions(second.records(), times_jd)
         np.testing.assert_array_equal(before, after)
-
-    def test_derived_columns_are_not_written(self, tmp_path):
-        """A stored EPOCH_JD could only drift out of step with its elements.
-
-        Put on the record by hand, so what is asserted is the writer's contract
-        and not that some caller produced them; ``frame()`` adds them routinely.
-        """
-        path = tmp_path / "used_orbits.json"
-        derived = tle_record()
-        derived["EPOCH_JD"] = ISS_EPOCH_JD
-        derived["SEMIMAJOR_AXIS"] = 6796.0
-        orbit.save_orbits_for_reuse(path, [ISS_NORAD_ID], [derived])
-        written = json.loads(path.read_text())
-        assert "EPOCH_JD" not in written
-        assert "SEMIMAJOR_AXIS" not in written
-        assert read_legacy_tle_records(tmp_path).shape[0] == 1
-
-    def test_omm_elements_survive_the_file_bit_for_bit(self, tmp_path):
-        """The written float must read back as the *same* double, not a near one.
-
-        ``DataFrame.to_json`` at its maximum precision writes 0.0066635 as
-        0.006663499999999999, and pandas' imprecise float parser reads it back the
-        same way — either makes a replayed trajectory disagree with its run.
-        """
-        awkward = omm_record_from_tle()
-        awkward["ECCENTRICITY"] = 0.0066635
-        awkward["BSTAR"] = 3.2e-05
-
-        orbit.save_orbits_for_reuse(
-            tmp_path / "used_orbits.json", [ISS_NORAD_ID], [awkward]
-        )
-        back = read_legacy_tle_records(tmp_path).iloc[0]
-
-        assert back["ECCENTRICITY"] == awkward["ECCENTRICITY"]
-        assert back["BSTAR"] == awkward["BSTAR"]
-
-    def test_mixed_kinds_in_one_file_stay_valid_json(self, tmp_path):
-        """A TLE row has no MEAN_MOTION; that must be null, not a bare NaN.
-
-        The parse alone proves nothing: ``parse_constant`` is what refuses a file
-        only Python's own JSON parser would accept.
-        """
-        path = tmp_path / "used_orbits.json"
-        orbit.save_orbits_for_reuse(
-            path,
-            [ISS_NORAD_ID, GPS_NORAD_ID],
-            [
-                omm_record_from_tle(),
-                tle_record(
-                    norad_id=GPS_NORAD_ID, line1=GPS_LINE1, line2=GPS_LINE2
-                ),
-            ],
-        )
-        payload = json.loads(path.read_text(), parse_constant=reject_json_constant)
-        assert payload["MEAN_MOTION"]["1"] is None
-        assert payload["TLE_LINE1"]["0"] is None
-        assert len(read_legacy_tle_records(tmp_path)) == 2
-
-    def test_empty_selection_is_saved_explicitly(self, tmp_path):
-        """A completed run with no satellites still needs its replay artifacts.
-
-        Writing nothing makes "no satellite passed the target" and "this is not a
-        replay" the same state on disk.
-        """
-        path = tmp_path / "used_orbits.json"
-
-        assert orbit.save_orbits_for_reuse(path, [], []) == str(path)
-        assert path.exists()
-        json.loads(path.read_text())  # an explicitly empty table, still valid JSON
-
-    def test_save_rejects_misaligned_ids_and_records(self, tmp_path):
-        """Misaligned inputs are a bug, and ``zip`` hides it: truncating to the
-        shorter sequence writes a file that reads back cleanly and describes
-        different satellites than the run propagated.
-        """
-        path = tmp_path / "used_orbits.json"
-        gps = tle_record(norad_id=GPS_NORAD_ID, line1=GPS_LINE1, line2=GPS_LINE2)
-
-        with pytest.raises(ValueError):
-            orbit.save_orbits_for_reuse(
-                path, [ISS_NORAD_ID, GPS_NORAD_ID], [tle_record()]
-            )
-        with pytest.raises(ValueError):
-            orbit.save_orbits_for_reuse(
-                path, [ISS_NORAD_ID], [tle_record(), gps]
-            )
-        # An ID that does not match the record filed against it, too.
-        with pytest.raises(ValueError):
-            orbit.save_orbits_for_reuse(path, [GPS_NORAD_ID], [tle_record()])
 
     @pytest.mark.parametrize("damaged", ["record", "aligned_id"])
     def test_save_rejects_a_lossy_identity_match(self, tmp_path, damaged):

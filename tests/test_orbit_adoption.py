@@ -21,7 +21,6 @@ and hands them back through the same seam.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import numpy as np
@@ -41,7 +40,7 @@ from satchecker_client import (
 from satchecker_client import OrbitResolution as ClientOrbitResolution
 from satchecker_client import RejectedOrbit as ClientRejectedOrbit
 from satchecker_client import ResolvedOrbit as ClientResolvedOrbit
-from satchecker_client.cache import TextOrbitCache, read_legacy_tle_records
+from satchecker_client.cache import TextOrbitCache
 from satchecker_client.records import record_elements
 
 from tabsim import config as config_module
@@ -1283,10 +1282,12 @@ def test_client_refresh_failures_produce_tabsim_summary(detail, monkeypatch, cap
 
 
 def test_extra_reader_delegates_and_preserves_contextual_errors(monkeypatch, tmp_path):
-    """An explicitly named directory is read strictly, and says which file failed.
+    """An explicitly named directory is read through the client, and a failure the
+    client raises keeps the file, row and satellite it named.
 
-    "Cannot be read" must never be indistinguishable from "has no record for this
-    satellite", which falls through to the cache and the service.
+    The malformed files themselves are
+    ``test_orbit.py::TestSourcePrecedence::test_an_unusable_extra_orbit_file_stops_the_run_naming_it``;
+    what is here is the delegation and the error translation.
     """
     spy = spy_on(monkeypatch, "read_extra_orbit_dir")
 
@@ -1298,45 +1299,6 @@ def test_extra_reader_delegates_and_preserves_contextual_errors(monkeypatch, tmp
     assert Path(str(spy.argument(0, "directory"))) == good
     assert [int(value) for value in frame["NORAD_CAT_ID"]] == [ISS_NORAD_ID]
 
-    malformed = tmp_path / "malformed"
-    malformed.mkdir()
-    (malformed / "broken.json").write_text("{not json")
-
-    not_a_table = tmp_path / "not_a_table"
-    write_orbit_json(not_a_table / "notes.json", [{"NOTE": "nothing orbital here"}])
-
-    bad_identity = tmp_path / "bad_identity"
-    write_orbit_json(
-        bad_identity / "two.json",
-        [
-            tle_record_at(ISS_NORAD_ID, OBS_EPOCH_JD),
-            dict(
-                tle_record_at(GPS_NORAD_ID, GPS_EPOCH_JD),
-                NORAD_CAT_ID="not-a-satellite",
-            ),
-        ],
-    )
-
-    for directory, offending in (
-        (malformed, "broken.json"),
-        (not_a_table, "notes.json"),
-        (bad_identity, "two.json"),
-    ):
-        with pytest.raises(orbit.OrbitError) as raised:
-            orbit.read_extra_orbit_dir(directory)
-        assert offending in str(raised.value)
-
-    # A malformed identity on a row nobody asked for still stops the run: it would
-    # vanish from a wanted-ID filter and the service would answer instead.
-    monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
-    monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
-    with pytest.raises(orbit.OrbitError) as raised:
-        orbit.resolve_orbits(
-            [ISS_NORAD_ID], OBS_EPOCH_JD, extra_orbit_dir=str(bad_identity)
-        )
-    assert "two.json" in str(raised.value)
-
-    # A failure the client raised keeps everything it knew about it.
     offending_path = tmp_path / "raised" / "used_orbits.json"
     supplied = OrbitInputError(
         "row 3 is not filed against a satellite: NORAD_CAT_ID is 25544.5",
@@ -1358,68 +1320,6 @@ def test_extra_reader_delegates_and_preserves_contextual_errors(monkeypatch, tmp
     assert "row 3" in message
     assert str(ISS_NORAD_ID) in message
     assert "is not filed against a satellite" in message
-
-
-def writer_cases():
-    tle = tle_record_at(ISS_NORAD_ID, OBS_EPOCH_JD, DATA_SOURCE="spacetrack")
-    omm = awkward_omm(GPS_NORAD_ID, GPS_EPOCH_JD, DATA_SOURCE="spacetrack")
-    return {
-        "empty": ([], [], None),
-        "tle": ([ISS_NORAD_ID], [tle], None),
-        "omm": ([GPS_NORAD_ID], [omm], None),
-        "mixed": ([GPS_NORAD_ID, ISS_NORAD_ID], [omm, tle], None),
-        "misaligned": ([GPS_NORAD_ID, ISS_NORAD_ID], [tle], ValueError),
-        "mismatched_identity": ([GPS_NORAD_ID], [tle], ValueError),
-    }
-
-
-WRITER_CASES = writer_cases()
-
-
-@pytest.mark.parametrize("case", list(WRITER_CASES))
-def test_single_file_writer_delegates(case, monkeypatch, tmp_path):
-    """One writer, in the module that also reads the format back.
-
-    ``zip`` would truncate to the shorter sequence and write a file describing
-    different satellites; a misaligned call is a caller bug, so ``ValueError``.
-    """
-    norad_ids, records, error = WRITER_CASES[case]
-    spy = spy_on(monkeypatch, "save_orbits_for_reuse")
-    path = tmp_path / "used_orbits.json"
-
-    if error is None:
-        assert orbit.save_orbits_for_reuse(path, norad_ids, records) == str(path)
-        assert path.exists()
-    else:
-        with pytest.raises(error):
-            orbit.save_orbits_for_reuse(path, norad_ids, records)
-
-    assert len(spy.calls) == 1
-    assert str(spy.argument(0, "path")) == str(path)
-    assert list(spy.argument(1, "norad_ids")) == norad_ids
-    assert list(spy.argument(2, "records")) == records
-
-    if error is not None:
-        return
-    written = json.loads(path.read_text())
-    assert "EPOCH_JD" not in written and "SEMIMAJOR_AXIS" not in written
-    if not records:
-        assert written == {}
-        return
-    back = read_legacy_tle_records(tmp_path)
-    assert len(back) == len(records)
-    if case in ("omm", "mixed"):
-        row = back[back["NORAD_CAT_ID"].astype("int64") == GPS_NORAD_ID].iloc[0]
-        # The same double, not a near one: at its maximum precision
-        # DataFrame.to_json writes 0.0066635 as 0.006663499999999999.
-        assert row["ECCENTRICITY"] == 0.0066635
-        assert row["BSTAR"] == 3.2e-05
-        # Provenance is read off the file: read_legacy_tle_records keeps only
-        # identity and elements.
-        position = str(norad_ids.index(GPS_NORAD_ID))
-        assert written["DATA_SOURCE"][position] == "spacetrack"
-        assert written["ECCENTRICITY"][position] == 0.0066635
-        assert written["BSTAR"][position] == 3.2e-05
 
 
 def test_replay_loader_delegates_and_keeps_tabsim_messages(monkeypatch, capsys):
