@@ -1316,6 +1316,15 @@ _REPLAY_COLUMNS = {
     ),
 }
 
+#: Of those, the ones without which the file cannot be read back as the record it
+#: claims to be. A cell missing here is an invalid record; a cell missing anywhere
+#: else in :data:`_REPLAY_COLUMNS` is one kind's column on the other kind's row,
+#: which a mixed file has by construction.
+_REPLAY_REQUIRED = {
+    KIND_TLE: ("TLE_LINE1", "TLE_LINE2"),
+    KIND_OMM: ("EPOCH", *OMM_ELEMENT_COLUMNS),
+}
+
 #: The two files a completed run writes into its ``input_data`` directory, and the
 #: only two a frozen replay reads.
 REPLAY_IDS_FILE = "norad_ids.yaml"
@@ -1323,18 +1332,44 @@ REPLAY_RECORDS_FILE = "used_orbits.json"
 
 
 def _replay_record(norad_id: int, record: dict) -> dict:
-    """One record projected onto the columns a replay file needs.
+    """One record validated, canonicalised and projected onto the replay columns.
+
+    Validation comes first, because the projection cannot tell a missing cell from
+    an invalid one: it skipped every null, which is right for the OMM columns a
+    TLE row acquires in a mixed frame and wrong for an OMM's own mean motion. A
+    dropped element writes a file that reads back as a record nothing can
+    propagate — a replay that cannot replay — so a record that is not valid stops
+    the save instead.
+
+    *allow_missing_checksum* is deliberately not a parameter here. The checksum
+    decision was made when the record was accepted, and
+    :func:`~satchecker_client.records.validated_record` never *upgrades* a status,
+    so validating permissively writes the provenance the record already carries
+    and launders nothing: the replay applies the reader's own policy to it.
 
     Derived columns are dropped: ``EPOCH_JD`` and ``SEMIMAJOR_AXIS`` are computed
     from the others on every read, so writing them would create a second copy
     that a later edit could silently contradict.
     """
+    try:
+        record = validated_record(record, allow_missing_checksum=True)
+    except (ValueError, TypeError) as e:
+        raise ValueError(
+            f"the record filed against NORAD {norad_id} cannot be written to a "
+            f"replay file: {e}"
+        ) from e
     kind = record_kind(record)
     out = {"NORAD_CAT_ID": int(norad_id), KIND_FIELD: kind}
     for column in _REPLAY_COLUMNS[kind]:
         value = record.get(column)
-        if value is not None and not pd.isna(value):
-            out[column] = value
+        if value is None or pd.isna(value):
+            if column in _REPLAY_REQUIRED[kind]:
+                raise ValueError(
+                    f"the {kind.upper()} record for NORAD {norad_id} has no "
+                    f"{column}, which a replay of it needs"
+                )
+            continue
+        out[column] = value
     return out
 
 
@@ -1366,14 +1401,18 @@ def _json_scalar(value):
 
 
 def _own_norad_id(record) -> Optional[int]:
-    """The record's own ``NORAD_CAT_ID`` as an int, or ``None`` if it has none."""
+    """The record's own ``NORAD_CAT_ID``, checked, or ``None`` if it carries none.
+
+    Validated rather than cast. ``int(25544.5)`` is 25544, so a lossy repair here
+    lets a record whose identity disagrees with the ID it is filed against pass
+    the alignment check and be written as the satellite it is not. Raises
+    ``ValueError`` for an identity that is present and unusable; only a record
+    with no identity at all returns ``None``.
+    """
     value = record.get("NORAD_CAT_ID")
     if value is None or (isinstance(value, float) and value != value):
         return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
+    return norad_id_of(record, "orbit record")
 
 
 def save_orbits_for_reuse(path, norad_ids, records) -> str:
@@ -1414,7 +1453,14 @@ def save_orbits_for_reuse(path, norad_ids, records) -> str:
     projected = []
     for nid, record in zip(ids, rows):
         record = record.to_dict() if hasattr(record, "to_dict") else dict(record)
-        own = _own_norad_id(record)
+        try:
+            own = _own_norad_id(record)
+        except ValueError as e:
+            raise ValueError(
+                f"the record filed against NORAD {nid} has an unusable identity: "
+                f"{e}. Repairing it would save a record of whichever satellite the "
+                "repair happened to name."
+            ) from e
         if own is not None and own != nid:
             raise ValueError(
                 f"record filed against NORAD {nid} carries NORAD_CAT_ID {own}; the "
@@ -1529,7 +1575,13 @@ def load_replay_orbits(
 
     rows_by_id: dict[int, list[dict]] = {}
     for position, row in enumerate(frame.to_dict(orient="records")):
-        nid = _own_norad_id(row)
+        try:
+            nid = _own_norad_id(row)
+        except ValueError as e:
+            raise OrbitError(
+                f"row {position} of {records_path} is not filed against a "
+                f"satellite: {e}"
+            ) from e
         if nid is None:
             raise OrbitError(
                 f"row {position} of {records_path} has no usable NORAD_CAT_ID, so "

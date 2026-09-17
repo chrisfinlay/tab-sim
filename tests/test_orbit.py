@@ -1641,6 +1641,38 @@ class TestReplay:
         with pytest.raises(ValueError):
             orbit.save_orbits_for_reuse(path, [GPS_NORAD_ID], [tle_record()])
 
+    def test_save_rejects_a_lossy_identity_match(self, tmp_path):
+        """25544.5 is not 25544, and truncating it saves a different satellite.
+
+        Both identity checks cast with ``int()``, so a record whose own
+        ``NORAD_CAT_ID`` disagreed with the ID it was filed against passed the
+        alignment check and produced a valid-looking replay file.
+        """
+        record = tle_record()  # valid ISS lines...
+        record["NORAD_CAT_ID"] = 25544.5  # ...under an identity that is not an ID
+
+        with pytest.raises(ValueError, match="25544.5"):
+            orbit.save_orbits_for_reuse(
+                tmp_path / "used_orbits.json", [ISS_NORAD_ID], [record]
+            )
+
+    @pytest.mark.parametrize("value", [float("nan"), None], ids=["nan", "absent"])
+    def test_save_rejects_an_omm_missing_a_required_element(self, tmp_path, value):
+        """A dropped element writes a file that cannot be replayed at all.
+
+        The projection skipped every null cell, which is right for the OMM columns
+        a TLE row acquires in a mixed frame and wrong for an OMM's own elements:
+        the record went out without its mean motion and the run it exists to
+        reproduce no longer could be.
+        """
+        record = omm_record_from_tle()
+        record["MEAN_MOTION"] = value
+
+        with pytest.raises(ValueError, match="MEAN_MOTION"):
+            orbit.save_orbits_for_reuse(
+                tmp_path / "used_orbits.json", [ISS_NORAD_ID], [record]
+            )
+
     # -- frozen replay -------------------------------------------------------
 
     def test_replay_freezes_final_ids(self, monkeypatch, tmp_path):
