@@ -15,7 +15,7 @@ ast_sources:
       I_pow_law: 1.6          # Required if n_src > 0 - Exponent for power law intensity distribution
       max_I: 1.0              # Required if n_src > 0 - Maximum intensity of intensity distribution in Jy
       max_sep: 50.0           # Required if n_src > 0 - Maximum angular separation between sources in arcseconds      
-      min_I: 3sigma           # Required if n_src > 0 - Minimum intensity of intensity distribution in Jy (3sigma calculated from theoretical image noise)
+      min_I: 3sigma           # Required if n_src > 0 - Minimum intensity of intensity distribution in Jy (3sigma calculated from theoretical image noise). Must not exceed max_I
       n_beam: 5               # Required if n_src > 0 - Maximum angular separation between sources based on the theoretical synthesized beam width
       random_seed: 123456     # Required if n_src > 0 - Random seed used for drawing locations, intensities and shapes
       si_mean: 0.7            # Required if n_src > 0 - Mean of the Gaussian distribution to draw spectral indices from
@@ -34,7 +34,7 @@ ast_sources:
       major_std: 5.0          # Required if n_src > 0 - Standard deviation of the Gaussian distribution to draw source sizes from in arcseconds
       max_I: 1.0              # Required if n_src > 0 - Maximum intensity of intensity distribution in Jy
       max_sep: 50.0           # Required if n_src > 0 - Maximum angular separation between sources in arcseconds
-      min_I: 3sigma           # Required if n_src > 0 - Minimum intensity of intensity distribution in Jy (3sigma calculated from theoretical image noise)
+      min_I: 3sigma           # Required if n_src > 0 - Minimum intensity of intensity distribution in Jy (3sigma calculated from theoretical image noise). Must not exceed max_I
       minor_mean: 30.0        # Required if n_src > 0 - Mean of the Gaussian distribution to draw source size minor axes from in arcseconds
       minor_std: 5.0          # Required if n_src > 0 - Standard deviation of the Gaussian distribution to draw source sizes from in arcseconds
       n_beam: 5               # Required if n_src > 0 - Maximum angular separation between sources based on the theoretical synthesized beam width
@@ -51,7 +51,7 @@ ast_sources:
       I_pow_law: 1.6          # Required if n_src > 0 - Exponent for power law intensity distribution
       max_I: 1.0              # Required if n_src > 0 - Maximum intensity of intensity distribution in Jy
       max_sep: 50.0           # Required if n_src > 0 - Maximum angular separation between sources in arcseconds
-      min_I: 3sigma           # Required if n_src > 0 - Minimum intensity of intensity distribution in Jy (3sigma calculated from theoretical image noise)
+      min_I: 3sigma           # Required if n_src > 0 - Minimum intensity of intensity distribution in Jy (3sigma calculated from theoretical image noise). Must not exceed max_I
       n_beam: 5               # Required if n_src > 0 - Maximum angular separation between sources based on the theoretical synthesized beam width
       random_seed: 123456     # Required if n_src > 0 - Random seed used for drawing locations, intensities and shapes
       si_mean: 0.7            # Required if n_src > 0 - Mean of the Gaussian distribution to draw spectral indices from
