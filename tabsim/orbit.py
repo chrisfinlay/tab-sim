@@ -1,15 +1,13 @@
 """tabsim's orbit-record policy, executed by the shared SatChecker client.
 
 Records come from the IAU CPS SatChecker service via :mod:`satchecker_client`,
-which needs no credentials and which executes the selection. What stays here is
-the policy it has no view on — which sources, in what order, how old a record may
-be, whether an incomplete resolution is fatal, and every sentence a tabsim user
-reads — stated explicitly on one call to
-:func:`satchecker_client.resolve.resolve_orbits` and converted back into the
-public shape :mod:`tabsim.tle` and :mod:`tabsim.config` read. The service holds
-TLEs up to 2026-07-11 and OMM from 2026-07-12 in two non-overlapping archives;
-nothing here branches on which, since :mod:`satchecker_client.records` answers
-every format question.
+which needs no credentials and executes the selection. What stays here is the
+policy it has no view on — which sources, in what order, how old a record may be,
+whether an incomplete resolution is fatal, and every sentence a tabsim user reads —
+stated explicitly on one call to :func:`satchecker_client.resolve.resolve_orbits`
+and converted back into the public shape (:class:`OrbitResolution`, :func:`_adapt`).
+The service's two non-overlapping archives are
+:mod:`satchecker_client.records`' business; nothing here branches on which.
 
 A frozen replay is outside the ordering entirely: :func:`load_replay_orbits`
 *replaces* the selection with a previous run's saved IDs and records, reading
@@ -132,9 +130,7 @@ satchecker.set_client_identifier(
 )
 
 
-# ---------------------------------------------------------------------------
 # Constants
-# ---------------------------------------------------------------------------
 
 # Above this many remote records the per-satellite log lines are replaced by a
 # grouped summary; set ``TABSIM_TLE_LOG_DETAIL=1`` to force the full listing.
@@ -159,9 +155,7 @@ def _source_label(source: str, endpoint: Optional[str]) -> str:
     return f"{_SRC_SATCHECKER} ({endpoint})" if endpoint else _SRC_SATCHECKER
 
 
-# ---------------------------------------------------------------------------
 # Resolution results
-# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class ResolvedOrbit:
@@ -334,9 +328,7 @@ def _adapt(result, requested: list[int]) -> OrbitResolution:
     )
 
 
-# ---------------------------------------------------------------------------
 # Explicit files
-# ---------------------------------------------------------------------------
 
 def read_extra_orbit_dir(extra_orbit_dir) -> pd.DataFrame:
     """Every orbit table in *extra_orbit_dir*, read strictly, concatenated.
@@ -397,9 +389,7 @@ class _LazyOrbitCache:
         return self._open().path(*args, **kwargs)
 
 
-# ---------------------------------------------------------------------------
 # Logging
-# ---------------------------------------------------------------------------
 
 def _detail_requested() -> bool:
     return os.environ.get(_LOG_DETAIL_ENV, "").strip().lower() not in (
@@ -627,9 +617,7 @@ def _report_unverified(resolution: OrbitResolution) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
 # Coverage
-# ---------------------------------------------------------------------------
 
 #: Why one requested satellite has no record. The first four are tabsim not
 #: *knowing*, fatal on both selection routes; the last two are answers the
@@ -848,9 +836,8 @@ def _coverage_error(resolution: OrbitResolution, named: bool = False) -> OrbitEr
 def require_complete_coverage(resolution: OrbitResolution) -> OrbitResolution:
     """Return *resolution* unchanged, or raise the actionable coverage error.
 
-    The policy for satellites asked for **by number**: each was named
-    individually, so one dropped for want of a record would be indistinguishable
-    from one that simply never passed the target.
+    Numbered satellites were each named individually, so one dropped for want of a
+    record is indistinguishable from one that simply never passed the target.
     """
     if resolution.requested and not resolution.complete:
         raise _coverage_error(resolution)
@@ -862,17 +849,11 @@ def report_named_coverage(
 ) -> OrbitResolution:
     """Coverage policy for satellites selected by *name*, sharing the numbered one.
 
-    A name is a catalogue *query*, so "nothing acceptable exists near this
-    observation" is an answer: the satellite is excluded with its reason — a
-    genuinely empty reply from every archive, or a record rejected on age by an
-    acquisition that finished.
-
-    "We could not find out" is not an answer. An unresolved request or response
-    failure, an archive the fallback needed and never reached, running out of
-    local state offline, and evidence with nothing to explain it are all
-    not-knowing, all fatal here exactly as for a numbered satellite and through
-    the same error, so the two routes cannot drift apart. The age detail stays in
-    that error: it says which limit to change, or which records to fetch.
+    A name is a catalogue *query*, so an answer excludes that satellite with its
+    reason, while not knowing is fatal — exactly as for a numbered satellite and
+    through the same error, so the two routes cannot drift apart.
+    :func:`_classify_gap` is where the two are told apart, and the age detail stays
+    in the error: it says which limit to change, or which records to fetch.
     """
     if not resolution.requested:
         return resolution
@@ -909,9 +890,7 @@ def report_named_coverage(
     return resolution
 
 
-# ---------------------------------------------------------------------------
 # Resolution
-# ---------------------------------------------------------------------------
 
 def resolve_orbits(
     norad_ids,
@@ -1026,9 +1005,7 @@ def resolve_orbits(
     return resolution
 
 
-# ---------------------------------------------------------------------------
 # Public orchestration
-# ---------------------------------------------------------------------------
 
 def resolve_names(
     names,
@@ -1094,9 +1071,7 @@ def get_orbits_by_id(
     ).frame()
 
 
-# ---------------------------------------------------------------------------
 # Reproducibility: persist the records a run actually used
-# ---------------------------------------------------------------------------
 
 def save_orbits_for_reuse(path, norad_ids, records) -> str:
     """Write the orbit records a run used to *path*, as an explicit orbit table.
