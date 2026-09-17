@@ -64,3 +64,17 @@ def test_fail_after_keeps_an_earlier_outer_deadline():
     assert time.monotonic() - start < 5
     assert signal.getsignal(signal.SIGALRM) is handler
     assert (remaining_seconds() > 0) == (inherited > 0)
+
+
+@pytest.mark.parametrize("seconds", [0, -1])
+def test_fail_after_refuses_no_time_at_all_and_changes_nothing(seconds):
+    with fail_after(100):
+        handler = signal.getsignal(signal.SIGALRM)
+        outer = remaining_seconds()
+
+        with pytest.raises(ValueError, match="needs a time to allow"):
+            with fail_after(seconds):
+                pass
+
+        assert signal.getsignal(signal.SIGALRM) is handler
+        assert outer - 1 < remaining_seconds() <= outer
