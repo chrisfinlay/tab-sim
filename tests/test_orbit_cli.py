@@ -52,7 +52,7 @@ def run_sim_vis_config(monkeypatch, config_path, *args, cwd=None):
 
 
 def test_the_console_entry_point_exits_zero_on_success(monkeypatch, tmp_path):
-    """``sys.exit(main())`` turns any non-int return into exit status 1.
+    """``sys.exit(main())`` turns a returned tuple into exit status 1.
 
     So the entry point is ``cli``, which discards what ``main`` returns for callers.
     """
