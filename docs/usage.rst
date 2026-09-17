@@ -64,6 +64,15 @@ Three ways to run a simulation that includes satellites:
 The first fetches what it needs, caching records and catalogue searches under
 ``ORBIT_CACHE_DIR`` (by default the platform user-cache directory).
 
+Where several records are held for one satellite, the one selected is the nearest to
+the observation epoch *that this run can use*: a record the run's checksum policy
+refuses is not a candidate, so a nearer unusable row neither displaces a usable one
+nor provokes a request. What is chosen is still within ``remote_max_age_days``, and
+if it is also within ``cache_reuse_max_age_days`` no request is sent — which is what
+lets an offline run resolve from an acceptable record it holds rather than fail
+because a nearer row is unreadable. Earlier versions looked at the nearest record
+first and asked SatChecker when it proved unusable.
+
 ``--offline`` makes no requests at all. It reuses cached catalogue searches whatever
 their age, with a warning saying how old they are, and cached orbit records within
 ``remote_max_age_days`` — offline is about what can be reached, not about what an

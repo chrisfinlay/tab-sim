@@ -33,14 +33,14 @@ For an ordinary run, source precedence is resolved **independently per NORAD ID*
   1. ``extra_orbit_dir`` — user-supplied local files, of either kind, read
      strictly: a file that is not a readable orbit table stops the run naming
      itself, rather than falling through to the service and quietly modelling
-     records the user said not to use. The record whose epoch is closest to the
-     observation epoch is chosen; it is accepted only if within
-     ``extra_orbit_max_age_days`` (``None`` = unlimited). An accepted record wins
-     outright — later sources are not consulted for that ID. This is *your* data:
-     the remote service's age policy never applies to it. Note that this is
-     ordinary per-ID precedence and freezes nothing: the run's own names, ID list,
-     visibility cuts and ``max_n_sat`` still choose the satellites.
-  2. Per-satellite cache — the cached record whose epoch is closest to the
+     records the user said not to use. The record closest to the observation
+     epoch *that this run can use* is chosen (see below); it is accepted only if
+     within ``extra_orbit_max_age_days`` (``None`` = unlimited). An accepted
+     record wins outright — later sources are not consulted for that ID. This is
+     *your* data: the remote service's age policy never applies to it. Note that
+     this is ordinary per-ID precedence and freezes nothing: the run's own names,
+     ID list, visibility cuts and ``max_n_sat`` still choose the satellites.
+  2. Per-satellite cache — the usable cached record whose epoch is closest to the
      observation. If it is within ``cache_reuse_max_age_days``, it avoids a
      network request. An older record within the hard ceiling remains an offline
      fallback while tabsim asks SatChecker for something closer.
@@ -50,6 +50,13 @@ For an ordinary run, source precedence is resolved **independently per NORAD ID*
      cache and may serve nearby observations later. ``offline`` skips this step
      entirely without relaxing the age ceiling: offline is about what can be
      reached, not about what an acceptable record is.
+
+**Which record, when several are held.** Each source offers the candidate nearest
+the observation epoch *that this run can use*: a record refused by the checksum
+policy is not a candidate, so it neither displaces a usable one nor provokes a
+request the configuration does not ask for. What is selected is still inside every
+ceiling the user set, and an offline run resolves from an acceptable record it holds
+rather than failing because a nearer row is unreadable.
 
 **Checksums.** A TLE line whose checksum is present and wrong is refused under
 every setting. ``allow_missing_checksum`` decides only what happens to a line that

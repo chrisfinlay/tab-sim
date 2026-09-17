@@ -157,6 +157,18 @@ The file scheme is unchanged and the cache is shared with other applications usi
 the same client, including older versions of it, so there is nothing to migrate and
 nothing to purge. Records nothing has verified still never enter it.
 
+Where several records are held for one satellite — the normal state of a cache that
+has been used — the one selected is the nearest to the observation epoch **that this
+run can use**, not the nearest of all of them. A record the run's checksum policy
+refuses is not a candidate at all, so a nearer unusable row neither displaces a
+usable one nor provokes a request the configuration does not ask for: what is chosen
+is still inside `remote_max_age_days`, and if it is also inside
+`cache_reuse_max_age_days` no request is sent. It is also what lets `--offline`
+resolve from an acceptable record you hold instead of failing because a nearer row
+happens to be unreadable. Earlier versions looked at the nearest record first and
+went to SatChecker when it turned out to be unusable, which could fetch a closer
+record — and, offline, could fail with an acceptable one in hand.
+
 ```bash
 sim-vis -c observation.yaml                                    # online
 sim-vis -c observation.yaml --offline                          # no requests at all

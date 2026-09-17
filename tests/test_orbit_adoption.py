@@ -44,6 +44,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 import satchecker_client
@@ -479,6 +480,74 @@ def test_empty_request_reads_nothing_and_builds_no_cache(monkeypatch, tmp_path):
         assert kwargs["cache"] is None
         extra_records = kwargs.get("extra_records")
         assert extra_records is None or not len(extra_records)
+
+
+# ---------------------------------------------------------------------------
+# Which record is used when several are held
+# ---------------------------------------------------------------------------
+
+def test_an_unusable_nearest_cached_record_does_not_hide_a_usable_one(
+    monkeypatch, isolated_cache
+):
+    """Of the records held for one satellite, the nearest *usable* one is chosen.
+
+    A deliberate difference from #44, which read the nearest cached record
+    first, refused it for its provenance, and went on to ask SatChecker. The
+    client judges each candidate before comparing epochs, so a row this run's
+    checksum policy cannot use is simply not a candidate, and the nearest one
+    that remains is selected.
+
+    That is the better rule for the case it changes. The record it lands on is
+    inside every limit the user set — within ``remote_max_age_days`` and within
+    ``cache_reuse_max_age_days`` — so the run already holds what it asked for
+    and the request would buy nothing that the configuration says it needs. And
+    the same input offline has to resolve: failing a run that holds an
+    acceptable record, because a *nearer* row happens to be unusable, is the
+    unusable row deciding the outcome twice.
+
+    The cost is that a strict run near an unverifiable row sends one request
+    fewer and may model a slightly older record than #44 would have. The gain is
+    that nothing a run cannot use changes what it does.
+    """
+    epoch_jd = ISS_EPOCH_JD
+    unusable = tle_record_at(ISS_NORAD_ID, epoch_jd, DATA_SOURCE="permissive run")
+    # Valid checksum digits, and a status saying nothing ever verified the ones
+    # its source omitted: the record the strict policy refuses is the near one.
+    unusable[CHECKSUM_STATUS_FIELD] = STATUS_UNVERIFIED
+    usable = tle_record_at(ISS_NORAD_ID, epoch_jd + 0.5, DATA_SOURCE="spacetrack")
+    TextOrbitCache(isolated_cache).store(
+        ISS_NORAD_ID, pd.DataFrame([unusable, usable])
+    )
+    nearest_tle, nearest_omm = stub_endpoints(
+        monkeypatch,
+        tle={ISS_NORAD_ID: tle_record_at(ISS_NORAD_ID, epoch_jd + 0.1)},
+    )
+
+    resolution = orbit.resolve_orbits([ISS_NORAD_ID], epoch_jd)
+
+    entry = resolution.resolved[ISS_NORAD_ID]
+    assert entry.source == LABEL_CACHE
+    assert entry.offset_days == pytest.approx(0.5, abs=1e-3)
+    assert entry.record[CHECKSUM_STATUS_FIELD] == STATUS_VERIFIED
+    # Nothing was asked: the record in hand is within the reuse threshold, so
+    # the nearer record the service holds is never learned about.
+    assert nearest_tle.calls == [] and nearest_omm.calls == []
+
+    # The point of the rule: the same state resolves with nothing reachable.
+    offline = orbit.resolve_orbits([ISS_NORAD_ID], epoch_jd, offline=True)
+    assert offline.complete
+    assert offline.resolved[ISS_NORAD_ID].offset_days == pytest.approx(0.5, abs=1e-3)
+
+    # And the refused row is refused by policy, not by anything about the row:
+    # the run that may use it gets the record at the observation's own epoch.
+    permissive = orbit.resolve_orbits(
+        [ISS_NORAD_ID], epoch_jd, allow_missing_checksum=True
+    )
+    accepted = permissive.resolved[ISS_NORAD_ID]
+    assert accepted.source == LABEL_CACHE
+    assert accepted.offset_days == pytest.approx(0.0, abs=1e-3)
+    assert accepted.record[CHECKSUM_STATUS_FIELD] == STATUS_UNVERIFIED
+    assert nearest_tle.calls == [] and nearest_omm.calls == []
 
 
 # ---------------------------------------------------------------------------
