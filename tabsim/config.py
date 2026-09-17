@@ -448,12 +448,12 @@ def add_astro_sources(obs: Observation, sim_config: dict) -> None:
                     )
                 except SourcePlacementError as err:
                     raise SourcePlacementError(
-                        f"ast_sources.{key}.random: {err} In the config, angles are "
-                        "in degrees, fov is the primary beam and beam_width is the "
-                        "smaller of the synthesized beam "
+                        f"ast_sources.{key}.random: {err} The fov and beam_width "
+                        "above are in degrees. The fov is the primary beam and "
+                        "beam_width is the smaller of the synthesized beam "
                         f"({float(obs.syn_bw)*3600:.1f} arcsec) and max_sep / n_beam "
                         f"({max_beam*3600:.1f} arcsec), so the settings to lower are "
-                        "n_src, n_beam and max_sep."
+                        "n_src, n_beam and max_sep, which is in arcseconds."
                     ) from err
                 ra = (obs.ra + d_ra) % 360
                 dec = obs.dec + d_dec

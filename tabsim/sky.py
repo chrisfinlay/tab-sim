@@ -53,9 +53,9 @@ def truncated_power_law_inv_cdf(
     x: array_like
         Cumulative probabilities in [0, 1].
     I_min: float
-        Minimum source flux.
+        Minimum source flux. Must be positive.
     I_max: float
-        Maximum source flux.
+        Maximum source flux. Can be infinite.
     alpha: float
         Power law index. Must be greater than 1.
 
@@ -63,8 +63,11 @@ def truncated_power_law_inv_cdf(
     --------
     I: array_like
         Source fluxes with the same shape as `x`."""
-    a = 1.0 - alpha
-    I = (I_min**a - x * (I_min**a - I_max**a)) ** (1.0 / a)
+    a = 1.0 - float(alpha)
+    # In terms of the ratio of the limits, as a limit raised to the power of `a`
+    # overflows for a steep power law and nearly equal limits are lost to rounding.
+    q = -np.expm1(a * np.log(np.float64(I_max) / np.float64(I_min)))
+    I = I_min * np.exp(np.log1p(-x * q) / a)
 
     return np.clip(I, I_min, I_max)
 
@@ -109,17 +112,21 @@ def random_power_law(
     rng = np.random.default_rng(random_seed)
     rand_unif = rng.uniform(size=(n_src,))
     I = np.array(inv_cdf(rand_unif))
+    idx = np.where(I > I_max)[0]
     n_rounds = 0
-    while np.any(I > I_max):
-        idx = np.where(I > I_max)[0]
+    while len(idx) > 0 and n_rounds < MAX_FLUX_ROUNDS:
         rand_unif = rng.uniform(size=(idx.shape[0],))
-        if n_rounds < MAX_FLUX_ROUNDS:
-            I[idx] = inv_cdf(rand_unif)
-        else:
-            # `I_max` is too close to `I_min` for redrawing to get there. Redrawing
-            # samples the power law truncated to [I_min, I_max], so draw from that.
-            I[idx] = truncated_power_law_inv_cdf(rand_unif, I_min, I_max, alpha)
+        I[idx] = inv_cdf(rand_unif)
+        idx = np.where(I > I_max)[0]
         n_rounds += 1
+
+    if len(idx) > 0:
+        # `I_max` is too close to `I_min` for redrawing to get there. Redrawing
+        # samples the power law truncated to [I_min, I_max], so draw from that. Once,
+        # without looking again: fluxes of lower precision than `I_max` can round
+        # to just above it, which checking them again would never get past.
+        rand_unif = rng.uniform(size=(idx.shape[0],))
+        I[idx] = truncated_power_law_inv_cdf(rand_unif, I_min, I_max, alpha)
 
     return I
 
@@ -202,9 +209,12 @@ def generate_random_sky(
         )
 
     # Sources cannot be further apart than the FoV, nor can the area they keep clear
-    # of each other exceed the area available.
-    if n_src > 1 and (min_sep > fov or n_src * min_sep**2 > (fov + min_sep) ** 2):
-        raise too_crowded("no such arrangement exists")
+    # of each other exceed the area available. Only for a separation and a FoV that
+    # this holds for, and in floats as integers this large can overflow.
+    sep, size = float(min_sep), float(fov)
+    if n_src > 1 and sep > 0 and size >= 0:
+        if sep > size or np.sqrt(n_src) * sep > size + sep:
+            raise too_crowded("no such arrangement exists")
 
     I = da.atleast_1d(random_power_law(n_src, min_I, max_I, I_power_law, rng))
     positions = uniform_points_disk(fov / 2.0, 1, rng)
