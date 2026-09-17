@@ -1123,3 +1123,72 @@ def test_named_exclusion_requires_completed_acquisition_evidence(case, monkeypat
         assert "4.200" in report
         assert LABEL_OMM in report
         assert "remote_max_age_days=3" in report
+
+
+# ---------------------------------------------------------------------------
+# Reporting
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("detail", [False, True], ids=["truncated", "detailed"])
+def test_client_refresh_failures_produce_tabsim_summary(detail, monkeypatch, capsys):
+    """A failed refresh is not fatal, and the run is not quite the one asked for.
+
+    The only place that can say so is this warning, and what it has to name is
+    the source each satellite is *continuing from* — which is not always the
+    cache: an ID whose first archive failed and whose second answered is
+    bookkept here too, and saying "from the cache" would describe a record the
+    run never held.
+    """
+    if detail:
+        monkeypatch.setenv("TABSIM_TLE_LOG_DETAIL", "1")
+    else:
+        monkeypatch.delenv("TABSIM_TLE_LOG_DETAIL", raising=False)
+    stub_endpoints(monkeypatch)
+
+    # Thirteen, one past the grouping threshold, so the truncation is exercised.
+    norad_ids = [ISS_NORAD_ID + offset for offset in range(13)]
+    from_cache, rescued = norad_ids[0], norad_ids[1]
+    errors = {
+        norad_id: SatCheckerResponseError(f"nearest-TLE answered 503 for {norad_id}")
+        for norad_id in norad_ids
+    }
+    resolved = {
+        norad_id: client_resolved(norad_id, SOURCE_CACHE, offset_days=0.75)
+        for norad_id in norad_ids
+    }
+    resolved[rescued] = client_resolved(
+        rescued, SOURCE_SERVICE, endpoint=OMM_ENDPOINT, offset_days=-0.1
+    )
+    events = [
+        ResolutionEvent(
+            code=EVENT_REFRESH_FAILED,
+            norad_ids=(norad_id,),
+            source=resolved[norad_id].source,
+            endpoint=resolved[norad_id].endpoint,
+            error=errors[norad_id],
+        )
+        for norad_id in norad_ids
+    ]
+    deliver(
+        monkeypatch,
+        client_result(
+            norad_ids, resolved=resolved, refresh_errors=errors, events=events
+        ),
+    )
+
+    resolution = orbit.resolve_orbits(norad_ids, OBS_EPOCH_JD)
+    out = capsys.readouterr().out
+
+    assert resolution.refresh_errors == errors
+    assert resolution.missing == []
+    assert orbit.require_complete_coverage(resolution) is resolution
+
+    assert "warning: a SatChecker request failed for" in out
+    assert f"{from_cache} — {errors[from_cache]} (from {LABEL_CACHE})" in out
+    assert f"{rescued} — {errors[rescued]} (from {LABEL_OMM})" in out
+    if detail:
+        for norad_id in norad_ids:
+            assert f"{norad_id} — {errors[norad_id]}" in out
+        assert "more (set TABSIM_TLE_LOG_DETAIL=1" not in out
+    else:
+        assert "and 1 more (set TABSIM_TLE_LOG_DETAIL=1 for the full list)" in out
