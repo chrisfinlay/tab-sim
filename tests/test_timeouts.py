@@ -1,4 +1,5 @@
 import signal
+import time
 
 import pytest
 
@@ -7,6 +8,10 @@ from timeouts import fail_after
 pytestmark = pytest.mark.skipif(
     not hasattr(signal, "SIGALRM"), reason="fail_after needs SIGALRM"
 )
+
+
+def remaining_seconds():
+    return signal.getitimer(signal.ITIMER_REAL)[0]
 
 
 def test_fail_after_fails_a_python_loop_that_never_ends():
@@ -23,14 +28,29 @@ def test_fail_after_leaves_no_alarm_or_handler_behind():
         pass
 
     assert signal.getsignal(signal.SIGALRM) is handler
-    assert signal.alarm(0) == 0
+    assert remaining_seconds() == 0
 
 
-def test_fail_after_keeps_an_outer_deadline():
+def test_fail_after_puts_back_a_later_outer_deadline_with_the_time_it_has_left():
     with fail_after(100):
         with fail_after(5):
-            pass
-        remaining = signal.alarm(0)
-        signal.alarm(remaining)
+            time.sleep(1.2)
+        remaining = remaining_seconds()
 
-    assert 95 <= remaining <= 100
+    assert 98.0 < remaining < 98.9
+    assert remaining_seconds() == 0
+
+
+def test_fail_after_keeps_an_earlier_outer_deadline():
+    handler = signal.getsignal(signal.SIGALRM)
+    start = time.monotonic()
+
+    with pytest.raises(pytest.fail.Exception, match="Did not finish within 1 s"):
+        with fail_after(1):
+            with fail_after(30):
+                while True:
+                    pass
+
+    assert time.monotonic() - start < 5
+    assert signal.getsignal(signal.SIGALRM) is handler
+    assert remaining_seconds() == 0

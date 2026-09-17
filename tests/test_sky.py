@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from decimal import Decimal, localcontext
 
 import dask.array as da
 import jax
@@ -142,9 +143,19 @@ def test_power_law_narrow_range_follows_the_truncated_distribution():
     assert kstest(I, cdf).pvalue > 1e-3
 
 
-def truncated_cdf(I, I_min, I_max, alpha):
-    a = 1.0 - alpha
-    return np.expm1(a * np.log(I / I_min)) / np.expm1(a * np.log(I_max / I_min))
+def exact_truncated_inv_cdf(x, I_min, I_max, alpha):
+    """The inverse CDF as it is written on paper, limits raised to the power
+    1 - alpha, in 80 digit decimal arithmetic that neither overflows nor rounds."""
+    with localcontext() as ctx:
+        ctx.prec = 80
+        a = Decimal(1) - Decimal.from_float(float(alpha))
+        lower = Decimal.from_float(float(I_min)) ** a
+        upper = Decimal(0) if np.isinf(I_max) else Decimal.from_float(float(I_max)) ** a
+        I = [
+            ((Decimal(1) - u) * lower + u * upper) ** (Decimal(1) / a)
+            for u in map(Decimal.from_float, x.tolist())
+        ]
+        return np.array([float(i) for i in I])
 
 
 @pytest.mark.parametrize(
@@ -156,17 +167,25 @@ def truncated_cdf(I, I_min, I_max, alpha):
         (1e200, 1.000001e200, 3.0),  # I_min ** (1 - alpha) underflows to zero
         (1.0, 1.0 + 1e-8, 1.6),  # limits nearly equal
         (1e-4, 1.0, 1.0 + 1e-9),  # index nearly one
+        (1e-200, 1e200, 1.0 + 1e-9),  # I_max / I_min overflows
+        (1e-300, np.inf, 1.001),  # I / I_min overflows where I does not
     ],
 )
-def test_truncated_inv_cdf_inverts_the_truncated_cdf(I_min, I_max, alpha):
-    u = np.linspace(0.0, 1.0, 1001)
+def test_truncated_inv_cdf_matches_exact_arithmetic(I_min, I_max, alpha):
+    u = np.linspace(0.0, 1.0, 101)[: None if np.isfinite(I_max) else 56]
 
     I = truncated_power_law_inv_cdf(u, I_min, I_max, alpha)
+    I_exact = exact_truncated_inv_cdf(u, I_min, I_max, alpha)
 
     assert np.all(np.isfinite(I))
-    np.testing.assert_allclose(I[[0, -1]], [I_min, I_max], rtol=1e-12)
     assert np.all(np.diff(I) >= 0) and I[-1] > I[0]
-    np.testing.assert_allclose(truncated_cdf(I, I_min, I_max, alpha), u, atol=1e-6)
+    np.testing.assert_allclose(I, I_exact, rtol=1e-10)
+    if np.isfinite(I_max):
+        # Where in the range, which the flux alone says little of in a narrow one
+        np.testing.assert_allclose(I[[0, -1]], [I_min, I_max], rtol=1e-12)
+        where = (I - I_min) / (float(I_max) - float(I_min))
+        where_exact = (I_exact - I_min) / (float(I_max) - float(I_min))
+        np.testing.assert_allclose(where, where_exact, atol=1e-7)
 
 
 def test_truncated_inv_cdf_of_nearly_equal_limits_is_nearly_uniform():
@@ -202,14 +221,19 @@ def test_truncated_inv_cdf_without_a_maximum_is_the_power_law():
 def test_power_law_returns_whatever_drawing_directly_gives(monkeypatch):
     """Fluxes are drawn directly once. Looking at them again could loop forever
     on any that are still above the maximum, as rounding can leave them."""
+    direct_draws = []
+
+    def above_the_maximum(x, *limits):
+        direct_draws.append(x.shape)
+        return np.full(x.shape, 2.0)
+
     monkeypatch.setattr(sky, "MAX_FLUX_ROUNDS", 3)
-    monkeypatch.setattr(
-        sky, "truncated_power_law_inv_cdf", lambda x, *limits: np.full(x.shape, 2.0)
-    )
+    monkeypatch.setattr(sky, "truncated_power_law_inv_cdf", above_the_maximum)
 
     with fail_after(30):
         I = random_power_law(10, I_min=1.0, I_max=1.0, random_seed=0)
 
+    assert direct_draws == [(10,)]
     np.testing.assert_array_equal(I, 2.0)
 
 
