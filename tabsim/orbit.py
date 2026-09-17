@@ -137,7 +137,7 @@ from satchecker_client.resolve import (  # noqa: E402
     EVENT_SOURCE_SELECTED,
     GROUP_EXTRA,
     GROUP_REMOTE,
-    REASON_INVALID,
+    INPUT_CHECKSUM_POLICY,
     REASON_OVER_AGE,
     REPLACEMENT_STRICTLY_FRESHER,
     SOURCE_CACHE,
@@ -304,14 +304,17 @@ class OrbitResolution(satchecker.OrbitResolution):
         )
 
 
-def _rejection_reason(entry, errors: dict) -> str:
+def _rejection_reason(entry) -> str:
     """The sentence tabsim has always shown for a refused candidate.
 
     An age rejection names the governing limit, because that is the one thing
     that says what to change; the two limits are spelled as they always were. An
-    unusable candidate has no measurement to report, so the diagnostic comes from
-    the ``candidate_rejected`` event that carries the validator's own exception —
-    never from parsing the client's log.
+    unusable candidate has no measurement to report, so the diagnostic is the
+    exception the client attached to *this* rejection — never parsed from the
+    client's log, and never taken from a ``candidate_rejected`` event: only one
+    rejection per satellite survives and it is the first, so with two unusable
+    candidates the last event is the other one's, and pairing the two reports
+    one candidate's defect against the source that supplied the other.
     """
     if entry.reason_code == REASON_OVER_AGE and entry.limit_name:
         ceiling = entry.ceiling_days
@@ -320,26 +323,8 @@ def _rejection_reason(entry, errors: dict) -> str:
         if entry.limit_name == "extra_orbit_max_age_days":
             return f"{entry.limit_name}={ceiling}"
         return f"{entry.limit_name}={ceiling:g}"
-    error = errors.get(entry.norad_id)
+    error = entry.error
     return f"invalid record: {error}" if error is not None else "invalid record"
-
-
-def _invalid_candidate_errors(events) -> dict:
-    """The exception behind each invalid-candidate rejection, by satellite.
-
-    The client's rejection carries the reason code but not the exception; the
-    event that produced it carries both.
-    """
-    errors: dict = {}
-    for event in events:
-        if (
-            event.code == EVENT_CANDIDATE_REJECTED
-            and event.details.get("reason_code") == REASON_INVALID
-            and event.error is not None
-        ):
-            for norad_id in event.norad_ids:
-                errors[int(norad_id)] = event.error
-    return errors
 
 
 def _adapt(result, requested: list[int]) -> OrbitResolution:
@@ -349,7 +334,6 @@ def _adapt(result, requested: list[int]) -> OrbitResolution:
     exactly as it was, since it is also where the coverage classifier reads its
     evidence from.
     """
-    errors = _invalid_candidate_errors(result.events)
     resolved = {
         int(norad_id): ResolvedOrbit(
             norad_id=int(norad_id),
@@ -371,7 +355,7 @@ def _adapt(result, requested: list[int]) -> OrbitResolution:
             provider=None if entry.source == SOURCE_EXTRA else entry.provider,
             epoch_jd=entry.epoch_jd,
             offset_days=entry.offset_days,
-            reason=_rejection_reason(entry, errors),
+            reason=_rejection_reason(entry),
             reason_code=entry.reason_code,
             ceiling_days=entry.ceiling_days,
             limit_name=entry.limit_name,

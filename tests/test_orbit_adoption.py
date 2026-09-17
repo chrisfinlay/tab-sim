@@ -270,8 +270,14 @@ def client_resolved(
 def client_rejected(
     norad_id, source, *, endpoint=None, offset_days=None, provider="spacetrack",
     reason_code=REASON_OVER_AGE, ceiling_days=3.0, limit_name="remote_max_age_days",
+    error=None,
 ) -> ClientRejectedOrbit:
-    """One near-miss, in the client's own result type."""
+    """One near-miss, in the client's own result type.
+
+    *error* is the exception that refused *this* candidate, which the client
+    carries on the rejection it kept; ``None`` for an age rejection, where
+    nothing refused the record — it was read, measured and found too far away.
+    """
     return ClientRejectedOrbit(
         norad_id=int(norad_id),
         source=source,
@@ -282,6 +288,7 @@ def client_rejected(
         reason_code=reason_code,
         ceiling_days=ceiling_days,
         limit_name=limit_name,
+        error=error,
     )
 
 
@@ -694,12 +701,13 @@ def test_client_results_keep_tabsim_public_shape(monkeypatch):
 
     failure = SatCheckerResponseError("nearest-TLE answered 503")
     refresh = SatCheckerResponseError("the refresh for the cached record failed")
+    refusal = ValueError("TLE line 1 checksum is 3, expected 7")
     events = [
         ResolutionEvent(
             code=EVENT_CANDIDATE_REJECTED,
             norad_ids=(INVALID_ID,),
             source=SOURCE_EXTRA,
-            error=ValueError("TLE line 1 checksum is 3, expected 7"),
+            error=refusal,
             details={"reason_code": REASON_INVALID},
         )
     ]
@@ -728,6 +736,7 @@ def test_client_results_keep_tabsim_public_shape(monkeypatch):
                 reason_code=REASON_INVALID,
                 ceiling_days=None,
                 limit_name=None,
+                error=refusal,
             ),
         },
         service_errors={ERROR_ID: failure},
@@ -785,8 +794,9 @@ def test_client_results_keep_tabsim_public_shape(monkeypatch):
     assert unusable.epoch_jd is None and unusable.offset_days is None
     assert unusable.age_days is None
     assert unusable.reason_code == REASON_INVALID
-    # The diagnostic comes from the candidate_rejected event's own exception,
-    # never from parsing the client's log prose.
+    # The diagnostic is the exception the client attached to *this* rejection,
+    # never parsed from the client's log prose and never taken from another
+    # candidate's event.
     assert "checksum is 3, expected 7" in unusable.reason
 
     # Failures stay the client's own objects, in the two maps that mean
@@ -820,6 +830,61 @@ def test_client_results_keep_tabsim_public_shape(monkeypatch):
     assert result.rejected[OVER_AGE_ID].source == SOURCE_SERVICE
     assert result.rejected[OVER_AGE_ID].reason_code == REASON_OVER_AGE
     assert result.events == events
+
+
+def corrupt_checksum(line: str) -> str:
+    """*line* with its checksum digit wrong, which no policy accepts."""
+    return line[:68] + str((int(line[68]) + 1) % 10)
+
+
+#: ``case -> (what holds the second unusable candidate)``. The first is always
+#: the alphabetically first file in the explicit directory, which is what the
+#: client reads first and therefore what it keeps the rejection of.
+SECOND_CANDIDATE_CASES = ["another_source", "the_same_source"]
+
+
+@pytest.mark.parametrize("case", SECOND_CANDIDATE_CASES)
+def test_a_rejection_reason_describes_the_candidate_its_source_names(
+    case, monkeypatch, tmp_path, isolated_cache
+):
+    """One satellite, two unusable records: the reported reason is the kept one's.
+
+    Only one rejection per satellite survives, and it is the first — a later
+    epoch-less rejection never displaces it. So the diagnostic has to come from
+    that same rejection: pairing it with the last ``candidate_rejected`` event
+    reports the *other* candidate's defect beside the source that supplied
+    nothing of the sort, which sends a user to the wrong file.
+    """
+    first = tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD, DATA_SOURCE="my archive")
+    first["TLE_LINE1"] = corrupt_checksum(first["TLE_LINE1"])
+    write_orbit_json(tmp_path / "a-corrupt.json", [first])
+
+    second = tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD + 0.25)
+    second[CHECKSUM_STATUS_FIELD] = "believed_fine"
+    if case == "another_source":
+        TextOrbitCache(isolated_cache).store(ISS_NORAD_ID, pd.DataFrame([second]))
+    else:
+        write_orbit_json(tmp_path / "b-unknown-status.json", [second])
+    nearest_tle, nearest_omm = stub_endpoints(monkeypatch)  # both archives empty
+
+    resolution = orbit.resolve_orbits(
+        [ISS_NORAD_ID], ISS_EPOCH_JD, extra_orbit_dir=str(tmp_path)
+    )
+
+    assert nearest_tle.requested == nearest_omm.requested == [ISS_NORAD_ID]
+    refused = resolution.rejected[ISS_NORAD_ID]
+    assert refused.source == LABEL_EXTRA
+    assert refused.reason_code == REASON_INVALID
+    # The first candidate's defect, from the rejection that was kept...
+    assert "checksum mismatch" in refused.reason
+    # ...and not the second's, which belongs to a record this rejection is not
+    # about (a different file, or the cache the source label does not name).
+    assert "believed_fine" not in refused.reason
+
+    with pytest.raises(orbit.OrbitError) as raised:
+        orbit.require_complete_coverage(resolution)
+    message = str(raised.value)
+    assert f"{ISS_NORAD_ID}: best candidate unusable — {refused.reason}" in message
 
 
 def test_tabsim_result_constructors_keep_their_positional_order():
