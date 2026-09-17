@@ -2,8 +2,8 @@
 
 Every value that decides which satellites are modelled, and which orbital records
 are acceptable for them, is validated here, so a malformed entry surfaces as
-:class:`TLEConfigurationError` with the key that caused it rather than as a
-``ValueError`` from somewhere inside pandas several steps later.
+:class:`TLEConfigurationError` naming the key rather than as a ``ValueError``
+from inside pandas several steps later.
 
 Four age settings exist and are deliberately kept distinct:
 
@@ -20,12 +20,6 @@ Four age settings exist and are deliberately kept distinct:
     Wall-clock age below which a cached *catalogue search* is reused instead of
     repeated. Nothing to do with the age of an orbital record: it measures how
     stale our picture of which satellites exist is allowed to be.
-
-Ported from ``tabascal/orbit_config.py`` (epfl-radio-astro/tabascal#92), less the
-Measurement Set epoch derivation and the model-component introspection, neither
-of which tabsim has an equivalent of: tabsim builds its own time grid from the
-simulation configuration, and its satellite sources are named directly rather
-than implied by a trajectory component.
 """
 
 from __future__ import annotations
@@ -54,21 +48,18 @@ from satchecker_client.records import norad_id_of
 #: records, *not* a promise of three-day positional accuracy.
 DEFAULT_REMOTE_MAX_AGE_DAYS = 3.0
 
-#: A cached record this close to the observation is good enough to avoid a new
-#: nearest-record request. A request/latency trade-off, not the safety ceiling
-#: above.
+#: A cached record this close to the observation avoids a new nearest-record
+#: request. A request/latency trade-off, not the safety ceiling above.
 DEFAULT_CACHE_REUSE_MAX_AGE_DAYS = 1.0
 
-#: Wall-clock age at which a cached catalogue search is refreshed. A day keeps a
-#: repeated run of the same configuration off the search endpoint while still
-#: noticing a launch, a decay or a new alias within a day. ``None`` reuses a
-#: snapshot indefinitely; ``0`` refreshes on every online lookup.
+#: Wall-clock age at which a cached catalogue search is refreshed: a day keeps a
+#: repeated run off the search endpoint while still noticing a launch, a decay or
+#: a new alias. ``None`` reuses a snapshot indefinitely; ``0`` always refreshes.
 DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS = 1.0
 
-#: Configuration keys that used to decide where orbital records came from and now
-#: do nothing. Silently ignoring one is worse than removing it: the run succeeds
-#: and quietly stops honouring a setting the user still believes in — so each is
-#: rejected by *presence*, null included, with the migration it needs.
+#: Keys that used to decide where orbital records came from and now do nothing.
+#: Silently ignoring one is worse than removing it, so each is rejected by
+#: *presence*, null included, with the migration it needs.
 OBSOLETE_KEYS = {
     "tle_dir": (
         "`rfi_sources.tle_satellite.tle_dir` is obsolete. Use `extra_orbit_dir` "
@@ -87,8 +78,7 @@ class TLEConfigurationError(TLEError, ValueError):
 
     Subclasses :class:`~satchecker_client.client.SatCheckerError` so a caller
     catching "the orbit records could not be obtained" catches a bad
-    configuration too, and :class:`ValueError` because that is what a bad
-    argument to these helpers has always raised.
+    configuration too, and :class:`ValueError` as these helpers always have.
     """
 
 
@@ -128,10 +118,9 @@ def validate_age_days(value, name: str) -> Optional[float]:
 def validate_bool(value, name: str) -> bool:
     """Validate a policy switch as a real boolean, never by truthiness.
 
-    ``allow_missing_checksum`` decides whether unverifiable orbital data is
-    accepted and ``offline`` whether the service is contacted at all, so a
-    near-miss value — ``"false"``, ``0``, ``1.0`` — has to be an error rather
-    than being coerced in whichever direction the accident happens to point.
+    These decide whether unverifiable orbital data is accepted and whether the
+    service is contacted, so ``"false"``, ``0`` or ``1.0`` has to be an error
+    rather than being coerced in whichever direction the accident points.
     """
     if not isinstance(value, bool):
         raise TLEConfigurationError(
@@ -143,10 +132,10 @@ def validate_bool(value, name: str) -> bool:
 def reject_obsolete_keys(satellites: dict) -> None:
     """Raise the migration error for any :data:`OBSOLETE_KEYS` that is present.
 
-    By presence, not by value: a ``null`` is still a key someone wrote meaning
-    something by it. Called before the observation is built and before any
-    request goes out, including when satellite simulation is disabled entirely —
-    that is exactly the run where nothing else would ever read the section.
+    By presence, not by value: a ``null`` is still a key someone meant something
+    by. Called before the observation is built and before any request goes out,
+    including when satellite simulation is disabled entirely — that is exactly
+    the run where nothing else would ever read the section.
     """
     for key, migration in OBSOLETE_KEYS.items():
         if key in (satellites or {}):
@@ -160,13 +149,12 @@ def reject_obsolete_keys(satellites: dict) -> None:
 def _as_norad_id(value, where: str) -> int:
     """Coerce one entry to a positive integral NORAD catalogue ID, exactly.
 
-    The client's :func:`~satchecker_client.records.norad_id_of` does the
-    checking, because it is exact: a string goes through ``Decimal``, so
-    ``"25544.0"`` — how a NORAD ID list written by numpy or read out of a
-    spectral-model CSV routinely arrives — is 25544, while
-    ``"25544.000000000001"`` is refused rather than rounded to 25544 by a float
-    conversion and quietly selecting the ISS. A fractional, non-finite,
-    non-positive or non-numeric value is a configuration error naming *where*.
+    The client's :func:`~satchecker_client.records.norad_id_of` does the checking
+    because it is exact: a string goes through ``Decimal``, so ``"25544.0"`` — how
+    a list written by numpy or read out of a spectral-model CSV routinely arrives
+    — is 25544, while ``"25544.000000000001"`` is refused rather than rounded to
+    25544 by a float conversion and quietly selecting the ISS. A fractional,
+    non-finite, non-positive or non-numeric value is an error naming *where*.
     """
     # bool is Integral and np.bool_ is finite and equal to 0 or 1, so both would
     # pass an exactness check as satellite 1; neither is an identity.
@@ -216,11 +204,9 @@ def read_norad_ids_file(path) -> list[int]:
     """Read NORAD catalogue IDs from the first column of *path*.
 
     Blank lines and ``#`` comments are ignored; the first whitespace-separated
-    field of every other line must be a positive integer, and anything after it
-    is ignored — matching the ``usecols=0`` this replaces, so a file pairing IDs
-    with a name or a note still reads. Errors name the file *and line number* so
-    a typo in a long list is trivially located. IDs are de-duplicated with their
-    first occurrence's order preserved.
+    field of every other line must be a positive integer and anything after it is
+    ignored, so a file pairing IDs with a name or a note still reads. Errors name
+    the file *and line number*, and IDs keep their first occurrence's order.
     """
     path = Path(path)
     try:
@@ -259,18 +245,16 @@ class OrbitConfig:
     extra_orbit_max_age_days: Optional[float] = None
     remote_max_age_days: Optional[float] = DEFAULT_REMOTE_MAX_AGE_DAYS
     cache_reuse_max_age_days: Optional[float] = DEFAULT_CACHE_REUSE_MAX_AGE_DAYS
-    #: Accept TLE lines whose checksum digit is missing, and carry them as
+    #: Accept TLE lines whose checksum digit is missing, carried as
     #: ``unverified_missing_checksum`` for the life of the record. Strict by
-    #: default, and applied identically to remote acquisition, explicit files and
-    #: frozen replay — a permissive run must not be launderable into a strict one.
+    #: default, and identical on remote acquisition, explicit files and replay.
     allow_missing_checksum: bool = False
     #: Wall-clock freshness of a cached catalogue search; see
     #: :data:`DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS`.
     search_cache_max_age_days: Optional[float] = DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS
-    #: Forbid every SatChecker request. Cached searches are reused regardless of
-    #: freshness, and cached orbit records within ``remote_max_age_days`` — the
-    #: hard ceiling still applies, since offline is about reachability and not
-    #: about what an acceptable record is.
+    #: Forbid every SatChecker request. Cached searches are reused at any age and
+    #: cached orbit records within ``remote_max_age_days``: the hard ceiling still
+    #: applies, offline being about reachability and not about acceptability.
     offline: bool = False
     #: Directory of a previous run's ``input_data``. When set, its saved NORAD IDs
     #: and records *are* the selection: no discovery, no cache, no network, no
@@ -300,18 +284,17 @@ def validate_remote_ages(
 def normalise_orbit_config(satellites: dict) -> OrbitConfig:
     """Validate the ``rfi_sources.tle_satellite`` section into an :class:`OrbitConfig`.
 
-    NORAD IDs come from ``norad_ids`` and, when set, are extended by the first
-    column of ``norad_ids_path``; ``sat_names`` are resolved against SatChecker's
-    name index later, by :func:`tabsim.orbit.resolve_names`, because that needs
-    the network and this does not.
+    NORAD IDs come from ``norad_ids`` and, when set, the first column of
+    ``norad_ids_path``; ``sat_names`` are resolved later by
+    :func:`tabsim.orbit.resolve_names`, which needs the network where this does not.
 
-    ``replay_orbit_dir`` changes what this function reads. A frozen replay's saved
-    IDs are the selection, so the run's own ``norad_ids``, ``sat_names`` and
-    ``norad_ids_path`` are not inputs at all: they are neither read nor validated,
-    and come back empty. A replay of a run whose ID file has since moved must
-    still be possible, and a leftover value nothing will look at cannot be a
-    reason to refuse the run. What the replay overrode is logged from the raw
-    configuration, by :func:`tabsim.config.add_tle_satellite_sources`.
+    ``replay_orbit_dir`` changes what this reads. A frozen replay's saved IDs are
+    the selection, so the run's own ``norad_ids``, ``sat_names`` and
+    ``norad_ids_path`` are neither read nor validated and come back empty: a
+    replay of a run whose ID file has since moved must still be possible, and a
+    leftover nothing will look at cannot refuse the run. What was overridden is
+    logged from the raw configuration by
+    :func:`tabsim.config.add_tle_satellite_sources`.
     """
     satellites = satellites or {}
     reject_obsolete_keys(satellites)
@@ -382,20 +365,14 @@ def normalise_orbit_config(satellites: dict) -> OrbitConfig:
 def orbit_cache_dir() -> Path:
     """Return the managed orbit cache directory, creating it if possible.
 
-    The directory is resolved in priority order:
+    ``ORBIT_CACHE_DIR`` if set, otherwise the platform user-cache directory
+    (``~/.cache/orbit-cache`` on Linux, ``~/Library/Caches/orbit-cache`` on
+    macOS). A directory that cannot be created is *not* an error here: the path
+    is returned regardless, reads then miss and writes are reported and skipped,
+    so a run with a valid fetch is never lost to an unusable cache location.
 
-    1. ``ORBIT_CACHE_DIR`` environment variable (if set).
-    2. The platform user-cache directory (e.g. ``~/.cache/orbit-cache`` on Linux,
-       ``~/Library/Caches/orbit-cache`` on macOS).
-
-    A directory that cannot be created (read-only filesystem, no permission,
-    quota) is *not* an error here: the path is returned regardless, reads then
-    miss and writes are reported and skipped, so a run with a valid fetch is
-    never lost to an unusable cache location.
-
-    Lives here, with the rest of the orbit configuration, because both the record
-    cache in :mod:`tabsim.orbit` and the catalogue-search cache in
-    :mod:`tabsim.satchecker_names` share it.
+    Lives here because both the record cache in :mod:`tabsim.orbit` and the
+    catalogue-search cache in :mod:`tabsim.satchecker_names` share it.
     """
     p = Path(os.environ.get("ORBIT_CACHE_DIR") or user_cache_path("orbit-cache"))
     try:
@@ -408,7 +385,7 @@ def orbit_cache_dir() -> Path:
 def observation_epoch_jd(times_jd) -> float:
     """Mean observation epoch (UTC JD) of an already-read time array.
 
-    Every age comparison is measured from this one value, so it is derived in one
-    place rather than recomputed at each call site.
+    Every age comparison is measured from this one value, so it is derived once
+    rather than recomputed at each call site.
     """
     return float(np.atleast_1d(np.asarray(times_jd, dtype=float)).mean())
