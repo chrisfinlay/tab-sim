@@ -1312,6 +1312,100 @@ def test_the_refresh_summary_reports_only_requests_that_were_made(
         assert summary in out
 
 
+def test_one_healthy_run_says_each_thing_once_and_warns_about_nothing(
+    monkeypatch, isolated_cache, capsys
+):
+    """Cache reuse, a refresh and a fallback in one run — and one log to read.
+
+    Events arrive per set of satellites rather than per run, so the heading a
+    batch prints, the cache-hit count and the fallback explanation can each be
+    emitted more than once for what a user experiences as one thing. The counts
+    are the assertion; so is the absence of every line that is a report of
+    something having gone wrong, none of which did.
+    """
+    reused, refreshed, fetched = ISS_NORAD_ID, ISS_NORAD_ID + 1, ISS_NORAD_ID + 2
+    epoch_jd = ISS_EPOCH_JD
+    cache = TextOrbitCache(isolated_cache)
+    cache.store(
+        reused, pd.DataFrame([tle_record_at(reused, epoch_jd + 0.5)])
+    )  # within the reuse threshold: no request
+    cache.store(
+        refreshed, pd.DataFrame([tle_record_at(refreshed, epoch_jd + 2.0)])
+    )  # inside the ceiling, outside the reuse threshold: asked about
+    nearest_tle, nearest_omm = stub_endpoints(
+        monkeypatch,
+        omm={
+            norad_id: omm_record_at(norad_id, epoch_jd + 0.1)
+            for norad_id in (refreshed, fetched)
+        },
+    )  # the first archive has nothing for either, the second has both
+
+    resolution = orbit.resolve_orbits([reused, refreshed, fetched], epoch_jd)
+    out = capsys.readouterr().out
+
+    assert resolution.complete
+    assert resolution.resolved[reused].source == LABEL_CACHE
+    assert resolution.resolved[refreshed].source == LABEL_OMM
+    assert resolution.resolved[fetched].source == LABEL_OMM
+    assert nearest_tle.requested == [refreshed, fetched]
+    assert nearest_omm.requested == [refreshed, fetched]
+
+    # One heading for the batch that was announced, and none for the fallback,
+    # which the handover sentence already announced.
+    assert out.count("Fetching ") == 1
+    assert "nearest-TLE" in out.split("Fetching ")[1].splitlines()[0]
+    assert out.count("trying nearest-OMM") == 1
+    assert out.count("Cache hits") == 1
+    assert out.count("Remote orbit records") == 1
+
+    # Nothing failed, nothing was retained for want of something better, and
+    # nothing about any record is unverifiable — so none of those lines exist.
+    assert "warning" not in out
+    assert "SatChecker did not improve" not in out
+    assert "Unverified TLE" not in out
+    assert "offline" not in out
+
+
+def test_a_refresh_failure_reaches_the_summary_through_the_real_callbacks(
+    monkeypatch, isolated_cache, capsys
+):
+    """The same warning, driven by the client's own event sequence.
+
+    The parametrised case below hands tabsim a result it could not have
+    produced, which tests the reporting but not the wiring: that the resolver's
+    ``on_event`` callbacks, its error bookkeeping and its final result agree
+    about which satellites failed a refresh and what each is continuing from.
+    """
+    from_cache, rescued = ISS_NORAD_ID, GPS_NORAD_ID
+    epoch_jd = ISS_EPOCH_JD
+    TextOrbitCache(isolated_cache).store(
+        from_cache, pd.DataFrame([tle_record_at(from_cache, epoch_jd + 2.0)])
+    )
+    outage = SatCheckerResponseError("nearest-TLE answered 503")
+    stub_endpoints(
+        monkeypatch,
+        tle_default=outage,
+        omm={rescued: omm_record_at(rescued, epoch_jd - 0.1)},
+        omm_default=outage,
+    )
+
+    resolution = orbit.resolve_orbits([from_cache, rescued], epoch_jd)
+    out = capsys.readouterr().out
+
+    assert resolution.complete
+    assert orbit.require_complete_coverage(resolution) is resolution
+    assert sorted(resolution.refresh_errors) == sorted([from_cache, rescued])
+    assert resolution.service_errors == {}
+    assert resolution.resolved[from_cache].source == LABEL_CACHE
+    assert resolution.resolved[rescued].source == LABEL_OMM
+
+    assert "warning: a SatChecker request failed for 2 ID(s)" in out
+    for norad_id, label in ((from_cache, LABEL_CACHE), (rescued, LABEL_OMM)):
+        assert (
+            f"{norad_id} — {resolution.refresh_errors[norad_id]} (from {label})" in out
+        )
+
+
 @pytest.mark.parametrize("detail", [False, True], ids=["truncated", "detailed"])
 def test_client_refresh_failures_produce_tabsim_summary(detail, monkeypatch, capsys):
     """A failed refresh is not fatal, and the run is not quite the one asked for.
