@@ -1,0 +1,24 @@
+{
+  "allow_missing_checksum": false,
+  "norad_ids": [
+    32260
+  ],
+  "records": [
+    {
+      "ARG_OF_PERICENTER": 23.7047,
+      "BSTAR": 3.2e-05,
+      "DATA_SOURCE": "spacetrack",
+      "ECCENTRICITY": 0.0066635,
+      "EPOCH": "2024-01-01T05:49:43.542913",
+      "FETCHED_AT": "2026-08-13T09:15:00+00:00",
+      "INCLINATION": 51.6389,
+      "MEAN_ANOMALY": 166.5963,
+      "MEAN_MOTION": 15.49291762,
+      "NORAD_CAT_ID": 32260,
+      "OBJECT_ID": "1998-067A",
+      "OBJECT_NAME": "TEST SAT",
+      "RA_OF_ASC_NODE": 166.3375,
+      "RECORD_KIND": "omm"
+    }
+  ]
+}

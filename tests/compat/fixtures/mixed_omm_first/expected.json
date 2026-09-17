@@ -1,0 +1,46 @@
+{
+  "allow_missing_checksum": false,
+  "norad_ids": [
+    32260,
+    25544
+  ],
+  "records": [
+    {
+      "ARG_OF_PERICENTER": 23.7047,
+      "BSTAR": 3.2e-05,
+      "DATA_SOURCE": "spacetrack",
+      "ECCENTRICITY": 0.0066635,
+      "EPOCH": "2024-01-01T05:49:43.542913",
+      "FETCHED_AT": "2026-08-13T09:15:00+00:00",
+      "INCLINATION": 51.6389,
+      "MEAN_ANOMALY": 166.5963,
+      "MEAN_MOTION": 15.49291762,
+      "NORAD_CAT_ID": 32260,
+      "OBJECT_ID": "1998-067A",
+      "OBJECT_NAME": "TEST SAT",
+      "RA_OF_ASC_NODE": 166.3375,
+      "RECORD_KIND": "omm",
+      "TLE_LINE1": null,
+      "TLE_LINE2": null
+    },
+    {
+      "ARG_OF_PERICENTER": null,
+      "BSTAR": null,
+      "DATA_SOURCE": "spacetrack",
+      "ECCENTRICITY": null,
+      "EPOCH": null,
+      "FETCHED_AT": "2026-08-13T09:15:00+00:00",
+      "INCLINATION": null,
+      "MEAN_ANOMALY": null,
+      "MEAN_MOTION": null,
+      "NORAD_CAT_ID": 25544,
+      "OBJECT_ID": null,
+      "OBJECT_NAME": "TEST SAT",
+      "RA_OF_ASC_NODE": null,
+      "RECORD_KIND": "tle",
+      "TLE_CHECKSUM_STATUS": "verified",
+      "TLE_LINE1": "1 25544U 98067A   23055.57290509  .00017000  00000-0  31277-3 0  9993",
+      "TLE_LINE2": "2 25544  51.6389 166.3375 0005390  23.7047 166.5963 15.49291762384327"
+    }
+  ]
+}
