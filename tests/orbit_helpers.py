@@ -17,10 +17,12 @@ damaging a line that was valid first.
 from __future__ import annotations
 
 import json
+import math
 import sys
 import urllib.parse
 from contextlib import contextmanager
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 
@@ -224,6 +226,58 @@ def stub_service(monkeypatch, records_by_id, endpoint="tle"):
     return calls
 
 
+class EndpointStub:
+    """One nearest-record endpoint with scripted per-ID answers, recording calls.
+
+    :func:`stub_service` answers every ID alike, which is all most tests need.
+    This is for the ones where the *difference* between two satellites at one
+    endpoint is the point — one answering empty while another fails — and for
+    the ones that assert what a given endpoint was and was not asked.
+
+    An *answers* entry is a record dict, a DataFrame, or an exception to raise;
+    an ID with no entry gets *default*, and ``None`` is an empty frame, which is
+    the service saying it has no such record.
+    """
+
+    def __init__(self, label, answers=None, default=None):
+        self.label = label
+        self.answers = dict(answers or {})
+        self.default = default
+        #: ``(norad_id, epoch_jd, strict_response)`` per call, as it arrived.
+        self.calls: list[tuple] = []
+
+    def __call__(self, norad_id, epoch_jd, *, strict_response=False):
+        self.calls.append((int(norad_id), float(epoch_jd), strict_response))
+        answer = self.answers.get(int(norad_id), self.default)
+        if isinstance(answer, BaseException):
+            raise answer
+        if answer is None:
+            return pd.DataFrame()
+        if isinstance(answer, pd.DataFrame):
+            return answer.copy()
+        return pd.DataFrame([answer])
+
+    @property
+    def requested(self) -> list[int]:
+        return [norad_id for norad_id, _, _ in self.calls]
+
+
+def stub_endpoints(monkeypatch, *, tle=None, omm=None, tle_default=None, omm_default=None):
+    """Install an :class:`EndpointStub` on each nearest-record endpoint.
+
+    Returns ``(nearest_tle, nearest_omm)`` in that order — the same order
+    :func:`satchecker_client.nearest_endpoints_for` returns them in for a
+    pre-handover epoch — so a test can assert what each archive was asked.
+    """
+    stubs = (
+        EndpointStub("nearest-TLE", tle, tle_default),
+        EndpointStub("nearest-OMM", omm, omm_default),
+    )
+    monkeypatch.setattr(client, "fetch_nearest_tle", stubs[0])
+    monkeypatch.setattr(client, "fetch_nearest_omm", stubs[1])
+    return stubs
+
+
 def stub_failing_service(monkeypatch, error, endpoint=None):
     """Make one or both nearest-record endpoints raise *error*.
 
@@ -412,3 +466,46 @@ def serve_search(monkeypatch, by_query):
 
     _serve_transport(monkeypatch, fake_get)
     return calls
+
+
+# ---------------------------------------------------------------------------
+# Frozen cross-version fixtures
+# ---------------------------------------------------------------------------
+
+#: Replay directories written by tab-sim e3d957d (PR #44), with what #44's own
+#: loader read back out of each. See ``tests/compat/fixtures/PROVENANCE.txt``.
+COMPAT_FIXTURE_DIR = Path(__file__).resolve().parent / "compat" / "fixtures"
+
+
+def compat_fixture(name: str):
+    """One frozen #44 replay directory and the pair #44 read back from it.
+
+    Returns ``(directory, expected)`` where *expected* carries the checksum
+    policy the case needs, the saved IDs in saved order, and one record each,
+    written the way :func:`comparable_record` spells them.
+    """
+    directory = COMPAT_FIXTURE_DIR / name
+    expected = json.loads((directory / "expected.json").read_text())
+    return directory, expected
+
+
+def json_ready(value):
+    """One record cell as the frozen fixtures spell it.
+
+    A NumPy scalar is unwrapped and every flavour of null becomes ``None``: a
+    mixed-kind table gives one kind's row the other kind's columns as NaN, and
+    ``NaN != NaN`` makes a record carrying one impossible to compare by equality.
+    """
+    item = getattr(value, "item", None)
+    if item is not None and getattr(value, "shape", ()) == ():
+        value = item()
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    return value
+
+
+def comparable_record(record) -> dict:
+    """*record* in the spelling the frozen fixtures are stored in."""
+    return {key: json_ready(value) for key, value in dict(record).items()}

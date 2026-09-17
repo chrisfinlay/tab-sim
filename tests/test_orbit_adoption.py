@@ -1,0 +1,854 @@
+"""tabsim.orbit as an adapter over satchecker-client's resolver and replay API.
+
+``tests/test_orbit.py`` says what tabsim's orbit policy *is*, and goes on saying
+it after this change: source precedence, the age ceilings, the checksum rule,
+the coverage errors and the frozen-replay contract are tabsim's, whoever
+executes them. This module says who executes them. Every test here is about the
+seam — that the selection, acquisition and serialisation tabsim used to
+implement itself now come from the client's public API, and that what comes back
+through that seam still has tabsim's shape, tabsim's labels and tabsim's
+wording.
+
+**The seam.** ``tabsim.orbit`` already does ``import satchecker_client as
+satchecker`` and calls ``satchecker.nearest_endpoints_for(...)`` at call time
+rather than binding it at import. The adoption keeps exactly that one
+convention for everything else it takes from the client, so every function these
+tests patch is an attribute of the package module:
+
+    satchecker.resolve_orbits          satchecker.save_orbits_for_reuse
+    satchecker.read_extra_orbit_dir    satchecker.save_replay_orbits
+                                       satchecker.load_replay_orbits
+
+A ``from satchecker_client import resolve_orbits`` at module scope would bind
+the function at import and make it unpatchable here — and, for the endpoints,
+would freeze the archive choice at import time. :data:`CLIENT_SEAM_NAMES` is the
+list, and :func:`spy_on` is the only way these tests install anything on it.
+
+**Public API only.** Nothing here patches the client's resolver internals, its
+candidate selection or its serialisation helpers: a test that reached in there
+would pass against an implementation nobody else could use. Delegation spies
+wrap the *real* function wherever the behaviour is also being asserted, so a
+test proves both that the call happened and that the answer is right. Where a
+test needs a result tabsim could not have produced by itself — an outage that
+blocked a fallback, a refresh that failed — it builds the client's own result
+dataclasses and hands them back through the same public seam.
+
+Everything runs offline: ``tests/conftest.py``'s autouse fixtures cover this
+module as they cover every other, and a request that escapes the endpoint stubs
+fails the test rather than reaching SatChecker.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+import satchecker_client
+from satchecker_client import (
+    EndpointAttempt,
+    OrbitInputError,
+    ResolutionEvent,
+    SatCheckerResponseError,
+    SatCheckerTransportError,
+    client,
+    validated_record,
+)
+from satchecker_client import OrbitResolution as ClientOrbitResolution
+from satchecker_client import RejectedOrbit as ClientRejectedOrbit
+from satchecker_client import ResolvedOrbit as ClientResolvedOrbit
+from satchecker_client.cache import TextOrbitCache, read_legacy_tle_records
+from satchecker_client.records import record_elements
+
+from tabsim import config as config_module
+from tabsim import orbit
+from tabsim.tle import get_satellite_positions
+
+from compat import pr44_loader
+from orbit_helpers import (
+    CHECKSUM_STATUS_FIELD,
+    GPS_EPOCH_JD,
+    GPS_NORAD_ID,
+    ISS_EPOCH_JD,
+    ISS_NORAD_ID,
+    STATUS_UNVERIFIED,
+    STATUS_VERIFIED,
+    comparable_record,
+    compat_fixture,
+    forbidden,
+    omm_record_at,
+    stub_endpoints,
+    tle_record_at,
+    without_checksum,
+)
+
+
+# ---------------------------------------------------------------------------
+# The vocabulary each side is written in
+# ---------------------------------------------------------------------------
+
+#: The client's stable source codes. Mirrored here rather than imported from the
+#: client's own test package, which is not installed with it.
+GROUP_EXTRA, GROUP_REMOTE = "extra", "remote"
+SOURCE_EXTRA, SOURCE_CACHE, SOURCE_SERVICE = "extra", "cache", "service"
+
+#: ``EndpointAttempt.status`` values.
+ATTEMPT_EMPTY = "empty"
+ATTEMPT_USABLE = "usable"
+ATTEMPT_OVER_AGE = "over_age"
+ATTEMPT_ERROR = "error"
+ATTEMPT_NOT_SENT = "not_sent"
+
+#: ``RejectedOrbit.reason_code`` values.
+REASON_OVER_AGE, REASON_INVALID = "over_age", "invalid"
+
+#: ``OrbitResolution.unavailable`` classifications.
+UNAVAILABLE_ABSENT = "absent"
+UNAVAILABLE_OFFLINE = "offline"
+UNAVAILABLE_NOT_ATTEMPTED = "not_attempted"
+UNAVAILABLE_INVALID_LOCAL = "invalid_local"
+
+#: The ``ResolutionEvent.code`` values these tests supply or expect.
+EVENT_OUTAGE = "outage"
+EVENT_REFRESH_FAILED = "refresh_failed"
+EVENT_CANDIDATE_REJECTED = "candidate_rejected"
+
+#: The client's endpoint labels, which its own ``nearest_endpoints_for``
+#: produces and which tabsim's display labels embed.
+TLE_ENDPOINT, OMM_ENDPOINT = "nearest-TLE", "nearest-OMM"
+
+#: tabsim's display labels. These are the strings logs, coverage errors and
+#: saved provenance have always used, and they are not the client's codes: an
+#: application says "extra_orbit_dir" because that is the configuration key the
+#: user set, and names the archive that answered because the two behave
+#: differently near the handover.
+LABEL_EXTRA = "extra_orbit_dir"
+LABEL_CACHE = "managed per-satellite cache"
+LABEL_TLE = "SatChecker (nearest-TLE)"
+LABEL_OMM = "SatChecker (nearest-OMM)"
+
+#: The observation every constructed result is measured against.
+OBS_EPOCH_JD = ISS_EPOCH_JD
+
+#: The client dependency this adoption is written against; see §3.6 of the plan
+#: and the comment in ``pyproject.toml``.
+PINNED_CLIENT_SHA = "bb7027042b6ed6f5f76049201335d3cdc1dd1c06"
+PINNED_REQUIREMENT = (
+    "satchecker-client @ git+https://github.com/epfl-radio-astro/"
+    f"satchecker-client.git@{PINNED_CLIENT_SHA}"
+)
+#: The PR #4 pin this replaces. Kept so the test can say "and not the old one".
+SUPERSEDED_CLIENT_SHA = "06dcbf5cff5ce581bf694d689bfe08de358c5e72"
+
+
+# ---------------------------------------------------------------------------
+# The seam, and the only way these tests touch it
+# ---------------------------------------------------------------------------
+
+#: Every client function tabsim must look up on the package module at call time.
+CLIENT_SEAM_NAMES = (
+    "resolve_orbits",
+    "read_extra_orbit_dir",
+    "save_orbits_for_reuse",
+    "save_replay_orbits",
+    "load_replay_orbits",
+)
+
+
+class Spy:
+    """One client function, recorded and then called.
+
+    Wraps the real implementation by default, so a test asserts delegation *and*
+    the behaviour that follows from it rather than only the former: a spy that
+    swallowed the call would pass against an adapter that does nothing useful.
+    """
+
+    def __init__(self, name, target):
+        self.name = name
+        self.target = target
+        self.calls: list[tuple] = []
+
+    def __call__(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return self.target(*args, **kwargs)
+
+    @property
+    def call(self) -> tuple:
+        assert len(self.calls) == 1, (
+            f"expected exactly one call to satchecker_client.{self.name}, got "
+            f"{len(self.calls)}"
+        )
+        return self.calls[0]
+
+    def argument(self, position: int, name: str):
+        """The *name* argument of the single call, given or passed positionally."""
+        args, kwargs = self.call
+        if len(args) > position:
+            return args[position]
+        assert name in kwargs, (
+            f"satchecker_client.{self.name} was called without {name}"
+        )
+        return kwargs[name]
+
+
+def spy_on(monkeypatch, name: str, answer=None) -> Spy:
+    """Record calls to ``satchecker_client.<name>``; *answer* replaces the real one."""
+    assert name in CLIENT_SEAM_NAMES, f"{name} is not one of the adopted seams"
+    spy = Spy(name, getattr(satchecker_client, name) if answer is None else answer)
+    monkeypatch.setattr(satchecker_client, name, spy)
+    return spy
+
+
+def deliver(monkeypatch, result) -> Spy:
+    """Make the public client resolver answer with *result*, whatever is asked.
+
+    For the cases a stubbed endpoint cannot produce: an outage that stopped a
+    fallback before it was sent, a refresh that failed for a satellite the run
+    resolved anyway. The result is the client's own, built from its own
+    dataclasses, so what is being tested is the adaptation and nothing else.
+    """
+    return spy_on(monkeypatch, "resolve_orbits", lambda *args, **kwargs: result)
+
+
+def forbid_replay_fallbacks(monkeypatch) -> None:
+    """Every source a frozen replay must not touch, made to raise.
+
+    Raising rather than answering nothing is the point: a replay that quietly
+    resolved a satellite from the cache or the service would still produce a
+    plausible simulation, just not the one it claims to reproduce.
+    """
+    monkeypatch.setattr(
+        satchecker_client, "resolve_orbits", forbidden("the client resolver")
+    )
+    monkeypatch.setattr(
+        satchecker_client, "read_extra_orbit_dir", forbidden("the directory scan")
+    )
+    monkeypatch.setattr(
+        satchecker_client, "search_satellites", forbidden("the catalogue search")
+    )
+    monkeypatch.setattr(orbit, "TextOrbitCache", forbidden("the managed orbit cache"))
+    monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
+    monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
+
+
+# ---------------------------------------------------------------------------
+# Building client results by hand
+# ---------------------------------------------------------------------------
+
+def canonical(record) -> dict:
+    """*record* as the client hands it over: kind stated, checksum provenance on it."""
+    return validated_record(record, allow_missing_checksum=True)
+
+
+def client_resolved(
+    norad_id, source, *, endpoint=None, offset_days=0.0, provider="spacetrack",
+    record=None,
+) -> ClientResolvedOrbit:
+    """One accepted entry, in the client's own result type."""
+    epoch_jd = OBS_EPOCH_JD + offset_days
+    if record is None:
+        record = tle_record_at(norad_id, epoch_jd, DATA_SOURCE=provider)
+    return ClientResolvedOrbit(
+        norad_id=int(norad_id),
+        record=canonical(record),
+        source=source,
+        endpoint=endpoint,
+        provider=provider,
+        epoch_jd=epoch_jd,
+        offset_days=offset_days,
+    )
+
+
+def client_rejected(
+    norad_id, source, *, endpoint=None, offset_days=None, provider="spacetrack",
+    reason_code=REASON_OVER_AGE, ceiling_days=3.0, limit_name="remote_max_age_days",
+) -> ClientRejectedOrbit:
+    """One near-miss, in the client's own result type."""
+    return ClientRejectedOrbit(
+        norad_id=int(norad_id),
+        source=source,
+        endpoint=endpoint,
+        provider=provider,
+        epoch_jd=None if offset_days is None else OBS_EPOCH_JD + offset_days,
+        offset_days=offset_days,
+        reason_code=reason_code,
+        ceiling_days=ceiling_days,
+        limit_name=limit_name,
+    )
+
+
+def client_result(requested, **fields) -> ClientOrbitResolution:
+    """A client resolution over *requested*, with this suite's policy stated.
+
+    *requested* is what the **client** was asked, which is the sorted normalised
+    list tabsim passes it; the original request order is tabsim's to restore.
+    """
+    fields.setdefault("remote_max_age_days", 3.0)
+    fields.setdefault("cache_reuse_max_age_days", 1.0)
+    fields.setdefault("extra_orbit_max_age_days", None)
+    return ClientOrbitResolution(
+        requested=[int(nid) for nid in requested],
+        obs_epoch_jd=OBS_EPOCH_JD,
+        **fields,
+    )
+
+
+def attempts_of(norad_id, *statuses) -> dict:
+    """``{norad_id: [EndpointAttempt, ...]}`` over tabsim's two endpoints, in order."""
+    return {
+        int(norad_id): [
+            EndpointAttempt(endpoint=label, status=status)
+            for label, status in zip((TLE_ENDPOINT, OMM_ENDPOINT), statuses)
+        ]
+    }
+
+
+def write_orbit_json(path, records) -> Path:
+    """*records* as one column-oriented orbit table, the shape the readers read."""
+    rows = [dict(record) for record in records]
+    columns: list[str] = []
+    for row in rows:
+        columns += [column for column in row if column not in columns]
+    payload = {
+        column: {str(index): row.get(column) for index, row in enumerate(rows)}
+        for column in columns
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload))
+    return path
+
+
+def awkward_omm(norad_id, epoch_jd, **extra) -> dict:
+    """An OMM carrying the two values the replay format exists to protect."""
+    record = omm_record_at(norad_id, epoch_jd, **extra)
+    record["ECCENTRICITY"] = 0.0066635
+    record["BSTAR"] = 3.2e-05
+    return record
+
+
+# ---------------------------------------------------------------------------
+# Delegation: one configured call to the client resolver
+# ---------------------------------------------------------------------------
+
+#: ``case -> (what tabsim is asked, what the client must be told)``.
+POLICY_CASES = {
+    "defaults": (
+        {},
+        {
+            "remote_max_age_days": 3.0,
+            "cache_reuse_max_age_days": 1.0,
+            "extra_orbit_max_age_days": None,
+            "offline": False,
+            "allow_missing_checksum": False,
+            "max_workers": satchecker_client.MAX_WORKERS,
+        },
+    ),
+    "nondefault": (
+        {
+            "remote_max_age_days": 400.0,
+            "cache_reuse_max_age_days": 0.0,
+            "extra_orbit_max_age_days": 500.0,
+            "allow_missing_checksum": True,
+            "max_workers": 2,
+        },
+        {
+            "remote_max_age_days": 400.0,
+            "cache_reuse_max_age_days": 0.0,
+            "extra_orbit_max_age_days": 500.0,
+            "offline": False,
+            "allow_missing_checksum": True,
+            "max_workers": 2,
+        },
+    ),
+    "offline": (
+        {"offline": True},
+        {
+            "remote_max_age_days": 3.0,
+            "cache_reuse_max_age_days": 1.0,
+            "extra_orbit_max_age_days": None,
+            "offline": True,
+            "allow_missing_checksum": False,
+            "max_workers": satchecker_client.MAX_WORKERS,
+        },
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(POLICY_CASES))
+def test_resolution_delegates_with_tabsim_policy(case, monkeypatch, tmp_path):
+    """Every selection and acquisition rule reaches the client, stated explicitly.
+
+    The client resolver defaults nothing on purpose, so "which policy is in
+    force" is entirely a question about this call. Asserting the keywords is
+    asserting tabsim's policy survived the move; asserting the records is
+    asserting the call did the work.
+    """
+    settings, expected = POLICY_CASES[case]
+
+    extra_dir = tmp_path / "extra"
+    held = tle_record_at(GPS_NORAD_ID, GPS_EPOCH_JD, DATA_SOURCE="local file")
+    write_orbit_json(extra_dir / "gps.json", [held])
+    served = tle_record_at(ISS_NORAD_ID, ISS_EPOCH_JD, DATA_SOURCE="spacetrack")
+    nearest_tle, nearest_omm = stub_endpoints(
+        monkeypatch, tle={ISS_NORAD_ID: served}
+    )
+
+    spy = spy_on(monkeypatch, "resolve_orbits")
+    resolution = orbit.resolve_orbits(
+        [GPS_NORAD_ID, ISS_NORAD_ID],
+        OBS_EPOCH_JD,
+        extra_orbit_dir=str(extra_dir),
+        **settings,
+    )
+
+    # The satellites, in the acquisition order #44 established: sorted, so an
+    # outage stops the run after the same requests it always did.
+    assert spy.argument(0, "norad_ids") == sorted([GPS_NORAD_ID, ISS_NORAD_ID])
+    # The observation's own epoch, never today's and never the grid's first sample.
+    assert spy.argument(1, "obs_epoch_jd") == OBS_EPOCH_JD
+
+    _, kwargs = spy.call
+    for keyword, value in expected.items():
+        assert kwargs[keyword] == value, keyword
+    assert tuple(kwargs["source_order"]) == (GROUP_EXTRA, GROUP_REMOTE)
+    assert kwargs["replacement"] == "strictly_fresher"
+    assert kwargs["strict_response"] is True
+    assert kwargs["fallback"] is True
+    assert kwargs["log"] is print
+    assert callable(kwargs["on_event"])
+
+    # An explicit cache, with no path discovered inside the client.
+    cache = kwargs["cache"]
+    assert cache is not None
+    assert all(callable(getattr(cache, name, None)) for name in ("get", "store", "path"))
+
+    # The endpoints for this epoch, resolved at call time: the stubs installed a
+    # moment ago are what arrives, which a module-level import would not give.
+    assert [label for label, _ in kwargs["endpoints"]] == [TLE_ENDPOINT, OMM_ENDPOINT]
+    assert [fetch for _, fetch in kwargs["endpoints"]] == [nearest_tle, nearest_omm]
+
+    # The explicit directory, read once, by the application, through the reader.
+    extra_records = kwargs["extra_records"]
+    assert extra_records is not None and len(extra_records) == 1
+    assert int(extra_records["NORAD_CAT_ID"].iloc[0]) == GPS_NORAD_ID
+
+    # ... and the answer is the one the fixtures describe.
+    assert resolution.resolved[GPS_NORAD_ID].source == LABEL_EXTRA
+    assert resolution.resolved[GPS_NORAD_ID].record["TLE_LINE1"] == held["TLE_LINE1"]
+    if expected["offline"]:
+        assert nearest_tle.calls == [] and nearest_omm.calls == []
+        assert ISS_NORAD_ID not in resolution.resolved
+    else:
+        assert nearest_tle.requested == [ISS_NORAD_ID]
+        assert resolution.norad_ids() == [GPS_NORAD_ID, ISS_NORAD_ID]
+        assert resolution.resolved[ISS_NORAD_ID].source == LABEL_TLE
+        assert (
+            resolution.resolved[ISS_NORAD_ID].record["TLE_LINE1"] == served["TLE_LINE1"]
+        )
+
+
+def test_empty_request_reads_nothing_and_builds_no_cache(monkeypatch, tmp_path):
+    """No satellites is a legitimate configuration, and it costs nothing.
+
+    Not a delegation test: whether an empty request reaches the client at all is
+    an implementation choice. What is not a choice is that it must not open a
+    directory, construct a managed cache, or send a request to find out that
+    there is nothing to resolve.
+    """
+    monkeypatch.setattr(orbit, "TextOrbitCache", forbidden("the managed orbit cache"))
+    monkeypatch.setattr(
+        satchecker_client, "read_extra_orbit_dir", forbidden("the directory scan")
+    )
+    monkeypatch.setattr(client, "fetch_nearest_tle", forbidden("the TLE endpoint"))
+    monkeypatch.setattr(client, "fetch_nearest_omm", forbidden("the OMM endpoint"))
+    resolver = spy_on(monkeypatch, "resolve_orbits")
+
+    resolution = orbit.resolve_orbits([], OBS_EPOCH_JD, extra_orbit_dir=str(tmp_path))
+
+    assert resolution.requested == []
+    assert resolution.complete
+    assert resolution.records() == []
+    for _, kwargs in resolver.calls:
+        assert kwargs["cache"] is None
+        extra_records = kwargs.get("extra_records")
+        assert extra_records is None or not len(extra_records)
+
+
+# ---------------------------------------------------------------------------
+# The duplicated machinery is gone
+# ---------------------------------------------------------------------------
+
+#: The selection, acquisition and serialisation helpers the client now owns.
+#: Keeping a second copy is how the two implementations start disagreeing about
+#: an age comparison or a projected column, with only one of them tested.
+DELETED_NAMES = (
+    "_add_parsed_elements",
+    "_finalise_records",
+    "_checked_extra_ids",
+    "_select_from_extra_dir",
+    "_select_from_records",
+    "_cached_candidates",
+    "_accept_remote",
+    "_fetch_from_service",
+    "_replay_record",
+    "_json_scalar",
+    "_own_norad_id",
+    "_read_replay_ids",
+    "_AGE_TOL_DAYS",
+    "_REPLAY_COLUMNS",
+    "_REPLAY_REQUIRED",
+)
+
+#: What callers import from :mod:`tabsim.orbit` and must keep importing, whoever
+#: implements it underneath.
+KEPT_PUBLIC_NAMES = (
+    "OrbitError",
+    "TLEError",
+    "OrbitConfig",
+    "TLEConfigurationError",
+    "OrbitResolution",
+    "ResolvedOrbit",
+    "RejectedOrbit",
+    "TextOrbitCache",
+    "read_orbit_file",
+    "orbit_cache_dir",
+    "observation_epoch_jd",
+    "resolve_orbits",
+    "resolve_names",
+    "get_orbits_by_id",
+    "require_complete_coverage",
+    "report_named_coverage",
+    "read_extra_orbit_dir",
+    "save_orbits_for_reuse",
+    "save_replay_orbits",
+    "load_replay_orbits",
+    "REPLAY_IDS_FILE",
+    "REPLAY_RECORDS_FILE",
+)
+
+
+def test_local_resolver_and_replay_machinery_is_removed():
+    """tabsim keeps the policy and the wording; the client keeps the machinery."""
+    duplicated = [name for name in DELETED_NAMES if hasattr(orbit, name)]
+    assert duplicated == [], (
+        "tabsim.orbit still carries its own copy of machinery the client now "
+        f"owns: {duplicated}"
+    )
+
+    missing = [name for name in KEPT_PUBLIC_NAMES if not hasattr(orbit, name)]
+    assert missing == [], f"tabsim.orbit no longer exports {missing}"
+
+    # The two replay filenames are one definition, in the module that writes them.
+    assert orbit.REPLAY_IDS_FILE == satchecker_client.REPLAY_IDS_FILE
+    assert orbit.REPLAY_RECORDS_FILE == satchecker_client.REPLAY_RECORDS_FILE
+
+
+# ---------------------------------------------------------------------------
+# The element frame
+# ---------------------------------------------------------------------------
+
+def test_resolution_frame_uses_client_frame(monkeypatch):
+    """The simulator's element frame is derived once, in the client, per read.
+
+    Deriving the elements again in tabsim is how a record's lines and the
+    element columns beside them start disagreeing — the exact failure the client
+    documents ``frame()`` as preventing.
+    """
+    calls = []
+    original = satchecker_client.OrbitResolution.frame
+
+    def frame_spy(self):
+        calls.append(self)
+        return original(self)
+
+    monkeypatch.setattr(satchecker_client.OrbitResolution, "frame", frame_spy)
+
+    served_tle = tle_record_at(GPS_NORAD_ID, OBS_EPOCH_JD)
+    served_omm = awkward_omm(ISS_NORAD_ID, OBS_EPOCH_JD)
+    stub_endpoints(
+        monkeypatch, tle={GPS_NORAD_ID: served_tle}, omm={ISS_NORAD_ID: served_omm}
+    )
+
+    resolution = orbit.resolve_orbits([GPS_NORAD_ID, ISS_NORAD_ID], OBS_EPOCH_JD)
+    frame = resolution.frame()
+
+    assert len(calls) == 1, "tabsim derived the element frame itself"
+    # Requested order, not sorted and not the order the archives answered in.
+    assert [int(value) for value in frame["NORAD_CAT_ID"]] == [
+        GPS_NORAD_ID,
+        ISS_NORAD_ID,
+    ]
+    # Assigned column by column, so a legacy file's own element columns are
+    # overwritten rather than duplicated beside the derived ones.
+    assert len(set(frame.columns)) == len(frame.columns)
+    for position, norad_id in enumerate([GPS_NORAD_ID, ISS_NORAD_ID]):
+        for column, value in record_elements(
+            resolution.resolved[norad_id].record
+        ).items():
+            assert frame.loc[position, column] == value
+
+
+# ---------------------------------------------------------------------------
+# The public shape of an adapted result
+# ---------------------------------------------------------------------------
+
+EXTRA_ID = 25544
+CACHE_ID = 32260
+TLE_ID = 43013
+OMM_ID = 44713
+OVER_AGE_ID = 48274
+INVALID_ID = 49260
+ERROR_ID = 51044
+
+#: Deliberately not sorted, and not grouped by outcome: the order a run asked in
+#: is the order its records, IDs and frame rows come back in.
+SHAPE_REQUEST = [OMM_ID, EXTRA_ID, OVER_AGE_ID, TLE_ID, INVALID_ID, CACHE_ID, ERROR_ID]
+
+
+def test_client_results_keep_tabsim_public_shape(monkeypatch):
+    """A client result becomes a tabsim result without either being flattened.
+
+    ``tabsim.orbit``'s result types are what ``tabsim.tle``, ``tabsim.config``
+    and every coverage message read, and their fields are a published surface.
+    The client's are a different vocabulary for the same facts. One conversion
+    boundary, one direction, and the client's own object comes out of it
+    unchanged — it is also what the coverage classifier reads its evidence from.
+    """
+    stub_endpoints(monkeypatch)  # today's own acquisition finds nothing
+
+    failure = SatCheckerResponseError("nearest-TLE answered 503")
+    refresh = SatCheckerResponseError("the refresh for the cached record failed")
+    events = [
+        ResolutionEvent(
+            code=EVENT_CANDIDATE_REJECTED,
+            norad_ids=(INVALID_ID,),
+            source=SOURCE_EXTRA,
+            error=ValueError("TLE line 1 checksum is 3, expected 7"),
+            details={"reason_code": REASON_INVALID},
+        )
+    ]
+    result = client_result(
+        sorted(SHAPE_REQUEST),
+        resolved={
+            EXTRA_ID: client_resolved(
+                EXTRA_ID, SOURCE_EXTRA, offset_days=-2.0, provider="local file"
+            ),
+            CACHE_ID: client_resolved(CACHE_ID, SOURCE_CACHE, offset_days=0.5),
+            TLE_ID: client_resolved(
+                TLE_ID, SOURCE_SERVICE, endpoint=TLE_ENDPOINT, offset_days=-0.25
+            ),
+            OMM_ID: client_resolved(
+                OMM_ID, SOURCE_SERVICE, endpoint=OMM_ENDPOINT, offset_days=1.5
+            ),
+        },
+        rejected={
+            OVER_AGE_ID: client_rejected(
+                OVER_AGE_ID, SOURCE_SERVICE, endpoint=TLE_ENDPOINT, offset_days=-4.2
+            ),
+            INVALID_ID: client_rejected(
+                INVALID_ID,
+                SOURCE_EXTRA,
+                provider=None,
+                reason_code=REASON_INVALID,
+                ceiling_days=None,
+                limit_name=None,
+            ),
+        },
+        service_errors={ERROR_ID: failure},
+        refresh_errors={CACHE_ID: refresh},
+        unavailable={INVALID_ID: UNAVAILABLE_INVALID_LOCAL},
+        attempts=attempts_of(ERROR_ID, ATTEMPT_ERROR, ATTEMPT_ERROR),
+        events=events,
+    )
+    deliver(monkeypatch, result)
+
+    resolution = orbit.resolve_orbits(SHAPE_REQUEST, OBS_EPOCH_JD)
+
+    # Order: the request's, in every accessor, whatever order the client was
+    # given the IDs in or answered them in.
+    assert resolution.norad_ids() == [OMM_ID, EXTRA_ID, TLE_ID, CACHE_ID]
+    assert resolution.requested == SHAPE_REQUEST
+    assert resolution.missing == [OVER_AGE_ID, INVALID_ID, ERROR_ID]
+    assert resolution.complete is False
+    assert resolution.obs_epoch_jd == OBS_EPOCH_JD
+    assert resolution.remote_max_age_days == 3.0
+
+    # Accepted entries.
+    extra = resolution.resolved[EXTRA_ID]
+    assert extra.record == result.resolved[EXTRA_ID].record
+    assert extra.epoch_jd == OBS_EPOCH_JD - 2.0
+    assert extra.offset_days == -2.0  # signed, not an age
+    assert extra.age_days == 2.0
+    # An explicit file is the user's own data, so tabsim has never presented a
+    # provider for it, and inheriting the client's source comparison unchanged
+    # would classify it as remote.
+    assert extra.remote is False
+    assert extra.provider is None
+    for norad_id in (CACHE_ID, TLE_ID, OMM_ID):
+        assert resolution.resolved[norad_id].remote is True
+        assert resolution.resolved[norad_id].provider == "spacetrack"
+    assert resolution.resolved[OMM_ID].offset_days == 1.5
+    assert resolution.resolved[OMM_ID].age_days == 1.5
+
+    # Rejections keep the wording a user acts on, and the structure a caller can.
+    stale = resolution.rejected[OVER_AGE_ID]
+    assert stale.norad_id == OVER_AGE_ID
+    assert stale.source == LABEL_TLE
+    assert stale.provider == "spacetrack"
+    assert stale.epoch_jd == OBS_EPOCH_JD - 4.2
+    assert stale.offset_days == -4.2
+    assert stale.age_days == pytest.approx(4.2)
+    assert stale.reason == "remote_max_age_days=3"
+    assert stale.reason_code == REASON_OVER_AGE
+    assert stale.ceiling_days == 3.0
+    assert stale.limit_name == "remote_max_age_days"
+    assert stale.endpoint == TLE_ENDPOINT
+
+    unusable = resolution.rejected[INVALID_ID]
+    assert unusable.source == LABEL_EXTRA
+    assert unusable.epoch_jd is None and unusable.offset_days is None
+    assert unusable.age_days is None
+    assert unusable.reason_code == REASON_INVALID
+    # The diagnostic comes from the candidate_rejected event's own exception,
+    # never from parsing the client's log prose.
+    assert "checksum is 3, expected 7" in unusable.reason
+
+    # Failures stay the client's own objects, in the two maps that mean
+    # different things: one can make coverage fatal, the other never can.
+    assert resolution.service_errors[ERROR_ID] is failure
+    assert resolution.refresh_errors[CACHE_ID] is refresh
+
+    # The client's evidence is exposed, not flattened into tabsim's vocabulary.
+    assert resolution.unavailable == {INVALID_ID: UNAVAILABLE_INVALID_LOCAL}
+    assert [attempt.status for attempt in resolution.attempts[ERROR_ID]] == [
+        ATTEMPT_ERROR,
+        ATTEMPT_ERROR,
+    ]
+    assert list(resolution.events) == events
+
+    # records() hands out copies: a caller editing one must not edit the run's.
+    records = resolution.records()
+    assert [int(record["NORAD_CAT_ID"]) for record in records] == [
+        OMM_ID,
+        EXTRA_ID,
+        TLE_ID,
+        CACHE_ID,
+    ]
+    records[0]["OBJECT_NAME"] = "MUTATED"
+    assert resolution.records()[0]["OBJECT_NAME"] != "MUTATED"
+
+    # And the client's result is untouched by any of it.
+    assert result.requested == sorted(SHAPE_REQUEST)
+    assert result.resolved[EXTRA_ID].source == SOURCE_EXTRA
+    assert result.resolved[EXTRA_ID].provider == "local file"
+    assert result.rejected[OVER_AGE_ID].source == SOURCE_SERVICE
+    assert result.rejected[OVER_AGE_ID].reason_code == REASON_OVER_AGE
+    assert result.events == events
+
+
+def test_tabsim_result_constructors_keep_their_positional_order():
+    """Existing callers build these positionally; new metadata is keyword-only.
+
+    A compatibility guard rather than an adoption assertion: #44 already has
+    these signatures. It is here because the cheapest way to adopt the client's
+    result types is to alias them, and the client's have a different field order
+    — ``endpoint`` between ``source`` and ``provider`` — which silently moves
+    every positional argument along by one.
+    """
+    record = canonical(tle_record_at(ISS_NORAD_ID, OBS_EPOCH_JD))
+    accepted = orbit.ResolvedOrbit(
+        ISS_NORAD_ID, record, LABEL_CACHE, "spacetrack", OBS_EPOCH_JD, -0.5
+    )
+    assert accepted.norad_id == ISS_NORAD_ID
+    assert accepted.record == record
+    assert accepted.source == LABEL_CACHE
+    assert accepted.provider == "spacetrack"
+    assert accepted.epoch_jd == OBS_EPOCH_JD
+    assert accepted.offset_days == -0.5
+    assert accepted.age_days == 0.5
+    assert accepted.remote is True
+
+    refused = orbit.RejectedOrbit(
+        ISS_NORAD_ID,
+        LABEL_EXTRA,
+        None,
+        OBS_EPOCH_JD - 9.0,
+        -9.0,
+        "extra_orbit_max_age_days=5.0",
+    )
+    assert refused.norad_id == ISS_NORAD_ID
+    assert refused.source == LABEL_EXTRA
+    assert refused.provider is None
+    assert refused.epoch_jd == OBS_EPOCH_JD - 9.0
+    assert refused.offset_days == -9.0
+    assert refused.reason == "extra_orbit_max_age_days=5.0"
+    assert refused.age_days == 9.0
+
+    failure = SatCheckerResponseError("boom")
+    refresh = SatCheckerResponseError("stale")
+    resolution = orbit.OrbitResolution(
+        [ISS_NORAD_ID, GPS_NORAD_ID],
+        OBS_EPOCH_JD,
+        3.0,
+        {ISS_NORAD_ID: accepted},
+        {GPS_NORAD_ID: refused},
+        {GPS_NORAD_ID: failure},
+        {ISS_NORAD_ID: refresh},
+        True,
+    )
+    assert resolution.requested == [ISS_NORAD_ID, GPS_NORAD_ID]
+    assert resolution.obs_epoch_jd == OBS_EPOCH_JD
+    assert resolution.remote_max_age_days == 3.0
+    assert resolution.resolved == {ISS_NORAD_ID: accepted}
+    assert resolution.rejected == {GPS_NORAD_ID: refused}
+    assert resolution.service_errors == {GPS_NORAD_ID: failure}
+    assert resolution.refresh_errors == {ISS_NORAD_ID: refresh}
+    assert resolution.offline is True
+    assert resolution.missing == [GPS_NORAD_ID]
+
+
+SOURCE_LABEL_CASES = [
+    (SOURCE_EXTRA, None, LABEL_EXTRA),
+    (SOURCE_CACHE, None, LABEL_CACHE),
+    (SOURCE_SERVICE, TLE_ENDPOINT, LABEL_TLE),
+    (SOURCE_SERVICE, OMM_ENDPOINT, LABEL_OMM),
+]
+
+
+@pytest.mark.parametrize(
+    "source,endpoint,label", SOURCE_LABEL_CASES, ids=[c[2] for c in SOURCE_LABEL_CASES]
+)
+def test_client_source_codes_map_to_tabsim_labels(source, endpoint, label, monkeypatch):
+    """Stable codes on one side, the user's own words on the other.
+
+    The service label names the archive that answered because the two are not
+    interchangeable near the handover: "SatChecker" alone would leave a log
+    unable to say which of them a record came from.
+    """
+    stub_endpoints(monkeypatch)
+    accepted_id, refused_id = ISS_NORAD_ID, GPS_NORAD_ID
+    result = client_result(
+        [accepted_id, refused_id],
+        resolved={
+            accepted_id: client_resolved(
+                accepted_id, source, endpoint=endpoint, offset_days=-0.5
+            )
+        },
+        rejected={
+            refused_id: client_rejected(
+                refused_id, source, endpoint=endpoint, offset_days=-9.0
+            )
+        },
+    )
+    deliver(monkeypatch, result)
+
+    resolution = orbit.resolve_orbits([accepted_id, refused_id], OBS_EPOCH_JD)
+
+    assert resolution.resolved[accepted_id].source == label
+    assert resolution.rejected[refused_id].source == label
+    assert resolution.resolved[accepted_id].remote is (source != SOURCE_EXTRA)
+    assert resolution.resolved[accepted_id].provider == (
+        None if source == SOURCE_EXTRA else "spacetrack"
+    )
