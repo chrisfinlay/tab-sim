@@ -11,6 +11,8 @@ else would ever look at the section.
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from tabsim import config as config_module
@@ -84,6 +86,26 @@ class TestObsoleteKeys:
             config_module.run_sim_config(config_path=config_path)
 
         assert plain(MIGRATION_TEXT[key]) in plain(str(excinfo.value))
+
+    def test_a_failed_run_restores_stdout(self, tmp_path, monkeypatch):
+        """A fatal error must not leave the process writing into that run's log.
+
+        ``run_sim_config`` replaces ``sys.stdout`` with a tee into
+        ``log_sim_*.txt``, and the configuration and orbit checks can now raise
+        before a single visibility is computed. Deliberately *without* the tests'
+        ``restored_stdout`` wrapper: this is the guard that it is not needed, and
+        that a caller of ``sim-vis`` is not left with a closed file for a stdout.
+        """
+        config_path = write_sim_config(
+            tmp_path / "sim.yaml", tle_satellite={"tle_dir": "gone"}
+        )
+        monkeypatch.chdir(tmp_path)
+        before = sys.stdout
+
+        with pytest.raises(TLEConfigurationError):
+            config_module.run_sim_config(config_path=config_path)
+
+        assert sys.stdout is before
 
 
 class TestNewSettings:
