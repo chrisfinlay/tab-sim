@@ -1,9 +1,13 @@
 import sys
+from types import SimpleNamespace
 from unittest.mock import patch
 
+import dask.array as da
+import numpy as np
 import pytest
 import yaml
 
+from tabsim import config
 from tabsim.scripts import sim_vis
 from tabsim.sky import SourcePlacementError
 from timeouts import fail_after
@@ -111,3 +115,61 @@ def test_small_observation_with_a_valid_flux_range_runs(tmp_path, monkeypatch, c
         run_sim_vis(sim_config, tmp_path, monkeypatch)
 
     assert "Total simulation time" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "min_I,problem",
+    [
+        (None, "None is neither a flux in Jy nor a number of sigma"),
+        ([1.0], "[1.0] is neither a flux in Jy nor a number of sigma"),
+        ("3sig", "'3sig' is not a number of sigma such as '3sigma'"),
+        (float("nan"), "min_I = nan is not a number (NaN)"),
+        ("nansigma", "min_I = 'nansigma' is not a number (NaN)"),
+    ],
+)
+def test_flux_limit_that_is_not_a_flux_raises(min_I, problem, tmp_path, monkeypatch):
+    """These used to be a TypeError or an empty ValueError from deep inside, or
+    sources with fluxes of NaN."""
+    sim_config = small_sim_config({"n_src": 2, "min_I": min_I, "max_I": 1.0})
+
+    with fail_after(300):
+        with pytest.raises(ValueError) as err:
+            run_sim_vis(sim_config, tmp_path, monkeypatch)
+
+    assert "ast_sources.point.random" in str(err.value)
+    assert "min_I" in str(err.value) and problem in str(err.value)
+
+
+def test_failing_to_explain_sigma_does_not_hide_the_empty_range(tmp_path, monkeypatch):
+    def broken(obs):
+        raise RuntimeError("no explanation")
+
+    monkeypatch.setattr(config, "describe_image_noise", broken)
+    sim_config = small_sim_config({"n_src": 2, "min_I": "3sigma", "max_I": 1.0})
+
+    with fail_after(300):
+        with pytest.raises(ValueError) as err:
+            run_sim_vis(sim_config, tmp_path, monkeypatch)
+
+    assert "min_I = '3sigma' is greater than max_I = 1.0" in str(err.value)
+    assert "Lower min_I, raise max_I, or lower sigma" in str(err.value)
+    assert "no explanation" not in str(err.value)
+
+
+def test_sigma_value_of_numbers_and_of_sigma():
+    obs = SimpleNamespace(noise_std=0.6 * da.ones(3), n_time=4, n_bl=1)
+
+    assert config.sigma_value(0.5, obs) == 0.5
+    assert config.sigma_value(2, obs) == 2.0
+    assert config.sigma_value(np.float32(0.5), obs) == 0.5
+    assert config.sigma_value(np.int64(2), obs) == 2.0
+    assert config.sigma_value("2sigma", obs) == pytest.approx(2 * 0.6 / 2)
+
+
+def test_sigma_value_does_not_hide_an_error_from_the_noise():
+    """It used to turn any error at all into an empty ValueError."""
+    obs = SimpleNamespace(noise_std=da.ones(3), n_time=4, n_bl="one")
+
+    with pytest.raises(TypeError):
+        config.sigma_value("3sigma", obs)
+
