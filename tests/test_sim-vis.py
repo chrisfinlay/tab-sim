@@ -309,48 +309,40 @@ def test_sim_vis_named_outage_does_not_write_successful_observation(
     assert list(output_path.glob("**/*.zarr")) == []
 
 
-def test_configured_spectral_model_is_not_replaced_by_the_packaged_one(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("replay", [False, True], ids=["selected", "frozen-replay"])
+def test_a_configured_spectral_model_is_not_replaced_by_the_packaged_one(
+    tmp_path, monkeypatch, replay
 ):
     """Startup's packaged defaults must not overwrite a configured spectral model.
 
     ``deep_update`` applied the shipped table over the configured one, so a
-    satellite only the user's model covers was left out of the simulation.
+    satellite only the user's model covers was left out of the simulation — and a
+    replay of such a run then reported a spectrum missing that is not missing.
     """
     unknown = 99999  # deliberately absent from the shipped norad_satellite.rfimodel
-    stub_endpoints(monkeypatch, tle={unknown: tle_record_at(unknown, ISS_EPOCH_JD)})
-    config_path = tiny_sim_config(
-        tmp_path / "sim.yaml",
-        tmp_path / "out",
-        norad_ids=[unknown],
-        norad_spec_model=spec_model(tmp_path / "mine.rfimodel", [unknown]),
-    )
+    settings = {"norad_spec_model": spec_model(tmp_path / "mine.rfimodel", [unknown])}
+    if replay:
+        settings["replay_orbit_dir"] = str(
+            write_replay_dir(
+                tmp_path / "input_data",
+                [unknown],
+                [tle_record_at(unknown, ISS_EPOCH_JD)],
+            )
+        )
+        forbid_orbit_acquisition(monkeypatch, tmp_path)
+    else:
+        settings["norad_ids"] = [unknown]
+        stub_endpoints(
+            monkeypatch, tle={unknown: tle_record_at(unknown, ISS_EPOCH_JD)}
+        )
 
-    obs, _ = run_sim_vis(config_path)
+    obs, _ = run_sim_vis(
+        tiny_sim_config(tmp_path / "sim.yaml", tmp_path / "out", **settings)
+    )
 
     assert final_ids(obs) == [unknown]
-    assert obs.n_rfi_tle_satellite == 1
-
-
-def test_configured_spectral_model_survives_into_a_frozen_replay(
-    tmp_path, monkeypatch
-):
-    """...and a replay reports a missing spectrum only when one is really missing."""
-    unknown = 99999
-    replay_dir = write_replay_dir(
-        tmp_path / "input_data", [unknown], [tle_record_at(unknown, ISS_EPOCH_JD)]
-    )
-    forbid_orbit_acquisition(monkeypatch, tmp_path)
-    config_path = tiny_sim_config(
-        tmp_path / "replay.yaml",
-        tmp_path / "out",
-        norad_spec_model=spec_model(tmp_path / "mine.rfimodel", [unknown]),
-        replay_orbit_dir=str(replay_dir),
-    )
-
-    obs, _ = run_sim_vis(config_path)
-
-    assert final_ids(obs) == [unknown]
+    if not replay:
+        assert obs.n_rfi_tle_satellite == 1
 
 
 def test_configured_spectral_model_sets_the_simulated_power(tmp_path, monkeypatch):
@@ -387,42 +379,35 @@ def test_configured_spectral_model_sets_the_simulated_power(tmp_path, monkeypatc
     )
 
 
-def test_named_telescope_does_not_replace_a_configured_antenna_file(tmp_path):
+@pytest.mark.parametrize("configured", ["antenna-file", "dish-diameter"])
+def test_a_named_telescope_completes_the_section_without_replacing_it(
+    tmp_path, configured
+):
     """Completing a telescope section must not overwrite the part that was set.
 
     ``dish_d: null`` is how one asks a named telescope for its diameter, and
     ``deep_update`` then replaced the configured antenna file with the packaged
-    ``MeerKAT.itrf.txt``: a different array, simulated silently.
+    ``MeerKAT.itrf.txt``; the mirror case turned a configured 25 m dish into the
+    packaged 13.5, which changes the beam and every apparent source amplitude.
     """
-    itrf_path, positions = custom_itrf_file(tmp_path / "mine.itrf.txt")
-    obs, _ = run_sim_vis(
-        tiny_sim_config(
-            tmp_path / "sim.yaml",
-            tmp_path / "out",
-            telescope={"itrf_path": itrf_path, "dish_d": None},
+    if configured == "antenna-file":
+        itrf_path, positions = custom_itrf_file(tmp_path / "mine.itrf.txt")
+        telescope, expected_dish = {"itrf_path": itrf_path, "dish_d": None}, (
+            PACKAGED_DISH_D
         )
+    else:
+        telescope, expected_dish = {"dish_d": 25.0}, 25.0
+        positions = packaged_positions()
+
+    obs, _ = run_sim_vis(
+        tiny_sim_config(tmp_path / "sim.yaml", tmp_path / "out", telescope=telescope)
     )
 
     np.testing.assert_allclose(obs.ITRF.compute(), positions)
-    assert float(obs.dish_d.compute()) == PACKAGED_DISH_D
-
-
-def test_named_telescope_does_not_replace_a_configured_dish_diameter(tmp_path):
-    """...and the mirror case: a configured diameter, geometry from the definition.
-
-    ``dish_d: 25`` with no antenna file became the packaged 13.5, which changes
-    the primary beam and every apparent source amplitude through it.
-    """
-    obs, _ = run_sim_vis(
-        tiny_sim_config(
-            tmp_path / "sim.yaml", tmp_path / "out", telescope={"dish_d": 25.0}
-        )
-    )
-
-    assert float(obs.dish_d.compute()) == 25.0
-    np.testing.assert_allclose(obs.ITRF.compute(), packaged_positions())
-    # Nothing said about elevation, so the named telescope's own applies.
-    assert float(obs.elevation.compute()) == PACKAGED_ELEVATION
+    assert float(obs.dish_d.compute()) == expected_dish
+    if configured == "dish-diameter":
+        # Nothing said about elevation, so the named telescope's own applies.
+        assert float(obs.elevation.compute()) == PACKAGED_ELEVATION
 
 
 def test_named_telescope_does_not_replace_an_explicit_zero_elevation(tmp_path):
