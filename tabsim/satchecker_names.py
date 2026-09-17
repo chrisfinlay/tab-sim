@@ -344,8 +344,10 @@ def _warn_shared_designators(combined: pd.DataFrame, selected: set, log) -> None
 
     This runs at discovery, before any record is acquired, so it can only speak
     about candidates: either number may still turn out to have no acceptable
-    record and be excluded. Promising here that both will be modelled describes a
-    resolution that has not happened yet.
+    record and be excluded — or to fail the visibility cuts, to have no spectral
+    model, or to fall outside ``max_n_sat``. Promising here that both will be
+    modelled, or one per number that resolves, describes a selection that has not
+    happened yet.
     """
     designators: dict[str, set[int]] = {}
     for norad_id, object_id in zip(
@@ -366,7 +368,8 @@ def _warn_shared_designators(combined: pd.DataFrame, selected: set, log) -> None
             f"  warning: OBJECT_ID {object_id} is carried by more than one "
             f"candidate NORAD catalogue ID: {sorted(ids)}. Nothing in the "
             "catalogue says which number is current, so none of them is dropped. "
-            "Each that goes on to resolve to an acceptable record is a distinct "
-            "satellite in the simulation, so one object under two numbers is "
-            "simulated once per number that resolves."
+            "They remain distinct candidates, and one object under two numbers "
+            "may be modelled separately if both survive this run's final "
+            "selection: an acceptable record, the visibility cuts, a spectral "
+            "model and max_n_sat."
         )
