@@ -103,10 +103,8 @@ archive, and writing and reading the frozen-replay files — is
 with TABASCAL so there is one implementation of it rather than two. The policy is
 still `tab-sim`'s and is stated on every call: the source order, the defaults
 below, what an acceptable record is, what happens when a satellite cannot be
-resolved, and every message in this section. That dependency is currently pinned to
-an exact commit; it can go back to a released version only once a release contains
-both the record-validation work and the resolver/replay API this uses, and `tab-sim`
-will not claim support for a client version missing them.
+resolved, and every message in this section. `tab-sim` requires `satchecker-client`
+0.2.0 or later, the first release with the API it uses.
 
 Name the satellites you want in the config, either by NORAD catalogue ID or by name:
 

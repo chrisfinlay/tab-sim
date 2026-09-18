@@ -61,16 +61,18 @@ jobs:
 
       # tabsim.orbit is an adapter: the selection, acquisition and replay
       # machinery is the client's, and a client without those public names
-      # installs cleanly and then fails at the first simulation. The names alone
-      # are not enough, though — every revision of the client's resolver branch
-      # exposes them and reports the same version, so which one is installed is
-      # only knowable from the commit pip recorded when it built the wheel.
-      - name: Confirm the installed client is the pinned revision, with the adopted API
+      # installs cleanly and then fails at the first simulation. The requirement
+      # is read from pyproject.toml so the floor is stated in exactly one place,
+      # and the install must have come from the index: a URL or a working tree
+      # need not hold the version it reports.
+      - name: Confirm the installed client satisfies the requirement, with the adopted API
         run: |
           python - <<'PY'
           import importlib.metadata as metadata
-          import json
           import re
+
+          from packaging.requirements import Requirement
+          from packaging.version import Version
 
           import satchecker_client as sc
 
@@ -84,30 +86,25 @@ jobs:
           missing = [name for name in required if not hasattr(sc, name)]
           assert not missing, f'installed satchecker-client lacks {missing}'
 
-          # The pin itself, read from the metadata that produced this install,
-          # so the revision is stated in exactly one place.
           with open('pyproject.toml') as handle:
-              found = re.search(
-                  r'satchecker-client @ git\+[^"]+\.git@([0-9a-f]{40})', handle.read()
-              )
-          assert found, 'pyproject.toml does not pin satchecker-client to a commit'
-          pinned = found.group(1)
+              found = re.search(r'"(satchecker-client[^"]*)"', handle.read())
+          assert found, 'pyproject.toml does not require satchecker-client'
+          requirement = Requirement(found.group(1))
+          assert requirement.url is None, f'satchecker-client is pinned to a URL: {requirement}'
 
-          recorded = metadata.distribution('satchecker-client').read_text(
-              'direct_url.json'
+          distribution = metadata.distribution('satchecker-client')
+          installed = Version(distribution.version)
+          assert installed in requirement.specifier, (
+              f'installed satchecker-client {installed} does not satisfy {requirement}'
           )
-          assert recorded, 'satchecker-client was not installed from the Git pin'
-          direct_url = json.loads(recorded)
-          installed = direct_url.get('vcs_info', {}).get('commit_id')
-          assert installed == pinned, (
-              f'installed satchecker-client is {installed}, pinned is {pinned}'
+          # pip records direct_url.json for a URL, path or editable install and
+          # nothing for one resolved from the index.
+          assert distribution.read_text('direct_url.json') is None, (
+              'satchecker-client was not installed from the index: '
+              + distribution.read_text('direct_url.json')
           )
-          # An editable install points at a working tree, whose contents are not
-          # the recorded commit and can change under the suite.
-          editable = direct_url.get('dir_info', {}).get('editable', False)
-          assert not editable, f'satchecker-client is installed editable: {direct_url}'
 
-          print('satchecker_client', sc.__version__, installed, 'from', sc.__file__)
+          print('satchecker_client', installed, 'satisfies', requirement, 'from', sc.__file__)
           PY
           python -m pip show satchecker-client
 

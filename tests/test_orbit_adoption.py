@@ -106,21 +106,10 @@ LABEL_OMM = "SatChecker (nearest-OMM)"
 #: The observation every constructed result is measured against.
 OBS_EPOCH_JD = ISS_EPOCH_JD
 
-#: The client dependency this adoption is written against.
-PINNED_CLIENT_SHA = "bfc2cddc5ddeace7694b8161befc4a4e35b27584"
-PINNED_REQUIREMENT = (
-    "satchecker-client @ git+https://github.com/epfl-radio-astro/"
-    f"satchecker-client.git@{PINNED_CLIENT_SHA}"
-)
-#: Revisions this replaces: PR #4's head, and the PR #5 head that predates
-#: ``RejectedOrbit.error`` and ``OrbitInputError.code``. Kept so the test can say
-#: "and not one of the old ones" — both install cleanly and then misreport.
-SUPERSEDED_CLIENT_SHAS = (
-    "06dcbf5cff5ce581bf694d689bfe08de358c5e72",
-    "bb7027042b6ed6f5f76049201335d3cdc1dd1c06",
-    "9096df99cab6c268041b7f954a352855500c4101",
-    "e2c83d617e09de3561a8674c29b0775c9079700b",
-)
+#: The client dependency this adoption is written against: the first release
+#: carrying the resolver, the replay format, ``RejectedOrbit.error`` and
+#: ``OrbitInputError.code``, and the whole 0.2 line above it.
+CLIENT_REQUIREMENT = "satchecker-client>=0.2.0,<0.3"
 
 
 def deliver(monkeypatch, result) -> Spy:
@@ -1480,32 +1469,34 @@ def test_what_a_run_saves_still_matches_the_frozen_file_format(
         assert Path(ids_path).read_text() == ""
 
 
-def test_satchecker_dependency_pins_resolver_head():
+def test_satchecker_dependency_requires_the_released_client():
     """The checkout's own metadata, not the installed package's neighbour.
 
-    The pin is the only thing that says which client the suite describes.
+    The requirement is the only thing that says which client the suite describes.
     """
     root = Path(__file__).resolve().parents[1]
     pyproject = (root / "pyproject.toml").read_text()
 
-    assert PINNED_REQUIREMENT in pyproject
-    for superseded in SUPERSEDED_CLIENT_SHAS:
-        assert superseded not in pyproject
+    assert f'"{CLIENT_REQUIREMENT}"' in pyproject
+    # A released range, not a revision: PyPI rejects a direct-URL dependency.
+    assert "satchecker-client @" not in pyproject
 
     workflow = (root / ".github" / "workflows" / "test.yml").read_text()
     installs = [line for line in workflow.splitlines() if "pip install" in line]
     assert any(".[test]" in line for line in installs), installs
     # Nothing may install the client another way: an editable sibling checkout
-    # or an older release would hide a public API the pin is there to require.
+    # or an older release would hide a public API the requirement is there to
+    # require.
     assert not any(
         "satchecker" in line or "-e " in line or "--editable" in line
         for line in installs
     ), installs
-    # And CI checks what it *installed*: every revision of this client branch
-    # exposes the same names and version, so only the commit distinguishes them.
+    # And CI checks what it *installed*: the version against the requirement
+    # read from pyproject.toml, and that it came from the index rather than a
+    # URL or a working tree, which need not hold the version they report.
+    assert "pyproject.toml" in workflow
+    assert "requirement.specifier" in workflow
     assert "direct_url.json" in workflow
-    assert "vcs_info" in workflow
-    assert "editable" in workflow
-    # One source of truth for the revision. Repeating the SHA in the workflow is
+    # One source of truth for the requirement. Repeating it in the workflow is
     # a second place for it to be right, which is a place for it to be wrong.
-    assert PINNED_CLIENT_SHA not in workflow
+    assert CLIENT_REQUIREMENT not in workflow

@@ -50,8 +50,8 @@ Satellite orbital records
 Orbital records come from the IAU CPS SatChecker service and need no credentials.
 Choosing and fetching them is done by ``satchecker-client``, shared with TABASCAL;
 the source order, the age defaults, what happens when a satellite cannot be
-resolved, and every message about it are tab-sim's own. The dependency is pinned to
-an exact revision until a release contains the API used here.
+resolved, and every message about it are tab-sim's own. ``satchecker-client`` 0.2.0
+or later is required; it is the first release with the API used here.
 
 Three ways to run a simulation that includes satellites:
 
