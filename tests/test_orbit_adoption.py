@@ -108,8 +108,9 @@ OBS_EPOCH_JD = ISS_EPOCH_JD
 
 #: The client dependency this adoption is written against: the first release
 #: carrying the resolver, the replay format, ``RejectedOrbit.error`` and
-#: ``OrbitInputError.code``, and the whole 0.2 line above it.
-CLIENT_REQUIREMENT = "satchecker-client>=0.2.0,<0.3"
+#: ``OrbitInputError.code``. No upper bound, as in tabascal: both packages
+#: are released together, and CI checks the adopted names are present.
+CLIENT_REQUIREMENT = "satchecker-client>=0.2.0"
 
 
 def deliver(monkeypatch, result) -> Spy:

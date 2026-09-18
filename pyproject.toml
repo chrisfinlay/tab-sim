@@ -26,7 +26,7 @@ dependencies = [
     # resolve_orbits, read_extra_orbit_dir, the replay writers and loader, the
     # OrbitResolution result types, RejectedOrbit.error and OrbitInputError.code —
     # arrived in satchecker-client 0.2.0. Nothing older can run that module.
-    "satchecker-client>=0.2.0,<0.3",
+    "satchecker-client>=0.2.0",
 ]
 
 [project.optional-dependencies]
