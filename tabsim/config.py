@@ -3,6 +3,7 @@ import re
 import os
 import sys
 import shutil
+import numbers
 
 import collections.abc
 from typing import Tuple, Union, Optional
@@ -17,7 +18,7 @@ import pandas as pd
 from astropy.time import Time
 
 from tabsim.dask.observation import Observation
-from tabsim.sky import generate_random_sky
+from tabsim.sky import generate_random_sky, SourcePlacementError
 from tabsim.write import write_ms, mk_obs_name, mk_obs_dir
 from tabsim.jax.coordinates import calculate_fringe_frequency, jd_to_mjd
 from tabsim.tle import get_visible_satellite_tles, id_generator
@@ -227,17 +228,99 @@ def load_sky_model(file_path: str, freqs: Array, src_type: str) -> tuple:
         raise KeyError("'src_type' must be one of {'point', 'gauss', 'exp'}.")
 
 
-def sigma_value(value: Union[str, float, int], obs: Observation):
-    try:
-        if isinstance(value, str):
-            sigma = (np.mean(obs.noise_std) / np.sqrt(obs.n_time * obs.n_bl)).compute()
+def image_noise(obs: Observation) -> float:
+    """Theoretical image noise in Jy of a single channel of the observation."""
+    return (np.mean(obs.noise_std) / np.sqrt(obs.n_time * obs.n_bl)).compute()
+
+
+def describe_image_noise(obs: Observation) -> str:
+    """Say what the theoretical image noise is and which settings it comes from."""
+    return (
+        f"Here sigma = {image_noise(obs):.4g} Jy is the theoretical image noise, "
+        "mean(noise_std) / sqrt(n_time * n_bl) = "
+        f"{float(np.mean(obs.noise_std)):.4g} Jy / sqrt({obs.n_time} * {obs.n_bl}), "
+        f"where noise_std is set by SEFD = {float(np.mean(obs.SEFD)):.4g} Jy, "
+        f"chan_width = {float(obs.chan_width):.4g} Hz and int_time = "
+        f"{float(obs.int_time):.4g} s, and n_bl by n_ant = {obs.n_ant}."
+    )
+
+
+def sigma_value(value: Union[str, float, int], obs: Observation) -> float:
+    """Get a flux in Jy from a number, or from a string such as '3sigma' giving it
+    in units of the theoretical image noise.
+
+    Raises
+    ------
+    ValueError
+        If the value is neither.
+    """
+    if isinstance(value, str):
+        try:
             n_sig = float(value.replace("sigma", ""))
-            value = n_sig * sigma
-            return value
-        elif isinstance(value, float) or isinstance(value, int):
-            return float(value)
-    except:
-        raise ValueError()
+        except ValueError:
+            raise ValueError(
+                f"{value!r} is not a number of sigma such as '3sigma'."
+            ) from None
+        return n_sig * image_noise(obs)
+    elif isinstance(value, numbers.Real):
+        return float(value)
+    raise ValueError(
+        f"{value!r} is neither a flux in Jy nor a number of sigma such as '3sigma'."
+    )
+
+
+def random_flux_range(key: str, rand_: dict, obs: Observation) -> Tuple[float, float]:
+    """Get the flux range to draw random sources from and check that it is not empty.
+
+    Parameters
+    ----------
+    key : str
+        Source type, the name of the `ast_sources` section the range is from.
+    rand_ : dict
+        The `random` section of that source type.
+    obs : Observation
+        Observation object instance, which defines the noise for limits in sigma.
+
+    Returns
+    -------
+    Tuple[float, float]
+        Minimum and maximum flux in Jy.
+    """
+    limits = {}
+    for name in ["min_I", "max_I"]:
+        try:
+            limits[name] = sigma_value(rand_[name], obs)
+        except ValueError as err:
+            raise ValueError(f"ast_sources.{key}.random: {name}: {err}") from err
+        if np.isnan(limits[name]):
+            raise ValueError(
+                f"ast_sources.{key}.random: {name} = {rand_[name]!r} is not a number "
+                "(NaN), so it cannot limit the source fluxes."
+            )
+    min_I, max_I = limits["min_I"], limits["max_I"]
+
+    if min_I > max_I:
+        msg = (
+            f"ast_sources.{key}.random: min_I = {rand_['min_I']!r} is greater than "
+            f"max_I = {rand_['max_I']!r} ({min_I:.4g} Jy > {max_I:.4g} Jy), so there "
+            f"is no flux range to draw the {rand_['n_src']} sources from."
+        )
+        if isinstance(rand_["min_I"], str) or isinstance(rand_["max_I"], str):
+            # Explaining sigma computes more than finding it did. If that fails, the
+            # error to report is still the empty range and not the explanation's.
+            try:
+                msg += " " + describe_image_noise(obs)
+            except Exception:
+                pass
+            msg += (
+                " Lower min_I, raise max_I, or lower sigma with a longer or larger "
+                "observation (n_time, int_time, n_ant)."
+            )
+        else:
+            msg += " Lower min_I or raise max_I."
+        raise ValueError(msg)
+
+    return min_I, max_I
 
 
 def load_obs(sim_config: dict) -> Observation:
@@ -385,16 +468,27 @@ def add_astro_sources(obs: Observation, sim_config: dict) -> None:
                 )
                 print(f"Minimum {n_beam*beam_width*3600:.1f} arcsec separation ...")
 
-                I, d_ra, d_dec = generate_random_sky(
-                    n_src=rand_["n_src"],
-                    min_I=sigma_value(rand_["min_I"], obs),
-                    max_I=sigma_value(rand_["max_I"], obs),
-                    freqs=obs.freqs,
-                    fov=fov,
-                    beam_width=beam_width,
-                    random_seed=rand_["random_seed"],
-                    n_beam=n_beam,
-                )
+                min_I, max_I = random_flux_range(key, rand_, obs)
+                try:
+                    I, d_ra, d_dec = generate_random_sky(
+                        n_src=rand_["n_src"],
+                        min_I=min_I,
+                        max_I=max_I,
+                        freqs=obs.freqs,
+                        fov=fov,
+                        beam_width=beam_width,
+                        random_seed=rand_["random_seed"],
+                        n_beam=n_beam,
+                    )
+                except SourcePlacementError as err:
+                    raise SourcePlacementError(
+                        f"ast_sources.{key}.random: {err} The fov and beam_width "
+                        "above are in degrees. The fov is the primary beam and "
+                        "beam_width is the smaller of the synthesized beam "
+                        f"({float(obs.syn_bw)*3600:.1f} arcsec) and max_sep / n_beam "
+                        f"({max_beam*3600:.1f} arcsec), so the settings to lower are "
+                        "n_src, n_beam and max_sep, which is in arcseconds."
+                    ) from err
                 ra = (obs.ra + d_ra) % 360
                 dec = obs.dec + d_dec
                 dec = np.where(dec > 90, 180 - dec, dec)
