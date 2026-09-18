@@ -6,17 +6,20 @@ import pytest
 
 from tabsim.jax import interferometry as itf
 
-pytest.importorskip("ri_kernels")
+
+@pytest.fixture(autouse=True)
+def cold_probe():
+    itf._kernel_usable.cache_clear()
+    yield
+    itf._kernel_usable.cache_clear()
 
 
 @pytest.fixture(params=[True, False], ids=["x64", "x32"])
 def x64(request):
     enabled = jax.config.jax_enable_x64
     jax.config.update("jax_enable_x64", request.param)
-    itf.kernel_usable.cache_clear()
     yield request.param
     jax.config.update("jax_enable_x64", enabled)
-    itf.kernel_usable.cache_clear()
 
 
 def rfi_inputs(x64, complex_amp=False, n_src=3, n_time=4, n_int=5, n_ant=6, n_freq=2):
@@ -29,8 +32,8 @@ def rfi_inputs(x64, complex_amp=False, n_src=3, n_time=4, n_int=5, n_ant=6, n_fr
         amp = amp * np.exp(1j * rng.uniform(0, 2 * np.pi, amp.shape))
     dist = offset + spread * rng.standard_normal((n_src, n_time, n_int, n_ant))
     freqs = np.linspace(1.2e9, 1.4e9, n_freq)
-    # Shuffled, with autocorrelations: a baseline chunk need not be sorted or complete.
-    a1, a2 = rng.permutation(np.argwhere(np.tri(n_ant, dtype=bool))).T
+    # A baseline chunk: shuffled, incomplete, and with autocorrelations.
+    a1, a2 = rng.permutation(np.argwhere(np.tri(n_ant, dtype=bool)))[:-4].T
     amp = amp.astype((np.complex128 if x64 else np.complex64) if complex_amp else real)
     return amp, dist.astype(real), freqs.astype(real), a1, a2
 
@@ -38,38 +41,34 @@ def rfi_inputs(x64, complex_amp=False, n_src=3, n_time=4, n_int=5, n_ant=6, n_fr
 @pytest.mark.parametrize("complex_amp", [False, True], ids=["real", "complex"])
 @pytest.mark.parametrize("jit", [False, True], ids=["eager", "jit"])
 def test_kernel_matches_pure_jax(x64, complex_amp, jit):
+    pytest.importorskip("ri_kernels")
     args = rfi_inputs(x64, complex_amp)
-    kernel = jax.jit(itf.rfi_vis_kernel) if jit else itf.rfi_vis_kernel
-    vis = np.asarray(kernel(*args))
+    vis = np.asarray((jax.jit(itf.rfi_vis) if jit else itf.rfi_vis)(*args))
     expected = np.asarray(itf.rfi_vis_jax(*args))
 
+    assert itf.kernel_usable()
     assert vis.shape == expected.shape == (4, len(args[3]), 2)
     assert vis.dtype == expected.dtype == (np.complex128 if x64 else np.complex64)
     np.testing.assert_allclose(vis, expected, rtol=0, atol=1e-8 if x64 else 1e-3)
 
 
-def test_rfi_vis_uses_the_kernel_and_falls_back_without_it(x64, monkeypatch):
-    args = rfi_inputs(x64)
-    assert itf.kernel_usable()
-    np.testing.assert_array_equal(itf.rfi_vis(*args), itf.rfi_vis_kernel(*args))
+class NoLibrary:
+    def __init__(self, *args):
+        pass
 
-    monkeypatch.setattr(itf, "RFIVisOp", None)
-    itf.kernel_usable.cache_clear()
-    assert not itf.kernel_usable()
-    np.testing.assert_array_equal(itf.rfi_vis(*args), itf.rfi_vis_jax(*args))
+    def eval(self, *args):
+        raise RuntimeError("GPU library not found")
 
 
-def test_a_missing_backend_library_warns_and_falls_back(x64, monkeypatch):
-    class NoLibrary:
-        def __init__(self, *args):
-            pass
+@pytest.mark.parametrize("op", [None, NoLibrary], ids=["not-installed", "no-library"])
+def test_falls_back_to_pure_jax_from_a_cold_jit(op, monkeypatch, recwarn):
+    monkeypatch.setattr(itf, "RFIVisOp", op)
+    args = rfi_inputs(jax.config.jax_enable_x64)
+    # jit caches by function, so a fresh one is what makes this trace cold.
+    vis = jax.jit(lambda *args: itf.rfi_vis(*args))(*args)
 
-        def eval(self, *args):
-            raise RuntimeError("GPU library not found")
-
-    monkeypatch.setattr(itf, "RFIVisOp", NoLibrary)
-    itf.kernel_usable.cache_clear()
-    args = rfi_inputs(x64)
-    with pytest.warns(UserWarning, match="GPU library not found"):
-        vis = itf.rfi_vis(*args)
-    np.testing.assert_array_equal(vis, itf.rfi_vis_jax(*args))
+    np.testing.assert_array_equal(vis, jax.jit(itf.rfi_vis_jax)(*args))
+    assert [str(w.message) for w in recwarn if "pure JAX" in str(w.message)] == (
+        [] if op is None else
+        ["RFI visibilities fall back to pure JAX, which is slower: GPU library not found"]
+    )
