@@ -92,19 +92,156 @@ To enable GPU compute you need the GPU version of `jaxlib` installed. The easies
 
 ### Including TLE-based satelllites
 
-You will need to provide [Space-Track](https://www.space-track.org/auth/login) login details as a YAML file. The filename can be `spacetrack_login.yaml` for example and should look like 
+Orbital records come from the [IAU CPS SatChecker](https://satchecker.cps.iau.org/)
+service. **No account or credentials are required** — the previous Space-Track login
+file is no longer used, and the `spacetrack` dependency is gone.
+
+The machinery that executes a selection — asking the sources in order, choosing the
+record nearest the observation, reusing the cache, falling back to the other
+archive, and writing and reading the frozen-replay files — is
+[`satchecker-client`](https://github.com/epfl-radio-astro/satchecker-client), shared
+with TABASCAL so there is one implementation of it rather than two. The policy is
+still `tab-sim`'s and is stated on every call: the source order, the defaults
+below, what an acceptable record is, what happens when a satellite cannot be
+resolved, and every message in this section. `tab-sim` requires `satchecker-client`
+0.2.0 or later, the first release with the API it uses.
+
+Name the satellites you want in the config, either by NORAD catalogue ID or by name:
 
 ```yaml
-username: user@email.com
-password: password123
+rfi_sources:
+  tle_satellite:
+    norad_ids: [25544]        # every listed ID must resolve, or the run stops
+    sat_names: [navstar]      # substring match against the catalogue
 ```
+
+SatChecker serves two record formats from two archives that do not overlap: TLEs up
+to 2026-07-11, and OMM (Orbit Mean-Elements Message) element sets from 2026-07-12
+onward. `tab-sim` handles both and picks the archive your observation epoch falls
+in, so nothing about the configuration changes across the boundary. Selection is
+*not* globally nearest across both: the epoch chooses one archive, and the other is
+asked only when the first has nothing acceptable.
+
+#### Naming satellites
+
+`sat_names` is a **substring** match, as Space-Track's `like` search was, so
+`navstar` selects every `NAVSTAR nn (USA nnn)` entry. The catalogue is written
+almost entirely in upper case and the service matches case-sensitively, so your
+query is upper-cased for you; a few mixed-case names (`DMSat-1`) cannot be reached
+by any single spelling, and `%` and `_` are SQL wildcards. Satellites the catalogue
+says had decayed — or had not launched — **at the observation epoch** are excluded,
+so a historical observation keeps the satellites that were in orbit then.
+
+A name search is cached beside the orbit records and reused for
+`search_cache_max_age_days` (default 1) of wall-clock time. That is a different
+question from how old an orbital *record* may be: `remote_max_age_days` (default 3)
+is the hard ceiling on `|record epoch − observation epoch|`, and
+`cache_reuse_max_age_days` (default 1) is when a cached record is close enough to
+skip a request. Set `remote_max_age_days: 1` for the old ±1-day acceptance bound.
+Three days is a broader window, not a promise of three-day accuracy.
+
+A broad name is expensive: SatChecker serves one record per request, so
+`sat_names: [starlink]` is tens of thousands of requests and as many propagations.
+`tab-sim` warns above 500 satellites and never truncates silently.
+
+#### Caches, offline runs and frozen replay
+
+Records are cached per satellite under the platform user-cache directory
+(`~/.cache/orbit-cache`, `~/Library/Caches/orbit-cache`); set `ORBIT_CACHE_DIR` to
+put it elsewhere. Catalogue searches are cached in the same directory. Cached rows
+are the validated copy of what came back, so each states its `RECORD_KIND` and, for
+a TLE, that its checksum digits were verified — no reader has to re-infer either.
+The file scheme is unchanged and the cache is shared with other applications using
+the same client, including older versions of it, so there is nothing to migrate and
+nothing to purge. Records nothing has verified still never enter it.
+
+Where several records are held for one satellite — the normal state of a cache that
+has been used — the one selected is the nearest to the observation epoch **that this
+run can use**, not the nearest of all of them. A record the run's checksum policy
+refuses is not a candidate at all, so a nearer unusable row neither displaces a
+usable one nor provokes a request the configuration does not ask for: what is chosen
+is still inside `remote_max_age_days`, and if it is also inside
+`cache_reuse_max_age_days` no request is sent. It is also what lets `--offline`
+resolve from an acceptable record you hold instead of failing because a nearer row
+happens to be unreadable. Earlier versions looked at the nearest record first and
+went to SatChecker when it turned out to be unusable, which could fetch a closer
+record — and, offline, could fail with an acceptable one in hand.
+
+```bash
+sim-vis -c observation.yaml                                    # online
+sim-vis -c observation.yaml --offline                          # no requests at all
+sim-vis -c observation.yaml --replay-orbit-dir previous/input_data   # frozen replay
+```
+
+`--offline` forbids every SatChecker request. Cached searches are reused whatever
+their age, with a warning saying how old they are; cached orbit records still have
+to satisfy `remote_max_age_days`, because offline is about what can be reached and
+not about what an acceptable record is. A satellite with no acceptable local record
+stops the run saying so — it never claims SatChecker has no record for it.
+
+Every simulation writes its final selection to `input_data/norad_ids.yaml` and the
+records it propagated to `input_data/used_orbits.json`.
+`--replay-orbit-dir <run>/input_data` makes those two files authoritative: the saved
+IDs *are* the satellites, with no catalogue search, no cache, no request, no
+visibility reselection and no `max_n_sat`. Anything missing or ambiguous in them
+stops the run rather than being resolved from somewhere else. Reproducing a run's
+visibilities exactly also assumes the same observation, spectral models, random
+seeds and numerical environment; what replay freezes is the orbital input.
+
+Replay directories are readable in both directions across this change: a pair
+written before it replays now, and a pair written now replays with the earlier
+code. The two files are the same two files, holding the same identities, the same
+retained values and the same checksum provenance — the contract is what reads back,
+not that the bytes match.
+
+`extra_orbit_dir` (`--extra-orbit-dir`, also `-eod`) is a different thing: ordinary
+per-NORAD-ID source precedence, searched ahead of the cache and SatChecker, while
+the run still chooses its own satellites from its own names, IDs, visibility cuts
+and `max_n_sat`. Use it to supply your own records — convert TLE text files with
+`tabsim-import-tles` and point it at the output directory. Every `*.json` in that
+directory must be a readable orbit table: one that is not stops the run naming
+itself, rather than letting the run quietly fall back to records you said not to
+use. `replay_orbit_dir` and `extra_orbit_dir` cannot be combined.
+
+#### Checksums
+
+A TLE line carries a checksum digit, and `tab-sim` rejects a line whose checksum
+does not verify — always, under every setting. Some of SatChecker's historical
+archive (roughly 2001–2018) reached it without that digit at all; those lines are
+rejected by default, which can leave no record for those dates.
+`allow_missing_checksum: true` (or `--allow-missing-checksum`) accepts them and
+marks each record `unverified_missing_checksum` for the rest of its life: the
+status is provenance, so it survives a save and a reload and is never upgraded
+because the lines now parse. The same setting applies to remote records, to
+`extra_orbit_dir` and to replay, so a permissive run cannot be laundered into a
+strict one by saving it. Such records are deliberately kept out of the shared orbit
+cache, which other tools and older client versions read, so the saved run records
+are the only way to reproduce them:
+
+```bash
+sim-vis -c observation.yaml --replay-orbit-dir previous/input_data \
+        --allow-missing-checksum
+```
+
+#### Migrating from the Space-Track backend
+
+`rfi_sources.tle_satellite.tle_dir` and `spacetrack_path` are rejected on sight —
+they used to decide where records came from, and a run that kept one would
+otherwise succeed while quietly ignoring it. Use `extra_orbit_dir` for existing
+orbit JSON files and `ORBIT_CACHE_DIR` to relocate the managed cache; delete
+`spacetrack_path`, along with the login file and the `-st` flag.
+
+Historical completeness is bounded by what SatChecker holds: it cannot reconstruct
+records it does not have, missing checksum evidence, or the catalogue's name
+membership as it stood at a past epoch. Those limits surface as explicit
+diagnostics rather than as a successful simulation with satellites missing from it.
 
 ### Running a simulation
 
 To run a simulation of a target field with 100 randomly distributed point sources and some GPS satellites simply run 
 
 ```bash
-sim-vis -c sim_target_16A.yaml -st spacetrack_login.yaml
+sim-vis -c sim_target_16A.yaml
 ```
 
 You can run the help function to see what other command line options there are.

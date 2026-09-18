@@ -10,6 +10,11 @@ on:
       - "examples/**"
       - "tabsim/**"
       - "tests/**"
+      # The satchecker-client requirement lives here, so a change to it changes
+      # what the suite runs against; and a change to the workflow has to run
+      # itself before it can be trusted.
+      - "pyproject.toml"
+      - ".github/workflows/**"
 
 jobs:
   test:
@@ -18,7 +23,7 @@ jobs:
         # os: [ubuntu-latest, macos-latest]
         os: [ubuntu-latest]
         # Test oldest, middle, and newest Python versions to reduce API load
-        python-version: ["3.9", "3.11", "3.13"]
+        python-version: ["3.10", "3.11", "3.13"]
 
     name: Test on Python ${{ matrix.python-version }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -54,13 +59,56 @@ jobs:
           python -m pip install --upgrade pip
           pip install --no-cache-dir .[test]
 
-      - name: Restore spacetrack login file
-        env:
-          SPACETRACK_LOGIN: ${{ secrets.SPACETRACK_LOGIN || env.SPACETRACK_LOGIN }}
+      # tabsim.orbit is an adapter: the selection, acquisition and replay
+      # machinery is the client's, and a client without those public names
+      # installs cleanly and then fails at the first simulation. The requirement
+      # is read from pyproject.toml so the floor is stated in exactly one place,
+      # and the install must have come from the index: a URL or a working tree
+      # need not hold the version it reports.
+      - name: Confirm the installed client satisfies the requirement, with the adopted API
         run: |
-          echo "$SPACETRACK_LOGIN" > examples/test/spacetrack_login.yaml
+          python - <<'PY'
+          import importlib.metadata as metadata
+          import re
 
+          from packaging.requirements import Requirement
+          from packaging.version import Version
+
+          import satchecker_client as sc
+
+          required = [
+              'resolve_orbits', 'read_extra_orbit_dir', 'OrbitResolution',
+              'ResolvedOrbit', 'RejectedOrbit', 'EndpointAttempt',
+              'ResolutionEvent', 'OrbitInputError', 'save_orbits_for_reuse',
+              'save_replay_orbits', 'load_replay_orbits', 'REPLAY_IDS_FILE',
+              'REPLAY_RECORDS_FILE', 'nearest_endpoints_for', 'TextOrbitCache',
+          ]
+          missing = [name for name in required if not hasattr(sc, name)]
+          assert not missing, f'installed satchecker-client lacks {missing}'
+
+          with open('pyproject.toml') as handle:
+              found = re.search(r'"(satchecker-client[^"]*)"', handle.read())
+          assert found, 'pyproject.toml does not require satchecker-client'
+          requirement = Requirement(found.group(1))
+          assert requirement.url is None, f'satchecker-client is pinned to a URL: {requirement}'
+
+          distribution = metadata.distribution('satchecker-client')
+          installed = Version(distribution.version)
+          assert installed in requirement.specifier, (
+              f'installed satchecker-client {installed} does not satisfy {requirement}'
+          )
+          # pip records direct_url.json for a URL, path or editable install and
+          # nothing for one resolved from the index.
+          assert distribution.read_text('direct_url.json') is None, (
+              'satchecker-client was not installed from the index: '
+              + distribution.read_text('direct_url.json')
+          )
+
+          print('satchecker_client', installed, 'satisfies', requirement, 'from', sc.__file__)
+          PY
+          python -m pip show satchecker-client
+
+      # Orbital records come from IAU CPS SatChecker, which needs no credentials,
+      # so there is nothing to restore here any more.
       - name: Run tests
-        env:
-          SPACETRACK_LOGIN: ${{ secrets.SPACETRACK_LOGIN || env.SPACETRACK_LOGIN }}
         run: pytest

@@ -1,407 +1,307 @@
+"""Satellite orbit records, propagation, and visibility windows.
+
+Records come from the IAU CPS SatChecker service through :mod:`tabsim.orbit` — no
+account or credentials are required, and the ``spacetrack`` dependency is gone.
+Two record kinds are handled: the TLEs SatChecker's frozen archive serves up to
+2026-07-11, and the OMM element sets it serves from 2026-07-12 onward. Everything
+below works off an opaque *record*; :func:`earth_satellite` is the only place
+that asks which kind it is.
+
+The names are historical — "TLE" appears throughout tabsim's configuration and
+its output schema — but a record here may be either kind.
+"""
+
 from astropy.time import Time
 from astropy.coordinates import EarthLocation
-from datetime import datetime
 from skyfield.api import load, wgs84, EarthSatellite
 from skyfield.positionlib import position_of_radec
+from sgp4.api import WGS72, Satrec
 import numpy as np
 import pandas as pd
 from numpy.typing import ArrayLike
 
-from spacetrack import SpaceTrackClient
-import spacetrack.operators as op
-
 from tqdm import tqdm
 
-import os
-import ast
-import json
 import string
 import random
 
-from glob import glob
-
-from importlib.resources import files
-
 from typing import Optional
-import yaml
+
+from tabsim.orbit import (  # noqa: F401  OrbitError re-exported for callers
+    DEFAULT_CACHE_REUSE_MAX_AGE_DAYS,
+    DEFAULT_REMOTE_MAX_AGE_DAYS,
+    DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS,
+    OrbitError,
+    get_orbits_by_id,
+    report_named_coverage,
+    require_complete_coverage,
+    resolve_names,
+    resolve_orbits,
+)
+from tabsim.orbit_config import observation_epoch_jd
+from satchecker_client.records import KIND_TLE, record_elements, record_kind
 
 
-def make_tle_dir(tle_dir: Optional[str]):
-
-    if tle_dir:
-        tle_dir = os.path.abspath(tle_dir)
-    else:
-        tle_dir = files("tabsim.data").joinpath("rfi/tles").__str__()
-
-    os.makedirs(tle_dir, exist_ok=True)
-
-    return tle_dir
-
-
-def load_spacetrack_credentials(tle_dir: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
-    """
-    Load SpaceTrack credentials from YAML file.
-
-    Searches for spacetrack_login.yaml in the following locations (in order):
-    1. Specified tle_dir
-    2. Default TLE data directory (tabsim/data/rfi/tles/)
-    3. ~/.credentials/
-    4. Current working directory
-
-    Parameters:
-    -----------
-    tle_dir: Optional[str]
-        Directory containing TLE json files and Space-Track credentials YAML file.
-
-    Returns:
-    --------
-        tuple: (username, password) or (None, None) if credentials not found
-
-    To set up credentials, run: tabsim-setup-spacetrack
-    """
-    tle_dir_path = make_tle_dir(tle_dir)
-    print(f"TLE directory path : {tle_dir_path}")
-
-    # Search paths in priority order
-    search_paths = [
-        os.path.join(tle_dir_path, "spacetrack_login.yaml"),  # Data directory (preferred)
-        os.path.join(os.path.expanduser("~"), ".credentials", "spacetrack_login.yaml"),  # Home directory
-        os.path.join(os.getcwd(), "spacetrack_login.yaml"),  # Current directory
-    ]
-
-    for cred_path in search_paths:
-        if os.path.exists(cred_path):
-            try:
-                with open(cred_path, 'r') as f:
-                    creds = yaml.safe_load(f)
-                print(f"Space-Track credentials loaded from : {cred_path}")
-                username, password = creds.get('username'), creds.get('password')
-                check_space_track_credentials(username, password)
-                return username, password
-            except:
-                print(f"Warning: Could not load credentials from {cred_path}")
-                continue
-
-    print("No Space-Track credentials loaded.")
-    return None, None
-
-
-def get_space_track_client(username: str, password: str) -> SpaceTrackClient:
-    """Load the Space-Track client from login details.
-
-    Parameters
-    ----------
-    username : str
-        Space-Track username.
-    password : str
-        Space-Track password.
-
-    Returns
-    -------
-    SpaceTrackClient
-        SpaceTrackClient object with credentials authenticated.
-    """
-
-    check_space_track_credentials(username, password)
-
-    return SpaceTrackClient(identity=username, password=password)
- 
-def check_space_track_credentials(username: str, password: str):
-    """
-    Check Space-Track login credentials.
-
-    Parameters:
-    -----------
-    username : str
-        Space-Track username.
-    password : str
-        Space-Track password.
-    """    
-
-    try:
-        # Authenticate
-        st_client = SpaceTrackClient(identity=username, password=password)
-        # Test authentication by making a simple request
-        st_client.authenticate()
-        print("Authentication successful!")
-        
-    except:
-        print("Authentication failed")
-        print("Please check your Space-Track credentials.")
-        import sys
-        sys.exit(1)
-
-
-def fetch_tle_data(
-    st_client: SpaceTrackClient,
-    norad_ids: list[int],
-    epoch_jd: float,
-    window_days: float = 1.0,
-    limit: int = 2000,
-):
-    """
-    Fetch TLE data for given NORAD IDs around a specific epoch.
-
-    Parameters
-    ----------
-    st_client : SpaceTrackClient
-        SpaceTrackClient instance
-    norad_ids : list[int]
-        List of NORAD IDs
-    epoch_jd : float
-        Julian date for the epoch
-    window_days : int
-        Window size in days around the epoch
-    limit : int
-        Maximum number of results to return
-
-    Returns :
-        pandas.DataFrame containing TLE data
-    """
-    start_time = Time(epoch_jd - window_days, format="jd", scale="ut1").datetime
-    end_time = Time(epoch_jd + window_days, format="jd", scale="ut1").datetime
-    date_range = op.inclusive_range(start_time, end_time)
-
-    try:
-        raw_data = st_client.gp_history(
-            norad_cat_id=norad_ids, epoch=date_range, limit=limit, format="json"
-        )
-        return pd.DataFrame(json.loads(raw_data))
-    except Exception as e:
-        print(f"Error fetching TLE data: {str(e)}")
-        raise
+#: Julian Date of 1949 December 31 00:00 UT, the epoch SGP4 counts days from.
+_SGP4_EPOCH_JD = 2433281.5
 
 
 def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
     return "".join(random.choice(chars) for _ in range(size))
 
 
-def get_tles_by_id(
-    username: str,
-    password: str,
-    norad_ids: list[int],
-    epoch_jd: float,
-    window_days: float = 1.0,
-    limit: int = 2000,
-    tle_dir: Optional[str] = None,
-) -> pd.DataFrame:
+# ---------------------------------------------------------------------------
+# Propagation
+# ---------------------------------------------------------------------------
 
-    tle_dir = make_tle_dir(tle_dir)
+def as_record(entry) -> dict:
+    """Coerce *entry* to an orbit record.
 
-    norad_ids = list(np.array(list(set(norad_ids))).astype(int))
-    n_ids_start = len(norad_ids)
-    epoch_str = Time(epoch_jd, format="jd", scale="ut1").strftime("%Y-%m-%d")
-
-    tles_local = pd.DataFrame()
-    if tle_dir:
-        tle_dir = os.path.abspath(tle_dir)
-        tle_paths = glob(os.path.join(tle_dir, f"{epoch_str}-*.json"))
-        local_ids = []
-        if len(tle_paths) > 0:
-            tles_local = pd.concat([pd.read_json(tle_path) for tle_path in tle_paths])
-            tles_local = tles_local[tles_local["NORAD_CAT_ID"].isin(norad_ids)]
-            local_ids = tles_local["NORAD_CAT_ID"].unique()
-            norad_ids = list(set(norad_ids) - set(local_ids))
-        print(f"Local TLEs loaded  : {len(local_ids)}")
-    else:
-        local_ids = []
-
-    max_ids = 500
-    n_ids = len(norad_ids)
-
-    n_req = n_ids // max_ids + 1 if n_ids % max_ids > 0 else n_ids // max_ids
-
-    remote_ids = []
-    tles = pd.DataFrame()
-    if len(norad_ids) > 0:
-        client = get_space_track_client(username, password)
-        tles = [0] * n_req
-        for i in range(n_req):
-            tles[i] = fetch_tle_data(client, norad_ids, epoch_jd, window_days, limit)
-        if sum([len(tle) for tle in tles]) > 0:
-            tles = pd.concat(tles)
-            tles["Fetch_Timestamp"] = Time.now().fits
-            remote_ids = tles["NORAD_CAT_ID"].unique()
-        else:
-            tles = pd.DataFrame()
-
-    print(f"Remote TLEs loaded : {len(remote_ids)}")
-    print(f"TLEs not found     : {n_ids_start - len(remote_ids) - len(local_ids)}")
-
-    save_name = id_generator()
-
-    if tle_dir and len(tles) > 0:
-        save_path = os.path.join(tle_dir, f"{epoch_str}-{save_name}.json")
-        tles.to_json(save_path)
-        print(f"Saving remotely obtained TLEs to {save_path}")
-    elif len(tles) > 0:
-        save_path = os.path.join("./", f"{epoch_str}-{save_name}.json")
-        tles.to_json(save_path)
-        print(f"Saving remotely obtained TLEs to {save_path}")
-
-    if tle_dir:
-        tles = pd.concat([tles_local, tles])
-
-    if len(tles) > 0:
-        tles.reset_index(drop=True, inplace=True)
-        tles["EPOCH_JD"] = tles["EPOCH"].apply(
-            lambda x: Time(spacetrack_time_to_isot(x)).jd
+    A record is normally a mapping (a resolved row from :mod:`tabsim.orbit`), but
+    a bare ``(line1, line2)`` pair is accepted so the many places that have always
+    passed two TLE lines — including simulations replayed from an older script —
+    keep working unchanged.
+    """
+    if isinstance(entry, pd.Series):
+        return entry.to_dict()
+    if isinstance(entry, dict):
+        return entry
+    lines = list(entry)
+    if len(lines) != 2:
+        raise ValueError(
+            f"an orbit record must be a mapping or a (line1, line2) pair, got "
+            f"{len(lines)} items"
         )
-        tles = type_cast_tles(tles)
-        tles = get_closest_times(tles, epoch_jd)
-
-    return tles
+    return {"TLE_LINE1": str(lines[0]), "TLE_LINE2": str(lines[1])}
 
 
-def get_tles_by_name(
-    username: str,
-    password: str,
-    names: list[str],
-    epoch_jd: float,
-    window_days: float = 1.0,
-    limit: int = 10000,
-    tle_dir: Optional[str] = None,
-) -> pd.DataFrame:
+def earth_satellite(record, ts) -> EarthSatellite:
+    """A Skyfield ``EarthSatellite`` for one orbit record, whichever kind it is.
 
-    tle_dir = make_tle_dir(tle_dir)
+    A TLE goes through Skyfield's line parser exactly as it always has, so nothing
+    about the TLE path changes. An OMM has no lines to parse — that is the whole
+    point of the format — so its element set is loaded straight into an
+    ``sgp4.Satrec`` via ``sgp4init``, which is the entry point the sgp4 library
+    provides for precisely this. Both end up as the same propagator over the same
+    model; only the way the elements are read in differs.
 
-    # Calculate the date threshold
-    epoch_str = Time(epoch_jd, format="jd", scale="ut1").strftime("%Y-%m-%d")
-    start_time = Time(epoch_jd - window_days, format="jd", scale="ut1").datetime
-    end_time = Time(epoch_jd + window_days, format="jd", scale="ut1").datetime
-    drange = op.inclusive_range(start_time, end_time)
+    Units: ``sgp4init`` wants radians and rad/min, while OMM (and tabsim's element
+    columns) use degrees and rev/day.
 
-    names_op = [op.like(name.upper()) for name in names]
+    ``ndot`` and ``nddot`` are passed as zero. SGP4 models drag through ``bstar``
+    alone and never reads them during propagation — they exist in the TLE format
+    for other consumers — so dropping them costs nothing here.
+    """
+    record = as_record(record)
+    if record_kind(record) == KIND_TLE:
+        return EarthSatellite(record["TLE_LINE1"], record["TLE_LINE2"], ts=ts)
 
-    st = SpaceTrackClient(identity=username, password=password)
-
-    local_ids = 0
-    remote_ids = 0
-    tles = [0] * len(names)
-    for i, name in enumerate(names):
-        tle_path = os.path.join(tle_dir, f"{epoch_str}-{name}.json")
-        # Try loading from cache first
-        loaded_from_cache = False
-        if os.path.isfile(tle_path):
-            tle = pd.read_json(tle_path)
-            # Check if cached file has valid data
-            if "NORAD_CAT_ID" in tle.columns and len(tle) > 0:
-                tles[i] = tle
-                local_ids += len(tle["NORAD_CAT_ID"].unique())
-                loaded_from_cache = True
-
-        # Fetch from API if not loaded from cache
-        if not loaded_from_cache:
-            tle = pd.DataFrame(
-                json.loads(
-                    st.gp_history(
-                        object_name=names_op[i],
-                        epoch=drange,
-                        limit=limit,
-                        format="json",
-                    )
-                )
-            )
-            # Check if API returned an error (no TLE data found)
-            if "error" in tle.columns or "NORAD_CAT_ID" not in tle.columns:
-                # API returned error or no data - create empty DataFrame
-                tles[i] = pd.DataFrame()
-            else:
-                tle["Fetch_Timestamp"] = Time.now().strftime("%Y-%m-%d %H:%M:%S")
-                tles[i] = tle
-                if len(tle) > 0:
-                    remote_ids += len(tle["NORAD_CAT_ID"].unique())
-                    tles[i].to_json(tle_path)
-
-    print(f"Local TLEs loaded   : {local_ids}")
-    print(f"Remote TLEs loaded  : {remote_ids}")
-
-    # Filter out empty DataFrames before concatenating
-    tles = [tle for tle in tles if len(tle) > 0]
-
-    if len(tles) > 0:
-        tles = pd.concat(tles)
-        tles.reset_index(drop=True, inplace=True)
-        tles["EPOCH_JD"] = tles["EPOCH"].apply(
-            lambda x: Time(spacetrack_time_to_isot(x)).jd
-        )
-        tles = type_cast_tles(tles)
-        tles = get_closest_times(tles, epoch_jd)
-        return tles
-    else:
-        # No TLEs found at all - return empty DataFrame with Fetch_Timestamp column
-        return pd.DataFrame({"Fetch_Timestamp": []})
+    elements = record_elements(record)
+    satrec = Satrec()
+    satrec.sgp4init(
+        WGS72,
+        "i",  # improved mode, matching what twoline2rv uses for the TLE path
+        int(record["NORAD_CAT_ID"]),
+        elements["EPOCH_JD"] - _SGP4_EPOCH_JD,
+        float(elements["BSTAR"]),
+        0.0,  # ndot: stored by the TLE format, unused by the propagator
+        0.0,  # nddot: likewise
+        float(elements["ECCENTRICITY"]),
+        np.deg2rad(elements["ARG_OF_PERICENTER"]),
+        np.deg2rad(elements["INCLINATION"]),
+        np.deg2rad(elements["MEAN_ANOMALY"]),
+        elements["MEAN_MOTION"] * 2.0 * np.pi / 1440.0,  # rev/day -> rad/min
+        np.deg2rad(elements["RA_OF_ASC_NODE"]),
+    )
+    return EarthSatellite.from_satrec(satrec, ts)
 
 
-def spacetrack_time_to_isot(spacetrack_time: str) -> str:
-    """Convert times returned by a SpaceTrack API call to ISOT.
+def record_tle_lines(record) -> tuple[str, str]:
+    """The two TLE lines of *record*, or two empty strings for an OMM record.
+
+    tabsim's output schema has a fixed-width string column for the lines. An OMM
+    record has none to give — its elements are the record — so the column is left
+    empty for those rows rather than filled with something that looks like a TLE
+    but is not one. The full record is written to ``used_orbits.json`` instead,
+    which is what a later run reads back.
+    """
+    record = as_record(record)
+    if record_kind(record) != KIND_TLE:
+        return "", ""
+    return str(record["TLE_LINE1"]), str(record["TLE_LINE2"])
+
+
+def get_satellite_positions(records: list, times_jd: list) -> ArrayLike:
+    """Calculate the ICRS positions of satellites by propagating their orbit records.
 
     Parameters
     ----------
-    spacetrack_time : str
-        SpaceTrack formatted time. Can be either:
-        - Old format: "YYYY-MM-DD HH:MM:SS"
-        - New format: "YYYY-MM-DDTHH:MM:SS.ffffff"
+    records : sequence of records, length n_sat
+        Orbit records — TLE or OMM — as resolved by :mod:`tabsim.orbit`. A bare
+        ``(line1, line2)`` pair is also accepted; see :func:`as_record`.
+    times_jd : Array (n_time,)
+        Times to calculate positions at in Julian date.
 
     Returns
     -------
-    str
-        ISOT formatted time.
+    Array (n_sat, n_time, 3)
+        Satellite positions over time, in metres.
     """
 
-    # Check if already in ISO format (contains 'T')
-    if 'T' in spacetrack_time:
-        # Already in ISO format, just ensure it has milliseconds
-        if '.' not in spacetrack_time:
-            return spacetrack_time + ".000"
-        else:
-            return spacetrack_time
-    else:
-        # Old format, convert to ISO
-        dt = datetime.strptime(spacetrack_time, "%Y-%m-%d %H:%M:%S")
-        isot = dt.strftime("%Y-%m-%dT%H:%M:%S.000")
-        return isot
+    ts = load.timescale()
+    sf_times = ts.ut1_jd(times_jd)
+
+    sat_pos = np.array(
+        [
+            earth_satellite(record, ts).at(sf_times).position.km.T * 1e3
+            for record in records
+        ]
+    )
+
+    return sat_pos
 
 
-def get_closest_times(
-    df: pd.DataFrame,
-    target_time_jd: float,
-    id_col: str = "NORAD_CAT_ID",
-    time_jd_col: str = "EPOCH_JD",
+def ant_pos(ant_itrf: ArrayLike, times_jd: ArrayLike) -> ArrayLike:
+
+    ts = load.timescale()
+    t = ts.ut1_jd(times_jd)
+
+    location = EarthLocation(x=ant_itrf[0], y=ant_itrf[1], z=ant_itrf[2], unit="m")
+    observer = wgs84.latlon(
+        location.lat.degree, location.lon.degree, location.height.value
+    )
+
+    return (observer.at(t).position.km * 1e3).T
+
+
+def ants_pos(ants_itrf: ArrayLike, times_jd: ArrayLike) -> ArrayLike:
+
+    return np.transpose(
+        np.array([ant_pos(ant_itrf, times_jd) for ant_itrf in ants_itrf]),
+        axes=(1, 0, 2),
+    )
+
+
+def sat_distance(record, times_jd: ArrayLike, obs_itrf: ArrayLike) -> ArrayLike:
+
+    ts = load.timescale()
+
+    t = ts.ut1_jd(times_jd)
+
+    satellite = earth_satellite(record, ts)
+
+    location = EarthLocation(x=obs_itrf[0], y=obs_itrf[1], z=obs_itrf[2], unit="m")
+
+    observer = wgs84.latlon(location.lat.degree, location.lon.degree, location.height)
+
+    topo = (satellite - observer).at(t)
+
+    return topo.distance().m
+
+
+def get_sat_pos_tle(record, sat_name: str, times_jd: float) -> ArrayLike:
+    """Calculate the satellite position in GCRS (ECI) frame at the given Julian dates.
+
+    Parameters
+    ----------
+    record : dict or (str, str)
+        Orbit record, or a ``(line1, line2)`` TLE pair.
+    sat_name : str
+        Satellite name. Retained for call compatibility; Skyfield does not use it
+        for propagation.
+    times_jd : float
+        Julian dates at which to evaluate the satellite position.
+
+    Returns
+    -------
+    ArrayLike
+        Satellite positions in metres in the GCRS (ECI) frame.
+    """
+
+    ts = load.timescale()
+    sat = earth_satellite(record, ts)
+    t_s = ts.ut1_jd(times_jd)
+    sat_pos = sat.at(t_s).position.m
+
+    return sat_pos
+
+
+# ---------------------------------------------------------------------------
+# Record retrieval
+# ---------------------------------------------------------------------------
+
+def get_tles_by_id(
+    norad_ids: list[int],
+    epoch_jd: float,
+    extra_orbit_dir: Optional[str] = None,
+    extra_orbit_max_age_days: Optional[float] = None,
+    remote_max_age_days: Optional[float] = DEFAULT_REMOTE_MAX_AGE_DAYS,
+    cache_reuse_max_age_days: Optional[float] = DEFAULT_CACHE_REUSE_MAX_AGE_DAYS,
+    offline: bool = False,
+    allow_missing_checksum: bool = False,
 ) -> pd.DataFrame:
+    """Orbit records for *norad_ids* nearest *epoch_jd*, one row per requested ID.
+
+    Raises :class:`~tabsim.orbit.OrbitError` unless every requested ID resolved —
+    tabsim does not silently drop a satellite that was asked for by number.
     """
-    For each unique item in the DataFrame, find the instance with time closest to target_time.
+    return get_orbits_by_id(
+        norad_ids,
+        epoch_jd,
+        extra_orbit_dir=extra_orbit_dir,
+        extra_orbit_max_age_days=extra_orbit_max_age_days,
+        remote_max_age_days=remote_max_age_days,
+        cache_reuse_max_age_days=cache_reuse_max_age_days,
+        offline=offline,
+        allow_missing_checksum=allow_missing_checksum,
+    )
 
-    Parameters:
-    -----------
-    df : pandas.DataFrame
-        DataFrame containing items and their time instances
-    target_time : datetime or timestamp
-        The reference time to compare against
-    id_col : str, default="NORAD_CAT_ID"
-        Name of the column containing norad_ids.
-    time_jd_col : str, default="EPOCH_JD"
-        Name of the column containing time values in Julian date.
 
-    Returns:
-    --------
-    pandas.DataFrame
-        DataFrame containing one row per unique item, with the instance closest to target_time
+def get_tles_by_name(
+    names: list[str],
+    epoch_jd: float,
+    extra_orbit_dir: Optional[str] = None,
+    extra_orbit_max_age_days: Optional[float] = None,
+    remote_max_age_days: Optional[float] = DEFAULT_REMOTE_MAX_AGE_DAYS,
+    cache_reuse_max_age_days: Optional[float] = DEFAULT_CACHE_REUSE_MAX_AGE_DAYS,
+    search_cache_max_age_days: Optional[float] = DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS,
+    offline: bool = False,
+    allow_missing_checksum: bool = False,
+) -> pd.DataFrame:
+    """Orbit records for satellites *named* in the catalogue, nearest *epoch_jd*.
+
+    Names are matched as **substrings** of a catalogue written in upper case, and
+    the query is upper-cased for it — not whole-name, and not case-insensitively
+    in general; see :mod:`tabsim.satchecker_names`. A name the catalogue genuinely
+    does not know contributes no satellites and is reported, and an empty frame
+    comes back rather than an error: the caller is asking the catalogue a question
+    and "nothing" is an answer. A search or an acquisition that *failed* is not an
+    answer and raises — :func:`~tabsim.orbit.report_named_coverage`, the same
+    policy the simulation's selection uses.
     """
-    # Calculate absolute time difference for each row
-    df = df.copy()
-    df["time_diff"] = df[time_jd_col] - target_time_jd
-    df["time_diff_abs"] = np.abs(df[time_jd_col] - target_time_jd)
-
-    # Group by item and get the row with minimum time difference
-    closest_instances = df.loc[df.groupby(id_col)["time_diff_abs"].idxmin()]
-
-    return closest_instances
+    norad_ids = resolve_names(
+        names,
+        epoch_jd,
+        search_cache_max_age_days=search_cache_max_age_days,
+        offline=offline,
+    )
+    if not norad_ids:
+        return pd.DataFrame()
+    return report_named_coverage(
+        resolve_orbits(
+            norad_ids,
+            epoch_jd,
+            extra_orbit_dir=extra_orbit_dir,
+            extra_orbit_max_age_days=extra_orbit_max_age_days,
+            remote_max_age_days=remote_max_age_days,
+            cache_reuse_max_age_days=cache_reuse_max_age_days,
+            offline=offline,
+            allow_missing_checksum=allow_missing_checksum,
+        )
+    ).frame()
 
 
 def get_visible_satellite_tles(
-    username: str,
-    password: str,
     times: ArrayLike,
     observer_lat: float,
     observer_lon: float,
@@ -412,18 +312,23 @@ def get_visible_satellite_tles(
     min_elevation: float,
     names: ArrayLike = [],
     norad_ids: ArrayLike = [],
-    tle_dir: Optional[str] = None,
+    extra_orbit_dir: Optional[str] = None,
+    extra_orbit_max_age_days: Optional[float] = None,
+    remote_max_age_days: Optional[float] = DEFAULT_REMOTE_MAX_AGE_DAYS,
+    cache_reuse_max_age_days: Optional[float] = DEFAULT_CACHE_REUSE_MAX_AGE_DAYS,
+    search_cache_max_age_days: Optional[float] = DEFAULT_SEARCH_CACHE_MAX_AGE_DAYS,
+    offline: bool = False,
+    allow_missing_checksum: bool = False,
+    obs_epoch_jd: Optional[float] = None,
 ) -> tuple:
-    """Get the TLEs corresponding to satellites that satisfy the conditions given.
+    """Get the orbit records of satellites that satisfy the conditions given.
 
     Parameters
     ----------
-    username : str
-        SpaceTrack username
-    password : str
-        SpaceTrack password.
     times : ArrayLike
-        Times to condsider in Astropy.time.Time format.
+        Times to consider in Astropy.time.Time format. This is the grid the
+        visibility search steps over, which is not necessarily the observation's
+        own sampling — see *obs_epoch_jd*.
     observer_lat : float
         Observer latitude in degrees.
     observer_lon : float
@@ -437,100 +342,132 @@ def get_visible_satellite_tles(
     max_angular_separation : float
         Maximum angular separation, in degrees, to accept a satellite pass.
     min_elevation : float
-        Minimum elevation, in degrees, above the horizon to accept the satellite pass.
+        Minimum elevation, in degrees, above the horizon to accept the satellite
+        pass.
+    names : ArrayLike
+        Satellite names to consider. Matched as **substrings** of an upper-case
+        catalogue; see :mod:`tabsim.satchecker_names`.
     norad_ids : ArrayLike
-        NORAD IDs to consider.
-    names: list
-        Satellite names to consider. An approximate search is done.
-    tle_dir: str
-        Directory path where TLEs should be / are cached.
+        NORAD IDs to consider. Every one of these must resolve to an acceptable
+        record or :class:`~tabsim.orbit.OrbitError` is raised.
+    extra_orbit_dir : str, optional
+        Directory of user-supplied orbit files, searched before the managed cache
+        and SatChecker.
+    extra_orbit_max_age_days : float, optional
+        Age ceiling for ``extra_orbit_dir`` records. ``None`` (the default) means
+        unlimited, which is what makes exact replay of a previous run possible.
+    remote_max_age_days : float, optional
+        Age ceiling for records accepted from SatChecker or its managed cache.
+    cache_reuse_max_age_days : float, optional
+        A cached record this close to the observation avoids a network request.
+    search_cache_max_age_days : float, optional
+        Wall-clock age below which a cached catalogue search is reused instead of
+        repeated. ``None`` reuses indefinitely.
+    offline : bool, optional
+        Forbid every SatChecker request. Cached searches are reused whatever their
+        age; cached orbit records still have to satisfy ``remote_max_age_days``.
+    allow_missing_checksum : bool, optional
+        Accept TLE lines with no checksum digit, on every route, carrying them as
+        unverified for the life of the record.
+    obs_epoch_jd : float, optional
+        The observation's own mean epoch, which every catalogue question and age
+        comparison is answered at. Defaults to the mean of *times*, which is right
+        only when the checking grid *is* the observation's sampling: a grid built
+        by stepping past the last sample can have its mean on a different date,
+        and "which satellites existed" is a question about the observation's date.
 
     Returns
     -------
     tuple
-        - NORAD IDs that pass the criteria.
-        - TLEs for the satellites corresponding to the returned NORAD IDs.
+        - NORAD IDs that pass the criteria, as an integer array.
+        - Orbit records for those satellites, as a list of dicts. ``(array([]),
+          [])`` when nothing passes.
     """
 
-    tle_dir = make_tle_dir(tle_dir)
+    epoch_jd = (
+        observation_epoch_jd(times.jd) if obs_epoch_jd is None else float(obs_epoch_jd)
+    )
 
-    tles = pd.DataFrame()
-    if len(norad_ids) > 0:
-        tles = get_tles_by_id(
-            username, password, norad_ids, np.mean(times.jd), tle_dir=tle_dir
+    resolution = resolve_orbits(
+        norad_ids,
+        epoch_jd,
+        extra_orbit_dir=extra_orbit_dir,
+        extra_orbit_max_age_days=extra_orbit_max_age_days,
+        remote_max_age_days=remote_max_age_days,
+        cache_reuse_max_age_days=cache_reuse_max_age_days,
+        offline=offline,
+        allow_missing_checksum=allow_missing_checksum,
+    )
+    # Numbered satellites were asked for individually, so every one has to be
+    # accounted for before any of them is filtered on visibility: a satellite
+    # dropped here for want of a record would look exactly like one that simply
+    # never passed the target.
+    require_complete_coverage(resolution)
+
+    ids = list(resolution.norad_ids())
+    records = list(resolution.records())
+
+    # De-duplicated against everything asked for by number, not merely against
+    # what resolved: the numbered route has already had its say about those, and
+    # one satellite named as well as numbered is not two satellites.
+    already_requested = set(resolution.requested) | set(ids)
+    named_ids = [
+        nid
+        for nid in resolve_names(
+            names,
+            epoch_jd,
+            search_cache_max_age_days=search_cache_max_age_days,
+            offline=offline,
         )
-    if len(names) > 0:
-        tles = pd.concat(
-            [
-                tles,
-                get_tles_by_name(
-                    username, password, names, np.mean(times.jd), tle_dir=tle_dir
-                ),
-            ]
-        )
-
-    if len(tles) > 0:
-        windows = check_satellite_visibilibities(
-            tles["NORAD_CAT_ID"].values,
-            tles["TLE_LINE1"].values,
-            tles["TLE_LINE2"].values,
-            times,
-            observer_lat,
-            observer_lon,
-            observer_elevation,
-            target_ra,
-            target_dec,
-            max_angular_separation,
-            min_elevation,
-        )
-
-        if len(windows) > 0:
-            tles_ = tles[tles["NORAD_CAT_ID"].isin(windows["norad_id"])][
-                ["NORAD_CAT_ID", "TLE_LINE1", "TLE_LINE2"]
-            ].values
-            return tles_[:, 0], tles_[:, 1:]
-        else:
-            return [], None
-    else:
-        return [], None
-
-
-def type_cast_tles(tles: pd.DataFrame) -> pd.DataFrame:
-
-    numeric_cols = [
-        "NORAD_CAT_ID",
-        "EPOCH_MICROSECONDS",
-        "MEAN_MOTION",
-        "ECCENTRICITY",
-        "INCLINATION",
-        "RA_OF_ASC_NODE",
-        "ARG_OF_PERICENTER",
-        "MEAN_ANOMALY",
-        "EPHEMERIS_TYPE",
-        "ELEMENT_SET_NO",
-        "REV_AT_EPOCH",
-        "BSTAR",
-        "MEAN_MOTION_DOT",
-        "MEAN_MOTION_DDOT",
-        "FILE",
-        "OBJECT_NUMBER",
-        "SEMIMAJOR_AXIS",
-        "PERIOD",
-        "APOGEE",
-        "PERIGEE",
+        if nid not in already_requested
     ]
+    if named_ids:
+        by_name = resolve_orbits(
+            named_ids,
+            epoch_jd,
+            extra_orbit_dir=extra_orbit_dir,
+            extra_orbit_max_age_days=extra_orbit_max_age_days,
+            remote_max_age_days=remote_max_age_days,
+            cache_reuse_max_age_days=cache_reuse_max_age_days,
+            offline=offline,
+            allow_missing_checksum=allow_missing_checksum,
+        )
+        # A named satellite with no acceptable record is excluded, with its
+        # reason; one whose record could not be *obtained* stops the run, exactly
+        # as a numbered one does. Same policy object for both routes, so they
+        # cannot drift apart.
+        report_named_coverage(by_name)
+        ids += by_name.norad_ids()
+        records += by_name.records()
 
-    # Only cast columns that actually exist in the DataFrame
-    for col in numeric_cols:
-        if col in tles.columns:
-            tles[col] = pd.to_numeric(tles[col])
+    if not records:
+        return np.array([], dtype=int), []
 
-    # Cast DECAYED column if it exists
-    if "DECAYED" in tles.columns:
-        tles["DECAYED"] = pd.to_numeric(tles["DECAYED"]).astype(bool)
+    windows = check_satellite_visibilibities(
+        ids,
+        records,
+        times,
+        observer_lat,
+        observer_lon,
+        observer_elevation,
+        target_ra,
+        target_dec,
+        max_angular_separation,
+        min_elevation,
+    )
 
-    return tles
+    if len(windows) == 0:
+        return np.array([], dtype=int), []
 
+    visible = set(np.atleast_1d(windows["norad_id"].values).astype(int).tolist())
+    keep = [i for i, nid in enumerate(ids) if int(nid) in visible]
+
+    return np.array([ids[i] for i in keep], dtype=int), [records[i] for i in keep]
+
+
+# ---------------------------------------------------------------------------
+# Visibility
+# ---------------------------------------------------------------------------
 
 def make_window(
     times: ArrayLike, alt: ArrayLike, angular_sep: ArrayLike, idx: ArrayLike
@@ -569,8 +506,7 @@ def make_window(
 
 
 def check_visibility(
-    tle_line1: str,
-    tle_line2: str,
+    record,
     times: list[Time],
     observer_lat: float,
     observer_lon: float,
@@ -583,15 +519,13 @@ def check_visibility(
     """Calculate visibility windows for a satellite when observing a celestial target.
 
     This function determines time windows when a satellite will pass a celestial
-    target based on the satellite's orbital parameters (TLE), observer location,
-    target coordinates, and visibility constraints.
+    target based on the satellite's orbit record, observer location, target
+    coordinates, and visibility constraints.
 
     Parameters
     ----------
-    tle_line1 : str
-        First line of the satellite's Two-Line Element set (TLE).
-    tle_line2 : str
-        Second line of the satellite's Two-Line Element set (TLE).
+    record : dict or (str, str)
+        Orbit record — TLE or OMM — or a bare ``(line1, line2)`` TLE pair.
     times : list[Time]
         Array of observation times as Astropy Time objects.
     observer_lat : float
@@ -624,10 +558,6 @@ def check_visibility(
     to topocentric coordinates for elevation calculations. Visibility windows are
     determined based on both elevation constraints and angular separation from the
     target.
-
-    The function requires the Skyfield library for satellite calculations and
-    assumes the existence of a `make_window` helper function to format the output
-    windows.
     """
 
     ts = load.timescale()
@@ -637,7 +567,7 @@ def check_visibility(
     observer_location = wgs84.latlon(observer_lat, observer_lon, observer_elevation)
 
     # Create satellite object
-    satellite = EarthSatellite(tle_line1, tle_line2, ts=ts)
+    satellite = earth_satellite(record, ts)
 
     # Create celestial target position
     target = position_of_radec(
@@ -667,15 +597,12 @@ def check_visibility(
     else:
         windows = []
 
-    # print(windows)
-
     return windows
 
 
 def check_satellite_visibilibities(
     norad_ids: list[int],
-    tles_line1: list[str],
-    tles_line2: list[str],
+    records: list,
     times: list[Time],
     observer_lat: float,
     observer_lon: float,
@@ -684,21 +611,15 @@ def check_satellite_visibilibities(
     target_dec: float,
     max_ang_sep: float,
     min_elev: float,
-) -> dict:
-    """Calculate visibility windows for a satellite when observing a celestial target.
-
-    This function determines time windows when a satellite will pass a celestial
-    target based on the satellite's orbital parameters (TLE), observer location,
-    target coordinates, and visibility constraints.
+) -> pd.DataFrame:
+    """Calculate visibility windows for satellites when observing a celestial target.
 
     Parameters
     ----------
     norad_ids: list[int]
         NORAD IDs to calculate for.
-    tles_line1 : list[str]
-        First line of the satellites' Two-Line Element set (TLE).
-    tles_line2 : list[str]
-        Second line of the satellites' Two-Line Element set (TLE).
+    records : list
+        Orbit records for those IDs, in the same order.
     times : list[Time]
         Array of observation times as Astropy Time objects.
     observer_lat : float
@@ -718,23 +639,9 @@ def check_satellite_visibilibities(
 
     Returns
     -------
-    dict
-        Dict of list of visibility windows for each NORAD ID, where each window is a dictionary containing:
-        - 'start_time': Start time of the visibility window
-        - 'end_time': End time of the visibility window
-        - 'max_elevation': Maximum elevation during the window
-        - 'min_angular_separation': Minimum angular separation during the window
-
-    Notes
-    -----
-    The function uses the WGS84 Earth model and converts the satellite's position
-    to topocentric coordinates for elevation calculations. Visibility windows are
-    determined based on both elevation constraints and angular separation from the
-    target.
-
-    The function requires the Skyfield library for satellite calculations and
-    assumes the existence of a `make_window` helper function to format the output
-    windows.
+    pandas.DataFrame
+        One row per visibility window, with a ``norad_id`` column and the window
+        statistics from :func:`make_window`.
     """
 
     print()
@@ -744,8 +651,7 @@ def check_satellite_visibilibities(
     all_windows = []
     for i in tqdm(range(len(norad_ids))):
         windows = check_visibility(
-            tles_line1[i],
-            tles_line2[i],
+            records[i],
             times,
             observer_lat,
             observer_lon,
@@ -760,120 +666,3 @@ def check_satellite_visibilibities(
 
     print(f"Found {len(all_windows)} matching satellites")
     return pd.DataFrame(all_windows)
-
-
-def get_satellite_positions(tles: list, times_jd: list) -> ArrayLike:
-    """Calculate the ICRS positions of satellites by propagating their TLEs over the given times.
-
-    Parameters
-    ----------
-    tles : Array (n_sat, 2)
-        TLEs usind to propagate positions.
-    times : Array (n_time,)
-        Times to calculate positions at in Julian date.
-
-    Returns
-    -------
-    Array (n_sat, n_time, 3)
-        Satellite positions over time
-    """
-
-    ts = load.timescale()
-    sf_times = ts.ut1_jd(times_jd)
-
-    sat_pos = np.array(
-        [
-            EarthSatellite(tle_line1, tle_line2, ts=ts).at(sf_times).position.km.T * 1e3
-            for tle_line1, tle_line2 in tles
-        ]
-    )
-
-    return sat_pos
-
-
-def ant_pos(ant_itrf: ArrayLike, times_jd: ArrayLike) -> ArrayLike:
-
-    ts = load.timescale()
-    t = ts.ut1_jd(times_jd)
-
-    location = EarthLocation(x=ant_itrf[0], y=ant_itrf[1], z=ant_itrf[2], unit="m")
-    observer = wgs84.latlon(
-        location.lat.degree, location.lon.degree, location.height.value
-    )
-
-    return (observer.at(t).position.km * 1e3).T
-
-
-def ants_pos(ants_itrf: ArrayLike, times_jd: ArrayLike) -> ArrayLike:
-
-    return np.transpose(
-        np.array([ant_pos(ant_itrf, times_jd) for ant_itrf in ants_itrf]),
-        axes=(1, 0, 2),
-    )
-
-
-def sat_distance(tle: list[str], times_jd: ArrayLike, obs_itrf: ArrayLike) -> ArrayLike:
-
-    ts = load.timescale()
-
-    t = ts.ut1_jd(times_jd)
-
-    satellite = EarthSatellite(tle[0], tle[1], ts=ts)
-
-    location = EarthLocation(x=obs_itrf[0], y=obs_itrf[1], z=obs_itrf[2], unit="m")
-
-    observer = wgs84.latlon(location.lat.degree, location.lon.degree, location.height)
-
-    topo = (satellite - observer).at(t)
-
-    return topo.distance().m
-
-
-def sathub_time_to_isot(sathub_time: str) -> str:
-    """Convert the epoch time return by a call to the SatChecker from SatHub to isot.
-
-    Parameters
-    ----------
-    sathub_time : str
-        Time format returned by the SatChecker api.
-
-    Returns
-    -------
-    str
-        Time format in isot, easily ingested by astropy.time.Time.
-    """
-
-    dt = datetime.strptime(sathub_time, "%Y-%m-%d %H:%M:%S UTC")
-    isot = dt.strftime("%Y-%m-%dT%H:%M:%S.000")
-
-    return isot
-
-
-def get_sat_pos_tle(
-    tle_line1: str, tle_line2: str, sat_name: str, times_jd: float
-) -> ArrayLike:
-    """Calculate the satellite position in GCRS (ECI) frame at the given Julian dates.
-
-    Parameters
-    ----------
-    tle_line1 : str
-        First line of the TLE.
-    tle_line2 : str
-        Second line fo the TLE
-    sat_name : str
-        Satellite name. This is often given in the line above the TLE.
-    times_jd : float
-        Julian dates at which to evaluate the satellite position.
-
-    Returns
-    -------
-    ArrayLike
-        Satellite positions in metres in the GCRS (ECI) frame.
-    """
-
-    ts = load.timescale()
-    sat = EarthSatellite(tle_line1, tle_line2, sat_name, ts)
-    t_s = ts.ut1_jd(times_jd)
-    sat_pos = sat.at(t_s).position.m
-
-    return sat_pos

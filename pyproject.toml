@@ -17,11 +17,16 @@ maintainers = [
 ]
 description = "Trajectory-based Radio Frequency Interference (RFI) simulations for radio interferometeric data."
 
-requires-python = ">=3.9"
+requires-python = ">=3.10"  # satchecker-client floor
 dependencies = [
     "jax", "dask", "xarray", "zarr<3.0.0",
     "dask-ms>=0.2.21", "scipy", "tqdm", "matplotlib",
-    "astropy", "spacetrack", "skyfield", "numpy", "pyyaml",
+    "astropy", "skyfield", "sgp4", "platformdirs", "numpy", "pyyaml", "pandas",
+    # The selection, acquisition and replay machinery tabsim.orbit adapts —
+    # resolve_orbits, read_extra_orbit_dir, the replay writers and loader, the
+    # OrbitResolution result types, RejectedOrbit.error and OrbitInputError.code —
+    # arrived in satchecker-client 0.2.0. Nothing older can run that module.
+    "satchecker-client>=0.2.0",
 ]
 
 [project.optional-dependencies]
@@ -50,7 +55,6 @@ tabsim = ["data/**/*"]
 tle-region = "tabsim.scripts.tle_sat_region:main"
 ast-region = "tabsim.scripts.ast_region:main"
 flag-data = "tabsim.scripts.flag_data:main"
-sim-vis = "tabsim.scripts.sim_vis:main"
+sim-vis = "tabsim.scripts.sim_vis:cli"
 write-config = "tabsim.scripts.write_config_from_ms:main"
-tabsim-setup-spacetrack = "tabsim.scripts.setup_spacetrack_login:main"
 tabsim-import-tles = "tabsim.scripts.import_tle_files:main"
