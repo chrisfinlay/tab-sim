@@ -12,14 +12,14 @@ ast_sources:
     path: null                # Optional - Path to skymodel
     random:
       n_src: 0                # Optional - Number of exponentially shaped sources to include
-      I_pow_law: 1.6          # Required if n_src > 0 - Exponent for power law intensity distribution
+      I_pow_law: 1.6          # Required if n_src > 0 - Exponent for power law intensity distribution. Must be greater than 1
       max_I: 1.0              # Required if n_src > 0 - Maximum intensity of intensity distribution in Jy
       max_sep: 50.0           # Required if n_src > 0 - Maximum angular separation between sources in arcseconds      
       min_I: 3sigma           # Required if n_src > 0 - Minimum intensity of intensity distribution in Jy (3sigma calculated from theoretical image noise). Must not exceed max_I
       n_beam: 5               # Required if n_src > 0 - Maximum angular separation between sources based on the theoretical synthesized beam width
       random_seed: 123456     # Required if n_src > 0 - Random seed used for drawing locations, intensities and shapes
       si_mean: 0.7            # Required if n_src > 0 - Mean of the Gaussian distribution to draw spectral indices from
-      si_std: 0.2             # Required if n_src > 0 - Sandard deviation of the Gaussian distribution to draw spectral indices from
+      si_std: 0.2             # Required if n_src > 0 - Standard deviation of the Gaussian distribution to draw spectral indices from. Must not be negative
       size_mean: 30.0         # Required if n_src > 0 - Mean of the Gaussian distribution to draw source sizes from in arcseconds
       size_std: 5.0           # Required if n_src > 0 - Standard deviation of the Gaussian distribution to draw spectral indices from
 #######################################
@@ -29,7 +29,7 @@ ast_sources:
     path: null                # Optional - Path to skymodel
     random:
       n_src: 0                # Optional - Number of Gaussian shaped sources to include
-      I_pow_law: 1.6          # Required if n_src > 0 - Exponent for power law intensity distribution
+      I_pow_law: 1.6          # Required if n_src > 0 - Exponent for power law intensity distribution. Must be greater than 1
       major_mean: 30.0        # Required if n_src > 0 - Mean of the Gaussian distribution to draw source size major axes from in arcseconds
       major_std: 5.0          # Required if n_src > 0 - Standard deviation of the Gaussian distribution to draw source sizes from in arcseconds
       max_I: 1.0              # Required if n_src > 0 - Maximum intensity of intensity distribution in Jy
@@ -40,7 +40,7 @@ ast_sources:
       n_beam: 5               # Required if n_src > 0 - Maximum angular separation between sources based on the theoretical synthesized beam width
       random_seed: 123456     # Required if n_src > 0 - Random seed used for drawing locations, intensities and shapes
       si_mean: 0.7            # Required if n_src > 0 - Mean of the Gaussian distribution to draw spectral indices from
-      si_std: 0.2             # Required if n_src > 0 - Sandard deviation of the Gaussian distribution to draw spectral indices from
+      si_std: 0.2             # Required if n_src > 0 - Standard deviation of the Gaussian distribution to draw spectral indices from. Must not be negative
 ####################################
 # Point shaped astronomical sources
 ####################################
@@ -48,14 +48,14 @@ ast_sources:
     path: null                # Optional - Path to skymodel
     random:
       n_src: 0                # Optional - Number of point sources to include
-      I_pow_law: 1.6          # Required if n_src > 0 - Exponent for power law intensity distribution
+      I_pow_law: 1.6          # Required if n_src > 0 - Exponent for power law intensity distribution. Must be greater than 1
       max_I: 1.0              # Required if n_src > 0 - Maximum intensity of intensity distribution in Jy
       max_sep: 50.0           # Required if n_src > 0 - Maximum angular separation between sources in arcseconds
       min_I: 3sigma           # Required if n_src > 0 - Minimum intensity of intensity distribution in Jy (3sigma calculated from theoretical image noise). Must not exceed max_I
       n_beam: 5               # Required if n_src > 0 - Maximum angular separation between sources based on the theoretical synthesized beam width
       random_seed: 123456     # Required if n_src > 0 - Random seed used for drawing locations, intensities and shapes
       si_mean: 0.7            # Required if n_src > 0 - Mean of the Gaussian distribution to draw spectral indices from
-      si_std: 0.2             # Required if n_src > 0 - Sandard deviation of the Gaussian distribution to draw spectral indices from
+      si_std: 0.2             # Required if n_src > 0 - Standard deviation of the Gaussian distribution to draw spectral indices from. Must not be negative
 #################################################
 # Gaussian field realization astronomical source
 #################################################
