@@ -27,10 +27,13 @@ dependencies = [
     # OrbitResolution result types, RejectedOrbit.error and OrbitInputError.code —
     # arrived in satchecker-client 0.2.0. Nothing older can run that module.
     "satchecker-client>=0.2.0",
+    # RFI visibilities run through RFIVisOp, which is faster than XLA's own
+    # loop. tabsim.jax.interferometry keeps a pure-JAX route for where it is absent.
+    "ri_kernels>=0.2.1",
 ]
 
 [project.optional-dependencies]
-gpu = ["jax[cuda12]"]
+gpu = ["jax[cuda12]", "ri_kernels[cuda12]"]
 sat = ["regions"]
 # ps = ["TGEpy @ git+https://github.com/chrisfinlay/TGEpy.git"]
 # all = ["jax[cuda12]", "regions", "bdsf", "TGEpy @ git+https://github.com/chrisfinlay/TGEpy.git"]
