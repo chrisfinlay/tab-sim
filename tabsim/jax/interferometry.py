@@ -1,11 +1,17 @@
 import sys
+import warnings
 
 import jax.numpy as jnp
-from jax import jit, random
+from jax import ensure_compile_time_eval, jit, random
 from jax.lax import scan
 from scipy.special import jv
 
-from functools import partial
+from functools import lru_cache, partial
+
+try:
+    from ri_kernels.jax_api import RFIVisOp
+except (ImportError, OSError):  # not installed, or its library does not load here
+    RFIVisOp = None
 
 c = 2.99792458e8
 
@@ -14,11 +20,14 @@ def rfi_vis(app_amplitude, c_distances, freqs, a1, a2):
     """
     Calculate visibilities from distances to rfi sources.
 
+    Uses the ``ri_kernels`` RFI visibility kernel where it can run, which is
+    2-4x faster on a CPU and 1.5-2x on a GPU, and :func:`rfi_vis_jax` otherwise.
+
     Parameters
     ----------
-    app_amplitude: array_like (n_src, n_time, n_ant, n_freq)
+    app_amplitude: array_like (n_src, n_time, n_int, n_ant, n_freq)
         Apparent amplitude at the antennas.
-    c_distances: array_like (n_src, n_time, n_ant)
+    c_distances: array_like (n_src, n_time, n_int, n_ant)
         The phase corrected distances between the rfi sources and the antennas in metres.
     freqs: array_like (n_freq,)
         Frequencies in Hz.
@@ -32,6 +41,74 @@ def rfi_vis(app_amplitude, c_distances, freqs, a1, a2):
     vis: array_like (n_time, n_bl, n_freq)
         The visibilities.
     """
+    if kernel_usable():
+        return rfi_vis_kernel(app_amplitude, c_distances, freqs, a1, a2)
+    return rfi_vis_jax(app_amplitude, c_distances, freqs, a1, a2)
+
+
+def kernel_usable():
+    """Whether ``ri_kernels`` can run where JAX currently places new arrays.
+
+    The CPU library ships with ``ri_kernels``; a GPU needs an add-on such as
+    ``ri_kernels[cuda12]``, and its absence only shows when a kernel is compiled.
+    """
+    # rfi_vis is usually being traced when this runs; place, compile and run now.
+    with ensure_compile_time_eval():
+        (device,) = jnp.zeros(()).devices()
+        return _kernel_usable(device.platform)
+
+
+@lru_cache(maxsize=None)
+def _kernel_usable(platform):
+    if RFIVisOp is None:
+        return False
+    try:
+        index = jnp.zeros(1, dtype=jnp.int32)
+        RFIVisOp(1, index, index).eval(
+            jnp.zeros((1,) * 6, dtype=jnp.complex64),
+            jnp.zeros((1,) * 6, dtype=jnp.float32),
+        )
+    except RuntimeError as err:
+        warnings.warn(f"RFI visibilities fall back to pure JAX, which is slower: {err}")
+        return False
+    return True
+
+
+def rfi_vis_kernel(app_amplitude, c_distances, freqs, a1, a2):
+    """:func:`rfi_vis` through ``ri_kernels.jax_api.RFIVisOp``.
+
+    The kernel reads a complex amplitude and a phase for every source, antenna,
+    channel and sample, so this holds about 3x the size of ``app_amplitude``.
+    """
+    app_amplitude = jnp.asarray(app_amplitude)
+    c_distances = jnp.asarray(c_distances)
+    freqs = jnp.asarray(freqs)
+    a1 = jnp.asarray(a1, dtype=jnp.int32)
+    a2 = jnp.asarray(a2, dtype=jnp.int32)
+    n_ant = app_amplitude.shape[3]
+
+    # Only distance differences between antennas reach a baseline, so remove
+    # the ~1e6 m common to all of them before it is scaled up to a phase.
+    c_distances = c_distances - jnp.mean(c_distances, axis=-1, keepdims=True)
+    phase = minus_two_pi_over_lamda(freqs) * c_distances[..., None]
+
+    # (n_src, n_time, n_int, n_ant, n_freq)
+    # -> (n_ant, n_freq, n_time, n_src, n_int_freq=1, n_int_time)
+    def to_kernel(x):
+        return jnp.transpose(x, (3, 4, 1, 0, 2))[:, :, :, :, None, :]
+
+    real = jnp.result_type(app_amplitude.real.dtype, phase.dtype)
+    amp = to_kernel(app_amplitude).astype(jnp.result_type(real, jnp.complex64))
+    vis = RFIVisOp(n_ant, a1, a2).eval(amp, to_kernel(phase).astype(real))
+
+    # (n_bl, n_freq, n_time) -> (n_time, n_bl, n_freq)
+    return jnp.transpose(vis, (2, 0, 1))
+
+
+def rfi_vis_jax(app_amplitude, c_distances, freqs, a1, a2):
+    """:func:`rfi_vis` in pure JAX, one source at a time over every baseline."""
+    app_amplitude = jnp.asarray(app_amplitude)
+    c_distances = jnp.asarray(c_distances)
     n_src = app_amplitude.shape[0]
     vis = _rfi_vis(app_amplitude[0, None], c_distances[0, None], freqs, a1, a2)
 
@@ -43,7 +120,6 @@ def rfi_vis(app_amplitude, c_distances, freqs, a1, a2):
         )
 
     return scan(_add_vis, vis, jnp.arange(1, n_src))[0]
-    # return _rfi_vis(app_amplitude, c_distances, freqs, a1, a2)
 
 
 def astro_vis(sources, uvw, lmn, freqs):
