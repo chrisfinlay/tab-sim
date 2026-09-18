@@ -10,7 +10,7 @@ from functools import lru_cache, partial
 
 try:
     from ri_kernels.jax_api import RFIVisOp
-except ImportError:  # no wheel for this platform and no compiler to build one
+except (ImportError, OSError):  # not installed, or its library does not load here
     RFIVisOp = None
 
 c = 2.99792458e8
@@ -77,23 +77,28 @@ def rfi_vis(
                           visibility_precision=visibility_precision)
 
 
-@lru_cache(maxsize=None)
 def kernel_usable():
-    """Whether ``ri_kernels`` can run on the default JAX backend.
+    """Whether ``ri_kernels`` can run where JAX currently places new arrays.
 
     The CPU library ships with ``ri_kernels``; a GPU needs an add-on such as
     ``ri_kernels[cuda12]``, and its absence only shows when a kernel is compiled.
     """
+    # rfi_vis is usually being traced when this runs; place, compile and run now.
+    with ensure_compile_time_eval():
+        (device,) = jnp.zeros(()).devices()
+        return _kernel_usable(device.platform)
+
+
+@lru_cache(maxsize=None)
+def _kernel_usable(platform):
     if RFIVisOp is None:
         return False
     try:
-        # rfi_vis is usually being traced when this first runs; compile and run now.
-        with ensure_compile_time_eval():
-            index = jnp.zeros(1, dtype=jnp.int32)
-            RFIVisOp(1, index, index).eval(
-                jnp.zeros((1,) * 6, dtype=jnp.complex64),
-                jnp.zeros((1,) * 6, dtype=jnp.float32),
-            )
+        index = jnp.zeros(1, dtype=jnp.int32)
+        RFIVisOp(1, index, index).eval(
+            jnp.zeros((1,) * 6, dtype=jnp.complex64),
+            jnp.zeros((1,) * 6, dtype=jnp.float32),
+        )
     except RuntimeError as err:
         warnings.warn(f"RFI visibilities fall back to pure JAX, which is slower: {err}")
         return False
