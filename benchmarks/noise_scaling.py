@@ -12,6 +12,23 @@ import sys
 import time
 
 
+def chunk_views(array, chunks):
+    """Wrap an eager result without Dask's ndarray copying/hashing adapter.
+
+    Each graph value is a NumPy slice sharing the original allocation. This is a
+    local threaded benchmark; distributing these views is intentionally unsupported.
+    """
+    from itertools import product
+    from uuid import uuid4
+    from dask.array.core import Array, normalize_chunks, slices_from_chunks
+    normalized = normalize_chunks(chunks, shape=array.shape, dtype=array.dtype)
+    name = "noise-views-" + uuid4().hex
+    keys = product(*[range(len(c)) for c in normalized])
+    graph = {(name, *index): array[selection] for index, selection in
+             zip(keys, slices_from_chunks(normalized))}
+    return Array(graph, name, normalized, dtype=array.dtype)
+
+
 def worker(root, length):
     # Bind the selected implementation before any pytest/editable path can win.
     sys.path.insert(0, str(root))
@@ -44,8 +61,10 @@ def worker(root, length):
         _, noise = add_noise(vis, scale, 20260919)
         construction_s = time.perf_counter() - start
         graph_rss = process.memory_info().rss
-        # Legacy returns ndarray; wrap it after recording construction cost.
-        noise = da.asarray(noise).rechunk(vis.chunks)
+        # Legacy returns ndarray. Use chunk views: da.asarray/from_array copy it.
+        start = time.perf_counter()
+        noise = noise if isinstance(noise, da.Array) else chunk_views(noise, vis.chunks)
+        adapter_s = time.perf_counter() - start
         start = time.perf_counter()
         statistics = dask.compute(noise.real.mean(axis=(0, 1)), noise.imag.mean(axis=(0, 1)),
             (noise.real**2).mean(axis=(0, 1)), (noise.imag**2).mean(axis=(0, 1)),
@@ -65,8 +84,8 @@ def worker(root, length):
         "versions": {"python": sys.version, "numpy": np.__version__, "dask": dask.__version__},
         "workers": 1, "rss_before_bytes": before, "rss_after_construction_bytes": graph_rss,
         "rss_peak_sampled_bytes": peak[0], "sample_interval_s": .005,
-        "construction_s": construction_s, "consume_s": consume_s,
-        "total_s": construction_s + consume_s, "channel_means_and_second_moments": [x.tolist() for x in statistics]}
+        "construction_s": construction_s, "adapter_s": adapter_s, "consume_s": consume_s,
+        "total_s": construction_s + adapter_s + consume_s, "channel_means_and_second_moments": [x.tolist() for x in statistics]}
 
 
 def main():

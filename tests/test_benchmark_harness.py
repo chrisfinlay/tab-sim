@@ -206,3 +206,13 @@ def test_noise_comparison_only_allows_documented_output_changes():
     candidate["extra_info"]["output_sample"]["vis_ast"]["real"] = [2.]
     with pytest.raises(AssertionError):
         compare_noise_records(base, candidate)
+
+
+def test_noise_scaling_adapter_shares_eager_memory():
+    import numpy as np
+    from benchmarks.noise_scaling import chunk_views
+    original = np.arange(48).reshape(4, 3, 4)
+    wrapped = chunk_views(original, (2, 3, 2))
+    assert all(np.shares_memory(original, block) for block in wrapped.dask.values())
+    original[0, 0, 0] = 99
+    np.testing.assert_array_equal(wrapped.compute(), original)

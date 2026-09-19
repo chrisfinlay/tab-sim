@@ -53,9 +53,9 @@ def run_sim_vis(sim_config: dict, tmp_path, monkeypatch):
 
 
 def test_min_flux_in_sigma_above_max_flux_raises(tmp_path, monkeypatch):
-    """3 sigma of this observation is 1.125 Jy, above the default `max_I` of 1 Jy.
+    """4 sigma of this observation is 1.061 Jy, above the default `max_I` of 1 Jy.
     This used to hang `sim-vis`."""
-    sim_config = small_sim_config({"n_src": 2, "min_I": "3sigma", "max_I": 1.0})
+    sim_config = small_sim_config({"n_src": 2, "min_I": "4sigma", "max_I": 1.0})
 
     with fail_after(300):
         with pytest.raises(ValueError) as err:
@@ -63,10 +63,10 @@ def test_min_flux_in_sigma_above_max_flux_raises(tmp_path, monkeypatch):
 
     msg = str(err.value)
     assert "ast_sources.point.random" in msg
-    assert "min_I = '3sigma'" in msg and "max_I = 1.0" in msg
-    assert "1.125 Jy > 1 Jy" in msg
+    assert "min_I = '4sigma'" in msg and "max_I = 1.0" in msg
+    assert "1.061 Jy > 1 Jy" in msg
     for setting in [
-        "sigma = 0.3751 Jy",
+        "sigma = 0.2652 Jy",
         "sqrt(3 * 1)",
         "SEFD = 420 Jy",
         "chan_width = 2.09e+05 Hz",
@@ -145,13 +145,13 @@ def test_failing_to_explain_sigma_does_not_hide_the_empty_range(tmp_path, monkey
         raise RuntimeError("no explanation")
 
     monkeypatch.setattr(config, "describe_image_noise", broken)
-    sim_config = small_sim_config({"n_src": 2, "min_I": "3sigma", "max_I": 1.0})
+    sim_config = small_sim_config({"n_src": 2, "min_I": "4sigma", "max_I": 1.0})
 
     with fail_after(300):
         with pytest.raises(ValueError) as err:
             run_sim_vis(sim_config, tmp_path, monkeypatch)
 
-    assert "min_I = '3sigma' is greater than max_I = 1.0" in str(err.value)
+    assert "min_I = '4sigma' is greater than max_I = 1.0" in str(err.value)
     assert "Lower min_I, raise max_I, or lower sigma" in str(err.value)
     assert "no explanation" not in str(err.value)
 

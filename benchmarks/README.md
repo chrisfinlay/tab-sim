@@ -204,7 +204,8 @@ AA1's 120 baselines and 16 channels, fixed `(256,120,16)` chunks, and five alter
 fresh-process pairs per size. It records noise graph-construction time and RSS,
 5 ms sampled peak RSS, and the time to consume the noise through channel means
 and second moments. This reduction does not gather the candidate cube. Its total
-includes the eager parent's generation at construction; it is not an end-to-end
+includes the eager parent's generation at construction plus the separately recorded
+zero-copy chunk-view adapter time; it is not an end-to-end
 simulation timing. It caps cubes at 1 GiB, checks available host memory for the
 parent, and bounds each subprocess to 180 seconds. Run these experiments serially
 on each host to avoid benchmark interference.
