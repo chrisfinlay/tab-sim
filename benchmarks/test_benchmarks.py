@@ -16,7 +16,7 @@ def test_workload(benchmark, request, tmp_path):
     import numpy as np
     import psutil
     from benchmarks.harness import (Diagnostics, MemorySampler, check_samples,
-        kernel_inputs, offline, output_sample, provenance, simulation)
+        kernel_inputs, kernel_reference_sample, offline, output_sample, provenance, simulation)
 
     get = request.config.getoption
     name, mode = get("--case"), get("--mode")
@@ -58,19 +58,32 @@ def test_workload(benchmark, request, tmp_path):
             info["input_shapes"] = [list(x.shape) for x in host]
             kernel = jax.jit(itf.astro_vis if mode == "astro-kernel" else itf.rfi_vis)
             start = time.perf_counter()
-            first = kernel(*device).block_until_ready()
-            info["first_call_compile_and_execute_s"] = time.perf_counter() - start
+            lowered = kernel.lower(*device)
+            info["trace_and_lower_s"] = time.perf_counter() - start
+            start = time.perf_counter()
+            compiled = lowered.compile()
+            info["compile_s"] = time.perf_counter() - start
+            analysis = compiled.memory_analysis()
+            info["compiled_memory_analysis"] = {key: getattr(analysis, key, None) for key in (
+                "argument_size_in_bytes", "output_size_in_bytes", "alias_size_in_bytes",
+                "temp_size_in_bytes", "host_temp_size_in_bytes")}
+            start = time.perf_counter()
+            first = compiled(*device).block_until_ready()
+            info["first_execute_s"] = time.perf_counter() - start
             start = time.perf_counter()
             expected = np.asarray(jax.device_get(first))
             info["device_to_host_s"] = time.perf_counter() - start
             info["output_bytes"] = expected.nbytes
             def target():
-                return kernel(*device).block_until_ready()
+                return compiled(*device).block_until_ready()
             result = benchmark.pedantic(target, iterations=1, rounds=get("--rounds"))
             np.testing.assert_allclose(np.asarray(result), expected, rtol=1e-7, atol=1e-8)
             assert np.isfinite(expected).all()
             idx = sorted({0, expected.size // 2, expected.size - 1})
             sample = expected.ravel()[idx]
+            np.testing.assert_allclose(sample, kernel_reference_sample(host, mode, expected.shape, idx),
+                                       rtol=1e-7, atol=1e-8)
+            info["numpy_reference_sample_passed"] = True
             info["output_sample"] = {"kernel": {"shape": list(expected.shape),
                                       "real": sample.real.tolist(), "imag": sample.imag.tolist()}}
             with Diagnostics() as diagnostics:

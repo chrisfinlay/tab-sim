@@ -20,6 +20,12 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
+    # Pin this harness before adding another implementation checkout to sys.path.
+    harness_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(harness_root))
+    import benchmarks
+    if Path(benchmarks.__file__).resolve().parent != harness_root / "benchmarks":
+        raise pytest.UsageError("An unrelated benchmarks package was imported")
     # Must precede imports of JAX or tabsim. Never silently fall back from GPU.
     sys.path.insert(0, str(Path(config.getoption("--source-root")).resolve()))
     os.environ["JAX_PLATFORMS"] = "cuda" if config.getoption("--device") == "gpu" else "cpu"

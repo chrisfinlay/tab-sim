@@ -22,7 +22,7 @@ def run_one(args, case, mode, root, python, prefix):
            "--workers", str(args.workers), "--chunk-mb", str(args.chunk_mb),
            "--host-budget-gib", str(args.host_budget_gib),
            "--gpu-budget-gib", str(args.gpu_budget_gib),
-           "--benchmark-json", str(report), "--benchmark-disable-gc",
+           "--benchmark-json", str(report),
            "--junitxml", str(junit), "-q"]
     if args.trace:
         cmd += ["--trace-dir", str(prefix.parent / (prefix.name + "-trace"))]
@@ -74,7 +74,7 @@ def compare_records(base, candidate):
     if base["status"] != "passed" or candidate["status"] != "passed":
         return {"status": "unavailable"}
     a, b = base["extra_info"], candidate["extra_info"]
-    for key in ("fixture_sha256", "case", "options", "host", "device_kind", "x64"):
+    for key in ("fixture_sha256", "harness_sha256", "case", "options", "host", "device_kind", "x64", "environment"):
         if a[key] != b[key]:
             raise ValueError(f"Incomparable benchmark metadata: {key}")
     # tabsim's version can change with the implementation; dependency versions cannot.

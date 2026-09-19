@@ -45,7 +45,9 @@ def provenance(root, case, options):
             versions[name] = None
     return {"revision": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--porcelain", "--untracked-files=no")),
             "tracked_diff_sha256": hashlib.sha256(git("diff", "HEAD").encode()).hexdigest(),
-            "fixture_sha256": fixture_hash(), "host": socket.gethostname(),
+            "fixture_sha256": fixture_hash(),
+            "harness_sha256": hashlib.sha256(b"".join(p.read_bytes() for p in sorted(Path(__file__).parent.glob("*.py")))).hexdigest(),
+            "host": socket.gethostname(),
             "platform": platform.platform(), "processor": platform.processor(),
             "cpu_count": os.cpu_count(), "host_total_bytes": psutil.virtual_memory().total,
             "python": platform.python_version(), "versions": versions,
@@ -267,3 +269,21 @@ def check_samples(actual, expected, rtol=1e-7, atol=1e-8):
             else:
                 np.testing.assert_allclose(actual[key][part], expected[key][part],
                                            rtol=rtol, atol=atol, err_msg=f"{key}.{part}")
+
+
+def kernel_reference_sample(host, mode, shape, indices):
+    """Independent NumPy scalar reference: sum sources, average RFI integrations."""
+    result = []
+    for index in indices:
+        t, b, f = np.unravel_index(index, shape)
+        if mode == "astro-kernel":
+            intensity, uvw, lmn, freqs = host
+            phase = 2 * np.pi * freqs[f] / 299792458.0 * ((lmn - [0, 0, 1]) @ uvw[t, b])
+            value = np.sum(intensity[:, t, f] * np.exp(1j * phase))
+        else:
+            amp, distance, freqs, a1, a2 = host
+            phase = -2 * np.pi * freqs[f] / 299792458.0 * (distance[:, t, :, a1[b]] - distance[:, t, :, a2[b]])
+            intensity = amp[:, t, :, a1[b], f] * np.conj(amp[:, t, :, a2[b], f])
+            value = np.sum(np.mean(intensity * np.exp(1j * phase), axis=1))
+        result.append(value)
+    return np.asarray(result)
