@@ -37,6 +37,7 @@ sat = ["regions"]
 # all_cpu = ["regions", "bdsf", "TGEpy @ git+https://github.com/chrisfinlay/TGEpy.git"]
 ipy = ["ipython", "ipykernel"]
 test = ["pytest"]
+benchmark = ["pytest>=7", "pytest-benchmark>=5.1,<6", "psutil>=5.9", "nvidia-ml-py>=12; sys_platform == 'linux'"]
 docs = ["sphinx", "sphinx-rtd-theme"]
 
 [project.urls]
@@ -50,6 +51,7 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 tabsim = ["data/**/*"]
+benchmarks = ["fixtures/*.json", "README.md"]
 
 [project.scripts]
 tle-region = "tabsim.scripts.tle_sat_region:main"
