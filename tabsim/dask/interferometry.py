@@ -4,12 +4,24 @@ import numpy as np
 import xarray as xr
 
 import dask.array as da
-from dask.delayed import delayed
 from dask.array.core import Array
 
 from tabsim.jax import interferometry as itf
 
 from typing import Optional
+
+
+# Keep one callable per kernel in each worker. This does not imply that the
+# previous repeated jit() wrapping recompiled every block. Device placement and
+# completion behavior are unchanged; the outer Dask graph owns scheduling.
+_astro_vis_jit = jit(itf.astro_vis)
+_astro_vis_gauss_jit = jit(itf.astro_vis_gauss)
+_astro_vis_exp_jit = jit(itf.astro_vis_exp)
+_rfi_vis_jit = jit(itf.rfi_vis)
+_ants_to_bl_jit = jit(itf.ants_to_bl)
+
+# airy_beam mixes JAX and SciPy; Pv_to_Sv and apply_gains were also not
+# whole-function jitted here. Keep those direct calls on their existing paths.
 
 
 def astro_vis(sources: Array, uvw: Array, lmn: Array, freqs: Array) -> Array:
@@ -67,9 +79,9 @@ def astro_vis(sources: Array, uvw: Array, lmn: Array, freqs: Array) -> Array:
     )
 
     def _astro_vis(ds):
-        vis = delayed(jit(itf.astro_vis), pure=True)(
+        vis = _astro_vis_jit(
             ds.I.data, ds.uvw.data, ds.lmn.data, ds.freqs.data
-        ).compute()
+        )
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
         return ds_out
 
@@ -138,7 +150,7 @@ def astro_vis_gauss(
     )
 
     def _astro_vis_gauss(ds):
-        vis = delayed(jit(itf.astro_vis_gauss), pure=True)(
+        vis = _astro_vis_gauss_jit(
             ds.I.data,
             ds.major.data,
             ds.minor.data,
@@ -146,7 +158,7 @@ def astro_vis_gauss(
             ds.uvw.data,
             ds.lmn.data,
             ds.freqs.data,
-        ).compute()
+        )
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
         return ds_out
 
@@ -207,9 +219,9 @@ def astro_vis_exp(
     )
 
     def _astro_vis_exp(ds):
-        vis = delayed(jit(itf.astro_vis_exp), pure=True)(
+        vis = _astro_vis_exp_jit(
             ds.I.data, ds.sigmas.data, ds.uvw.data, ds.lmn.data, ds.freqs.data
-        ).compute()
+        )
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
         return ds_out
 
@@ -275,13 +287,13 @@ def rfi_vis(
     )
 
     def _rfi_vis(ds):
-        vis = delayed(jit(itf.rfi_vis), pure=True)(
+        vis = _rfi_vis_jit(
             ds.app_amplitude.data,
             ds.c_distances.data,
             ds.freqs.data,
             ds.a1.data,
             ds.a2.data,
-        ).compute()
+        )
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
         return ds_out
 
@@ -313,9 +325,9 @@ def ants_to_bl(G: Array, a1: Array, a2: Array) -> Array:
     )
 
     def _ants_to_bl(ds):
-        G_bl = delayed(jit(itf.ants_to_bl), pure=True)(
+        G_bl = _ants_to_bl_jit(
             ds.G.data, ds.a1.data, ds.a2.data
-        ).compute()
+        )
         ds_out = xr.Dataset({"G_bl": (["time", "bl", "freq"], G_bl)})
         return ds_out
 
@@ -355,9 +367,9 @@ def airy_beam(theta, freqs, dish_d):
     )
 
     def _airy_beam(ds):
-        beam = delayed(itf.airy_beam, pure=True)(
+        beam = itf.airy_beam(
             ds.theta.data, ds.freqs.data, ds.dish_d.data
-        ).compute()
+        )
         ds_out = xr.Dataset({"beam": (["src", "time", "ant", "freq"], beam)})
         return ds_out
 
@@ -393,7 +405,7 @@ def Pv_to_Sv(Pv, d):
     )
 
     def _Pv_to_Sv(ds):
-        Sv = delayed(itf.Pv_to_Sv)(ds.Pv.data, ds.d.data).compute()
+        Sv = itf.Pv_to_Sv(ds.Pv.data, ds.d.data)
         ds_out = xr.Dataset({"Sv": (["src", "time", "ant", "freq"], Sv)})
         return ds_out
 
@@ -596,9 +608,9 @@ def apply_gains(
     )
 
     def _apply_gains(ds):
-        vis_obs = delayed(itf.apply_gains)(
+        vis_obs = itf.apply_gains(
             ds.vis_ast.data, ds.vis_rfi.data, ds.gains.data, ds.a1.data, ds.a2.data
-        ).compute()
+        )
         ds_out = xr.Dataset({"vis_obs": (["time", "bl", "freq"], vis_obs)})
         return ds_out
 

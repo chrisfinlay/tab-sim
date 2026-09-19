@@ -141,6 +141,7 @@ def test_workload(benchmark, request, tmp_path):
             add_sources(obs, case)
             obs.calculate_vis()
             info["unoptimized_graph_tasks"] = len(obs.dataset.__dask_graph__())
+        info["mapped_callback_diagnostics"] = diagnostics.mapped.report()
         info["diagnostic_tasks_executed"] = diagnostics.tasks
         info["diagnostic_xla_compile_log_events"] = diagnostics.compiles
     info["memory"] = memory.report()

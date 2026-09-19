@@ -11,6 +11,7 @@ from pathlib import Path
 import sys
 
 from .run import run_one, compare_records
+from .cases import CASES
 
 
 def compare_noise_records(base, candidate):
@@ -40,6 +41,8 @@ def main():
     parser.add_argument("--candidate-root", type=Path, required=True)
     parser.add_argument("--device", choices=("cpu", "gpu"), required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--cases", nargs="+", choices=list(CASES),
+                        default=["aa1-noise-512", "aa1-noise-2048", "aa1-noise-8192", "aa1-long"])
     args = parser.parse_args()
     args.rounds, args.workers, args.chunk_mb = 5, 1, 16
     args.host_budget_gib, args.gpu_budget_gib, args.timeout, args.trace = 4, 4, 1200, False
@@ -48,7 +51,7 @@ def main():
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     rows, comparisons = [], []
-    for case in ("aa1-noise-512", "aa1-noise-2048", "aa1-noise-8192", "aa1-long"):
+    for case in args.cases:
         for pair in range(5):
             targets = [("baseline", args.source_root), ("candidate", args.candidate_root)]
             if pair % 2:
