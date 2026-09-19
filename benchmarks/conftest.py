@@ -31,6 +31,13 @@ def pytest_configure(config):
     os.environ["JAX_PLATFORMS"] = "cuda" if config.getoption("--device") == "gpu" else "cpu"
     os.environ["JAX_ENABLE_X64"] = "true"
     os.environ["JAX_ENABLE_COMPILATION_CACHE"] = "false"
+    # Pytest can prepend the test module's repository again during collection.
+    # Import only the lightweight package now to bind its __path__ to the chosen
+    # implementation before that happens; kernels still load after device setup.
+    import tabsim
+    source_root = Path(config.getoption("--source-root")).resolve()
+    if not Path(tabsim.__file__).resolve().is_relative_to(source_root):
+        raise pytest.UsageError(f"Wrong tabsim package: {tabsim.__file__}")
     if config.getoption("--rounds") < 5:
         raise pytest.UsageError("Use at least five measured warm rounds")
     for name in ("--workers", "--chunk-mb", "--host-budget-gib", "--gpu-budget-gib"):
