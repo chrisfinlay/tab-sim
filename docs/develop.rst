@@ -28,3 +28,19 @@ As part of merging develop into main, if the you intend to perform a release, th
    git push origin vX.X.X
 
 Once this push is complete, a GitHub workflow will run to publish the release to PyPI.
+
+Mapped numerical tasks
+----------------------
+
+Visibility and coordinate ``xr.map_blocks`` callbacks call their numerical helpers
+inside the existing Dask task. Kernels that were JIT-wrapped retain stable
+module-level JIT callables, enabling JAX's usual shape/dtype specialization and
+cache reuse within a worker. Airy beam, power conversion and gain application
+retain their prior non-whole-function-JIT behavior. There is no inner delayed
+Dask graph or ``compute()`` in these callbacks.
+
+This changes scheduling overhead, not the device-transfer or completion policy.
+Callers must still complete asynchronous work when timing kernel results. Repeated
+``jit()`` wrapping in the previous code did not by itself imply per-block
+recompilation. The benchmark guide documents separate warm compilation and
+callback-tokenization diagnostics rather than inferring either from task counts.

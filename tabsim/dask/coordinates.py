@@ -3,9 +3,24 @@ from tabsim.jax import coordinates as coord
 from jax import jit
 
 import dask.array as da
-from dask.delayed import delayed
 from dask.array.core import Array
 import xarray as xr
+
+
+# Keep one callable per kernel in each worker. This does not imply that the
+# previous repeated jit() wrapping recompiled every block. Device placement and
+# completion behavior are unchanged; the outer Dask graph owns scheduling.
+_radec_to_lmn_jit = jit(coord.radec_to_lmn)
+_radec_to_XYZ_jit = jit(coord.radec_to_XYZ)
+_ENU_to_GEO_jit = jit(coord.ENU_to_GEO)
+_GEO_to_XYZ_jit = jit(coord.GEO_to_XYZ)
+_GEO_to_XYZ_vmap0_jit = jit(coord.GEO_to_XYZ_vmap0)
+_GEO_to_XYZ_vmap1_jit = jit(coord.GEO_to_XYZ_vmap1)
+_itrf_to_xyz_jit = jit(coord.itrf_to_xyz)
+_enu_to_itrf_jit = jit(coord.enu_to_itrf)
+_itrf_to_uvw_jit = jit(coord.itrf_to_uvw)
+_angular_separation_jit = jit(coord.angular_separation)
+_orbit_vmap_jit = jit(coord.orbit_vmap)
 
 
 def radec_to_lmn(ra: Array, dec: Array, phase_centre: Array) -> Array:
@@ -34,9 +49,9 @@ def radec_to_lmn(ra: Array, dec: Array, phase_centre: Array) -> Array:
     )
 
     def _radec_to_lmn(ds):
-        lmn = delayed(jit(coord.radec_to_lmn), pure=True)(
+        lmn = _radec_to_lmn_jit(
             ds.ra.data, ds.dec.data, ds.phase_centre.data
-        ).compute()
+        )
         ds_out = xr.Dataset({"lmn": (["src", "lmn_space"], lmn)})
         return ds_out
 
@@ -73,9 +88,9 @@ def radec_to_XYZ(ra: Array, dec: Array) -> Array:
     )
 
     def _radec_to_XYZ(ds):
-        XYZ = delayed(jit(coord.radec_to_XYZ), pure=True)(
+        XYZ = _radec_to_XYZ_jit(
             ds.ra.data, ds.dec.data
-        ).compute()
+        )
         ds_out = xr.Dataset({"XYZ": (["src", "space"], XYZ)})
         return ds_out
 
@@ -112,9 +127,9 @@ def ENU_to_GEO(geo_ref: Array, ENU: Array) -> Array:
     )
 
     def _ENU_to_GEO(ds):
-        GEO = delayed(jit(coord.ENU_to_GEO), pure=True)(
+        GEO = _ENU_to_GEO_jit(
             ds.geo_ref.data, ds.ENU.data
-        ).compute()
+        )
         ds_out = xr.Dataset({"GEO": (["ant", "space"], GEO)})
         return ds_out
 
@@ -151,9 +166,9 @@ def GEO_to_XYZ(geo: Array, times: Array) -> Array:
     )
 
     def _GEO_to_XYZ(ds):
-        XYZ = delayed(jit(coord.GEO_to_XYZ), pure=True)(
+        XYZ = _GEO_to_XYZ_jit(
             ds.geo.data, ds.times.data
-        ).compute()
+        )
         ds_out = xr.Dataset({"XYZ": (["time", "space"], XYZ)})
         return ds_out
 
@@ -191,9 +206,9 @@ def GEO_to_XYZ_vmap0(geo: Array, times: Array) -> Array:
     )
 
     def _GEO_to_XYZ(ds):
-        XYZ = delayed(jit(coord.GEO_to_XYZ_vmap0), pure=True)(
+        XYZ = _GEO_to_XYZ_vmap0_jit(
             ds.geo.data, ds.times.data
-        ).compute()
+        )
         ds_out = xr.Dataset({"XYZ": (["src", "time", "space"], XYZ)})
         return ds_out
 
@@ -230,9 +245,9 @@ def GEO_to_XYZ_vmap1(geo: Array, times: Array) -> Array:
     )
 
     def _GEO_to_XYZ(ds):
-        XYZ = delayed(jit(coord.GEO_to_XYZ_vmap1), pure=True)(
+        XYZ = _GEO_to_XYZ_vmap1_jit(
             ds.geo.data, ds.times.data
-        ).compute()
+        )
         ds_out = xr.Dataset({"XYZ": (["time", "ant", "space"], XYZ)})
         return ds_out
 
@@ -287,9 +302,9 @@ def ITRF_to_XYZ(itrf: Array, gsa: Array) -> Array:
     )
 
     def _ITRF_to_XYZ(ds):
-        XYZ = delayed(jit(coord.itrf_to_xyz), pure=True)(
+        XYZ = _itrf_to_xyz_jit(
             ds.itrf.data, ds.gsa.data
-        ).compute()
+        )
         ds_out = xr.Dataset({"xyz": (["time", "ant", "space"], XYZ)})
         return ds_out
 
@@ -328,12 +343,12 @@ def ENU_to_ITRF(ENU: Array, lat: Array, lon: Array, el: Array) -> Array:
     )
 
     def _ENU_to_ITRF(ds):
-        ITRF = delayed(jit(coord.enu_to_itrf), pure=True)(
+        ITRF = _enu_to_itrf_jit(
             ds.ENU.data,
             ds.lat.data,
             ds.lon.data,
             ds.el.data,
-        ).compute()
+        )
         ds_out = xr.Dataset({"ITRF": (["ant", "space"], ITRF)})
         return ds_out
 
@@ -378,11 +393,11 @@ def ITRF_to_UVW(
     )
 
     def _ITRF_to_UVW(ds):
-        uvw = delayed(jit(coord.itrf_to_uvw), pure=True)(
+        uvw = _itrf_to_uvw_jit(
             ds.itrf.data,
             ds.h0.data,
             ds.dec.data,
-        ).compute()
+        )
         ds_out = xr.Dataset({"uvw": (["time", "ant", "space"], uvw)})
         return ds_out
 
@@ -424,9 +439,9 @@ def angular_separation(rfi_xyz: Array, ants_xyz: Array, ra: Array, dec: Array) -
     )
 
     def _angular_separation(ds):
-        sep = delayed(jit(coord.angular_separation), pure=True)(
+        sep = _angular_separation_jit(
             ds.rfi_xyz.data, ds.ants_xyz.data, ds.ra.data, ds.dec.data
-        ).compute()
+        )
         ds_out = xr.Dataset({"sep": (["src", "time", "ant"], sep)})
         return ds_out
 
@@ -475,13 +490,13 @@ def orbit_vmap(
     )
 
     def _orbit_vmap(ds):
-        orbit = delayed(jit(coord.orbit_vmap), pure=True)(
+        orbit = _orbit_vmap_jit(
             ds.times.data,
             ds.elevation.data,
             ds.inclination.data,
             ds.lon_asc_node.data,
             ds.periapsis.data,
-        ).compute()
+        )
         ds_out = xr.Dataset({"orbit": (["src", "time", "space"], orbit)})
         return ds_out
 
