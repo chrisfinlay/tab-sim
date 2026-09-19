@@ -116,8 +116,13 @@ not a guarantee that a run fits, especially on GPU.
 - Owned output scratch is cleaned after success, failure, interruption or malformed
   reports. Summary, worker log and metadata remain, including failed-run peak RSS.
 - Final harness tests: 32 passed on mini and on the server (CPU backend for harness unit tests).
-  Final single-pass smoke tests passed on both CPU and GPU. CI: 469 passed, 13 optional-dependency
-  skips on each of Python 3.10, 3.11 and 3.13. The optional checks ran on mini.
+  Final single-pass smoke tests passed on both CPU and GPU. Full CI on harness
+  revision `0eada70` passed with 469 tests and 13 optional-dependency skips on
+  Python 3.10, 3.11 and 3.13; the optional checks ran on the benchmark hosts.
+  Later finalization CI failed twice in the existing live-network test
+  `tests/test_sim-vis.py::test_simulation_runs_with_config` because SatChecker
+  requests timed out (468 passed, 13 skipped, one failure in the recorded log).
+  These capacity fixtures are offline. The PR remains draft until CI is resolved.
 - Independent review identified missing exception-path scratch cleanup, which was
   fixed and tested. Follow-up review found no outstanding actionable issues.
 
