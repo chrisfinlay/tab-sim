@@ -55,6 +55,7 @@ def _run_one(args, case, mode, root, python, prefix, scratch):
            "--gpu-budget-gib", str(args.gpu_budget_gib),
            "--benchmark-json", str(report),
            "--junitxml", str(junit), "-q"]
+    cmd += ["--available-memory-fraction", str(getattr(args, "available_memory_fraction", 0.5))]
     cmd += ["--memory-model", getattr(args, "memory_model", "conservative")]
     if getattr(args, "capacity", False):
         cmd += ["--capacity"]
@@ -63,7 +64,8 @@ def _run_one(args, case, mode, root, python, prefix, scratch):
     started = time.perf_counter()
     status = None
     peak_rss = 0
-    host_limit = min(args.host_budget_gib * 2**30, psutil.virtual_memory().available * 0.5)
+    host_limit = min(args.host_budget_gib * 2**30, psutil.virtual_memory().available * getattr(args, "available_memory_fraction", 0.5),
+                     max(0, psutil.virtual_memory().available - 2 * 2**30))
     cmd += ["--basetemp", str(scratch)]
     disk_reserve = max(2 * 2**30, shutil.disk_usage(scratch).total * 0.05)
     with log.open("w") as stream:
@@ -153,6 +155,7 @@ def main():
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--chunk-mb", type=float, default=16)
     parser.add_argument("--host-budget-gib", type=float, default=4)
+    parser.add_argument("--available-memory-fraction", type=float, default=0.5)
     parser.add_argument("--gpu-budget-gib", type=float, default=4)
     parser.add_argument("--timeout", type=float, default=1200)
     parser.add_argument("--trace", action="store_true")
@@ -162,6 +165,8 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--plan", action="store_true")
     args = parser.parse_args()
+    if not 0 < args.available_memory_fraction <= 0.8:
+        parser.error("Available-memory fraction must be in (0, 0.8]")
     if args.pairs < 1 or args.rounds < 5:
         parser.error("Require pairs >= 1 and rounds >= 5")
     for name in ("workers", "chunk_mb", "host_budget_gib", "gpu_budget_gib", "timeout"):

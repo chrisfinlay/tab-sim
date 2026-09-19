@@ -26,8 +26,9 @@ def test_workload(benchmark, request, tmp_path):
     applicable = case["point_sources"] if mode == "astro-kernel" else case["rfi_sources"]
     if mode.endswith("kernel") and not applicable:
         pytest.skip("This fixture has no sources for that kernel")
-    # Never exceed half of currently available host RAM, regardless of configured cap.
-    budget = min(get("--host-budget-gib") * 2**30, psutil.virtual_memory().available * 0.5)
+    # Honor the configured cap/fraction and leave at least 2 GiB available.
+    budget = min(get("--host-budget-gib") * 2**30, psutil.virtual_memory().available * get("--available-memory-fraction"),
+                 max(0, psutil.virtual_memory().available - 2 * 2**30))
     reason = guard_reason(case, mode, budget, max(0, shutil.disk_usage(tmp_path).free - max(2 * 2**30, shutil.disk_usage(tmp_path).total * 0.05)),
                           get("--gpu-budget-gib") * 2**30 if get("--device") == "gpu" else None,
                           get("--chunk-mb"), get("--workers"), get("--memory-model"))
@@ -35,7 +36,7 @@ def test_workload(benchmark, request, tmp_path):
         pytest.skip("Memory preflight: " + reason)
     offline()
     opts = {k: get("--" + k.replace("_", "-")) for k in (
-        "device", "rounds", "chunk_mb", "workers", "host_budget_gib", "gpu_budget_gib", "memory_model", "capacity")}
+        "device", "rounds", "chunk_mb", "workers", "host_budget_gib", "gpu_budget_gib", "memory_model", "capacity", "available_memory_fraction")}
     info = benchmark.extra_info
     info.update(provenance(get("--source-root"), case, opts))
     info.update(case_id=name, mode=mode, estimates=estimates(case, mode, get("--chunk-mb"), get("--workers"), get("--memory-model")),
