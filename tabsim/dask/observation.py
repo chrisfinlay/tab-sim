@@ -979,7 +979,7 @@ Number of stationary RFI :  {n_stat}"""
         self.vis_obs, self.noise_data = add_noise(
             self.vis_uncal,
             self.noise_std,
-            random_seed if random_seed else self.random_seed,
+            self.random_seed if random_seed is None else random_seed,
         )
         self.vis_cal = apply_gains(
             self.vis_obs,

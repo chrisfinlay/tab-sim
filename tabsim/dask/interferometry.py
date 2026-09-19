@@ -406,16 +406,34 @@ Pv_to_Sv.__doc__ = itf.Pv_to_Sv.__doc__
 
 
 def add_noise(vis: Array, noise_std: float, key: int):
-    rng = np.random.default_rng(key)
-    noise = rng.normal(0, noise_std, size=vis.shape) + 1.0j * rng.normal(
-        0, noise_std, size=vis.shape
-    )
+    """Add independent complex Gaussian noise without allocating a full cube.
+
+    ``noise_std`` is the standard deviation of each real/imaginary component,
+    either scalar or broadcastable to ``vis`` (usually a channel vector).
+    Both outputs are lazy Dask arrays with the visibility chunk layout.
+
+    Dask spawns independent random streams for each block and component.
+    Integer seeds repeat for a fixed shape, chunk layout and NumPy/Dask version,
+    independently of task execution order. Rechunking the input changes samples;
+    samples also differ from the former eager NumPy generator.
+    """
+    rng = da.random.default_rng(key)
+    real = rng.standard_normal(size=vis.shape, chunks=vis.chunks)
+    imag = rng.standard_normal(size=vis.shape, chunks=vis.chunks)
+    # Align a lazy channel scale without computing it or fragmenting noise chunks.
+    scale = da.broadcast_to(da.asarray(noise_std), vis.shape).rechunk(vis.chunks)
+    noise = (real + 1.0j * imag) * scale
     return vis + noise, noise
 
 
 def SEFD_to_noise_std(SEFD, chan_width, t_int):
-    noise_std = SEFD / da.sqrt(chan_width * t_int)  # type: ignore
-    return noise_std
+    """Per-real/imaginary-component thermal noise in Jy for one baseline.
+
+    For identical antennas and unit correlator efficiency,
+    sigma = SEFD / sqrt(2 * channel bandwidth * integration time).
+    The complex noise has E[abs(noise)**2] = 2 * sigma**2.
+    """
+    return SEFD / da.sqrt(2 * chan_width * t_int)
 
 
 # def int_sample_times(times, n_int_samples, int_time):
