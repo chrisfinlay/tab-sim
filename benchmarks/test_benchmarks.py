@@ -37,7 +37,7 @@ def test_workload(benchmark, request, tmp_path):
         pytest.skip("Memory preflight: " + reason)
     offline()
     opts = {k: get("--" + k.replace("_", "-")) for k in (
-        "device", "rounds", "chunk_mb", "workers", "host_budget_gib", "gpu_budget_gib", "memory_model", "capacity", "available_memory_fraction")}
+        "device", "rounds", "chunk_mb", "workers", "host_budget_gib", "gpu_budget_gib", "memory_model", "capacity", "available_memory_fraction", "keep_output")}
     info = benchmark.extra_info
     info.update(provenance(get("--source-root"), case, opts))
     info.update(case_id=name, mode=mode, estimates=estimates(case, mode, get("--chunk-mb"), get("--workers"), get("--memory-model"), get("--device")),
@@ -109,7 +109,8 @@ def test_workload(benchmark, request, tmp_path):
                 if len(samples) > 1:
                     check_samples(samples[-1], samples[0])
                 info["output_bytes"] = sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
-                shutil.rmtree(path)
+                if not get("--keep-output"):
+                    shutil.rmtree(path)
                 gc.collect()
             if get("--capacity"):
                 # One complete cold simulation and bounded readback; no speed claim.

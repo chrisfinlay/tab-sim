@@ -1,86 +1,117 @@
-"""Experimental disk boundaries for capacity diagnosis, not a production writer.
-
-Caller supplies the flag option used for calculate_vis. Noise is persisted from
-that calculation, including any seed override. Separate stores deliberately
-avoid overwriting arrays still used by the composition graph.
-"""
-import gc
+"""Experimental single-store staged writer, with bounded component parallelism."""
+from concurrent.futures import ThreadPoolExecutor
+import json
 from pathlib import Path
+from threading import Lock
 import time
 
 import dask.array as da
 import xarray as xr
+import zarr
 
 from tabsim.dask.interferometry import apply_gains
 
 
-def write_staged_observation(obs, directory, *, flags, progress=None):
-    """Write components, compose from disk, then write the complete dataset.
+def write_staged_observation(obs, directory, *, flags, progress=None, component_workers=2):
+    """Write each variable once, then compose into separate arrays in that store.
 
-    This diagnostic assumes an unmodified dataset from calculate_vis(flags=...).
-    It does not yet support arbitrary user changes to composed dataset variables.
-    Temporary component stores remain for measuring their storage cost; caller
-    owns cleanup. Every store operation finishes before the next starts.
+    Requires the original calculate_vis flag setting and an unmodified composed
+    dataset. Metadata preparation is serial; workers execute only deferred data
+    writes for distinct arrays. Failed stores remain marked incomplete.
     """
+    if component_workers < 1:
+        raise ValueError('component_workers must be positive')
     directory = Path(directory)
-    staging = directory / 'components'
-    staging.mkdir(parents=True, exist_ok=False)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / 'result.zarr'
+    marker = directory / 'staged-status.json'
     original = obs.dataset
-    replacement = {}
-    opened = []
-    stages = []
+    stages, opened = [], []
+    lock = Lock()
+    status = {'complete': False, 'completed': []}
+
+    def record_status():
+        temporary = marker.with_suffix('.tmp')
+        temporary.write_text(json.dumps(status, indent=2))
+        temporary.replace(marker)
+
+    # Initialize only eager variables. Lazy arrays are created immediately before
+    # their write: decoding unwritten CF datetime arrays can otherwise overflow.
+    lazy_names = [name for name in original.variables
+                  if isinstance(original[name].data, da.Array)]
+    original.drop_vars(lazy_names).to_zarr(
+        path, mode='w-', consolidated=False)
+    record_status()
+
+    def prepare(name, array):
+        # Preserve xarray encoders and safe-chunk validation. All preparation
+        # happens serially; omit coordinates so parallel writes never share them.
+        template = original[name]
+        array = da.asarray(array).rechunk(template.data.chunks)
+        variable = xr.Variable(template.dims, array, attrs=template.attrs,
+                               encoding=template.encoding.copy())
+        payload = xr.Dataset({name: variable}, attrs=original.attrs)
+        return payload.to_zarr(path, mode='a', compute=False, consolidated=False)
+
+    def execute(name, graph):
+        start = time.perf_counter()
+        with lock:
+            if progress:
+                progress('stage_start', {'variable': name})
+        graph.compute(scheduler='synchronous')
+        with lock:
+            item = {'variable': name, 'elapsed_s': time.perf_counter() - start}
+            stages.append(item)
+            status['completed'].append(name)
+            record_status()
+            if progress:
+                progress('stage_complete', item)
+
+    def reopen(name):
+        dataset = xr.open_zarr(path, chunks={}, consolidated=False,
+                               drop_variables=[key for key in original.variables if key != name])
+        opened.append(dataset)
+        return dataset[name].data
 
     def save(name, array):
-        start = time.perf_counter()
-        if progress:
-            progress('stage_start', {'variable': name})
-        path = staging / (name + '.zarr')
-        original[name].copy(data=array).to_dataset(name=name).to_zarr(path, mode='w-')
-        # Empty chunks mapping uses the stored chunk layout, preserving the
-        # original tile boundaries rather than choosing new automatic chunks.
-        reopened = xr.open_zarr(path, chunks={})
-        opened.append(reopened)
-        replacement[name] = reopened[name].data
-        elapsed = time.perf_counter() - start
-        stages.append({'variable': name, 'elapsed_s': elapsed})
-        if progress:
-            progress('stage_complete', stages[-1])
-        gc.collect()
-        return replacement[name]
+        execute(name, prepare(name, array))
+        return reopen(name)
 
+    components = ('vis_ast', 'vis_rfi', 'gains_ants', 'noise_data')
+    composed = ('vis_obs', 'vis_calibrated', 'flags')
     try:
-        for name in ('vis_ast', 'vis_rfi', 'gains_ants', 'noise_data'):
-            save(name, original[name].data)
-
-        ast, rfi, gains, noise = (replacement[name] for name in
-                                 ('vis_ast', 'vis_rfi', 'gains_ants', 'noise_data'))
+        # Separate scheduler invocations prevent cross-component dependency-cache
+        # coupling. Each worker has one synchronous task stream, not its own pool.
+        graphs = [(name, prepare(name, original[name].data)) for name in components]
+        with ThreadPoolExecutor(max_workers=component_workers) as pool:
+            futures = [pool.submit(execute, name, graph) for name, graph in graphs]
+            for future in futures:
+                future.result()
+        ast, rfi, gains, noise = (reopen(name) for name in components)
         a1, a2 = original.antenna1.data, original.antenna2.data
         observed = apply_gains(ast, rfi, gains, a1, a2).rechunk(ast.chunks) + noise
         observed = save('vis_obs', observed)
-        calibrated = apply_gains(observed, da.zeros_like(observed), 1.0 / gains, a1, a2)
-        calibrated = save('vis_calibrated', calibrated)
+        calibrated = save('vis_calibrated', apply_gains(
+            observed, da.zeros_like(observed), 1.0 / gains, a1, a2))
         sigma = original.noise_std.data
         if flags:
-            if bool((sigma.mean() > 0).compute()):
-                flag_array = da.abs(calibrated - ast) > 3.0 * sigma[None, None, :]
-            else:
-                flag_array = da.abs(calibrated - ast) > 3.0 * da.std(ast, axis=0)[None, ...]
+            threshold = (3.0 * sigma[None, None, :] if bool((sigma.mean() > 0).compute())
+                         else 3.0 * da.std(ast, axis=0)[None, ...])
+            flag_array = da.abs(calibrated - ast) > threshold
         else:
             flag_array = da.zeros_like(calibrated, dtype=original.flags.dtype)
         save('flags', flag_array)
 
-        # All visibility products now refer only to stored component arrays.
-        # Ancillary variables and complete metadata are retained for equivalence.
-        final = original.copy()
-        for name, array in replacement.items():
-            final[name] = original[name].copy(data=array)
+        # Non-Dask variables were written during initialization; all remaining
+        # ancillary arrays get exactly one data write, with their xarray encoding.
+        for name in original.variables:
+            if name not in components + composed and isinstance(original[name].data, da.Array):
+                execute(name, prepare(name, original[name].data))
+        zarr.consolidate_metadata(str(path))
+        status['complete'] = True
+        record_status()
         if progress:
-            progress('final_write_start', {})
-        start = time.perf_counter()
-        final.to_zarr(directory / 'result.zarr', mode='w-')
-        stages.append({'variable': 'complete_dataset', 'elapsed_s': time.perf_counter() - start})
-        if progress:
-            progress('final_write_complete', stages[-1])
+            progress('single_store_complete', {})
         return stages
     finally:
         for dataset in opened:
