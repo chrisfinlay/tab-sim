@@ -104,7 +104,8 @@ for other users; do not raise limits just to provoke an OOM.
   channels from the case size and all its stations/sources. Deterministic synthetic
   input geometry uses the selected station layout. Report host-to-device copy,
   tracing/lowering, compilation, first completed execution, warm completed calls,
-  and device-to-host copy separately. Every timed call waits with
+  and device-to-host readback separately. Byte counts are logical array sizes;
+  CPU placement/readback may alias memory rather than physically copy it. Every timed call waits with
   `block_until_ready()`. A NumPy scalar reference checks first/middle/last outputs.
   These tiles are intentionally not the full end-to-end workload.
 - **Zarr:** `Observation` construction → source/gain graph → `calculate_vis()` →
@@ -131,7 +132,16 @@ for other users; do not raise limits just to provoke an OOM.
   counts are **not inferred** from Dask task counts or array types. Use `--trace`
   for a separate end-to-end JAX trace and inspect host/device copy events; trace
   availability depends on the host profiler/CUPTI installation. Tracing never wraps
-  the measured warm rounds.
+  the measured warm rounds. On JAX versions exposing `ProfileOptions`, Python
+  tracing is disabled and host tracing reduced to avoid overflowing the event
+  buffer. Summarize observed copy events with:
+
+  ```sh
+  python -m benchmarks.trace_summary path/to/host.trace.json.gz --output transfers.json
+  ```
+
+  The summary marks million-event traces as potentially truncated; copy counts
+  and byte totals describe captured events, not a guaranteed complete census.
 - **Correctness:** warm results are sampled against the cold result; comparison
   mode also compares baseline/candidate products and shapes (rtol 1e-7, atol 1e-8).
   Samples take first/middle/last along each output dimension. This is a bounded

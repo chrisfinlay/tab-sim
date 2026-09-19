@@ -121,7 +121,16 @@ def test_workload(benchmark, request, tmp_path):
             setup()
             with Diagnostics() as diagnostics:
                 if get("--trace-dir"):
-                    with jax.profiler.trace(get("--trace-dir"), create_perfetto_link=False):
+                    trace_kwargs = {}
+                    if hasattr(jax.profiler, "ProfileOptions"):
+                        options = jax.profiler.ProfileOptions()
+                        options.host_tracer_level = 1
+                        options.python_tracer_level = 0
+                        trace_kwargs["profiler_options"] = options
+                        info["trace_options"] = {"host_tracer_level": 1, "python_tracer_level": 0}
+                    else:
+                        info["trace_options"] = "JAX defaults; check for event truncation"
+                    with jax.profiler.trace(get("--trace-dir"), create_perfetto_link=False, **trace_kwargs):
                         target()
                 else:
                     target()

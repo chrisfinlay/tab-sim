@@ -87,3 +87,20 @@ assert pathlib.Path(tabsim.__file__).resolve().is_relative_to(pathlib.Path(sys.a
     result = subprocess.run([sys.executable, "-c", code, str(tmp_path), str(root)], cwd=tmp_path,
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_trace_summary_counts_only_copy_events_and_keeps_unknown_sizes(tmp_path):
+    from benchmarks.trace_summary import summarize
+    path = tmp_path / "trace.json"
+    path.write_text(json.dumps({"traceEvents": [
+        {"name": "MemcpyH2D", "ph": "X", "dur": 2,
+         "args": {"memcpy_details": "size:128 dest:0"}},
+        {"name": "MemcpyH2D", "ph": "X", "dur": 3},
+        {"name": "MemcpyH2D", "ph": "M"},
+        {"name": "Other", "ph": "X", "dur": 900},
+    ]}))
+    result = summarize(path)
+    assert result["copies"]["MemcpyH2D"] == {
+        "events": 2, "duration_us": 5, "bytes_with_known_size": 128,
+        "events_with_known_size": 1}
+    assert not result["million_event_warning"]
