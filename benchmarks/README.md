@@ -138,6 +138,9 @@ not rely on compression. Preflight and runtime checks leave the greater of 2 GiB
 or 5% of filesystem capacity free. GPU budget applies to isolated-kernel planning,
 not the pipeline's JAX pool, and does not provide GPU spilling.
 
+Measured successes, GPU OOMs, supervised stops and the final admission calibration
+are recorded in the [capacity report](results/capacity/README.md).
+
 ## What each measurement means
 
 - **Kernel modes:** `astro-kernel` and `rfi-kernel` use at most 8 times and 16
