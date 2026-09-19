@@ -58,14 +58,17 @@ def _run_one(args, case, mode, root, python, prefix, scratch):
     cmd += ["--available-memory-fraction", str(getattr(args, "available_memory_fraction", 0.5))]
     cmd += ["--memory-model", getattr(args, "memory_model", "conservative")]
     if getattr(args, "capacity", False):
-        cmd += ["--capacity"]
+        cmd += ["--capacity", "-s"]
     if args.trace:
         cmd += ["--trace-dir", str(prefix.parent / (prefix.name + "-trace"))]
     started = time.perf_counter()
     status = None
     peak_rss = 0
-    host_limit = min(args.host_budget_gib * 2**30, psutil.virtual_memory().available * getattr(args, "available_memory_fraction", 0.5),
-                     max(0, psutil.virtual_memory().available - 2 * 2**30))
+    host_memory = psutil.virtual_memory()
+    source_revision = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                                     capture_output=True, text=True).stdout.strip()
+    host_limit = min(args.host_budget_gib * 2**30, host_memory.available * getattr(args, "available_memory_fraction", 0.5),
+                     max(0, host_memory.available - 2 * 2**30))
     cmd += ["--basetemp", str(scratch)]
     disk_reserve = max(2 * 2**30, shutil.disk_usage(scratch).total * 0.05)
     with log.open("w") as stream:
@@ -96,10 +99,16 @@ def _run_one(args, case, mode, root, python, prefix, scratch):
         code = proc.wait()
     result = {"case": case, "mode": mode, "root": str(root), "python": python,
               "status": status or ("passed" if code == 0 else "failed"),
+              "source_revision": source_revision, "host_total_bytes": host_memory.total,
+              "host_available_start_bytes": host_memory.available,
+              "planning": estimates(CASES[case], mode, args.chunk_mb, args.workers,
+                                    getattr(args, "memory_model", "conservative")),
               "supervisor_peak_rss_bytes": peak_rss, "enforced_host_limit_bytes": host_limit,
               "disk_reserve_bytes": disk_reserve,
               "returncode": code, "process_wall_s": time.perf_counter() - started,
               "report": report.name, "log": log.name, "command": cmd}
+    result["capacity_progress"] = [json.loads(line.split("CAPACITY ", 1)[1])
+        for line in log.read_text(errors="replace").splitlines() if line.startswith("CAPACITY ")]
     if junit.exists():
         skipped = ET.parse(junit).findall(".//skipped")
         if skipped and code == 0 and status is None:

@@ -179,16 +179,23 @@ def add_sources(obs, case):
                  Gt_corr_amp=3, Gt_corr_phase=3, random_seed=1234)
 
 
-def simulation(case, mode, chunk_mb, directory):
+def simulation(case, mode, chunk_mb, directory, progress=None):
     """Actual Observation → graph → output path. Deletion/validation is untimed."""
     from tabsim.write import write_ms
     import xarray as xr
     start = time.perf_counter()
+    if progress:
+        progress("setup_start", {})
     obs = build_observation(case, chunk_mb)
+    if progress:
+        progress("setup_complete", {"time_chunk": obs.time_chunk, "frequency_chunk": obs.freq_chunk})
     setup = time.perf_counter()
     add_sources(obs, case)
     obs.calculate_vis()
     graph = time.perf_counter()
+    if progress:
+        progress("write_start", {name: [list(axis) for axis in obs.dataset[name].data.chunks]
+                                 for name in ("vis_ast", "vis_rfi", "vis_obs")})
     if mode == "ms":
         write_ms(obs.dataset, str(directory / "result.ms"))
     else:
@@ -198,6 +205,8 @@ def simulation(case, mode, chunk_mb, directory):
         with xr.open_zarr(directory / "result.zarr") as ds:
             write_ms(ds, str(directory / "result.ms"))
     end = time.perf_counter()
+    if progress:
+        progress("write_complete", {})
     return {"setup_s": setup - start, "graph_build_s": graph - setup,
             "simulation_and_first_write_s": first_write - graph,
             "zarr_to_ms_s": end - first_write if mode == "zarr-ms" else None,

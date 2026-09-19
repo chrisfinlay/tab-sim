@@ -1,5 +1,6 @@
 """Run explicitly: pytest benchmarks --case aa1-mixed --mode zarr ..."""
 import gc
+import json
 from pathlib import Path
 import shutil
 import time
@@ -96,8 +97,12 @@ def test_workload(benchmark, request, tmp_path):
             samples = []
             def setup():
                 path.mkdir()
+            def progress(stage, details):
+                print("CAPACITY " + json.dumps({"stage": stage, "elapsed_s": time.perf_counter() - started,
+                      "rss_bytes": psutil.Process().memory_info().rss, "details": details}), flush=True)
             def target():
-                record = simulation(case, mode, get("--chunk-mb"), path)
+                record = simulation(case, mode, get("--chunk-mb"), path,
+                                    progress=progress if get("--capacity") else None)
                 phases.append(record)
             def teardown():
                 samples.append(output_sample(path, mode))
