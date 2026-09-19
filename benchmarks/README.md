@@ -38,8 +38,14 @@ python -m pytest benchmarks --case aa1-mixed --mode zarr --device cpu \
 ```
 
 Use the **runner** for memory/timeout protection: direct pytest has preflight
-checks but no supervising process. CI runs small CPU smoke cases to check the
-harness, not to establish performance targets.
+checks but no supervising process. Run the small smoke command below to check the harness; shared CI hardware must
+not establish performance targets. The existing test suite includes harness guard
+and comparison checks (optional dependency checks skip without the benchmark extra).
+
+```sh
+python -m benchmarks.run --cases aa05-point aa1-mixed --modes zarr rfi-kernel \
+  --device cpu --output benchmark-runs/smoke
+```
 
 ## Recorded cases
 

@@ -51,6 +51,7 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 tabsim = ["data/**/*"]
+benchmarks = ["fixtures/*.json", "README.md"]
 
 [project.scripts]
 tle-region = "tabsim.scripts.tle_sat_region:main"
