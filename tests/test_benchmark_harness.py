@@ -59,3 +59,31 @@ def test_comparison_rejects_different_dependencies_and_output():
 
 def test_gpu_budget_blocks_oversized_kernel():
     assert "GPU budget" in guard_reason(CASES["aa4-mixed"], "rfi-kernel", 10**12, 10**12, 1)
+
+
+def test_pytest_collection_keeps_requested_implementation(tmp_path):
+    """An installed editable checkout must not win after pytest prepends its root."""
+    import subprocess
+    import sys
+    package = tmp_path / "tabsim"
+    package.mkdir()
+    (package / "__init__.py").write_text('BENCHMARK_IMPORT_SENTINEL = True\n')
+    root = Path(__file__).resolve().parents[1]
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests/conftest.py").write_text(
+        'raise RuntimeError("Foreign checkout test fixtures must not load")\n')
+    (tmp_path / "pytest.ini").write_text("[pytest]\n")
+    code = '''
+import pathlib, pytest, sys
+root = pathlib.Path(sys.argv[2])
+rc = pytest.main([str(root / "benchmarks/test_benchmarks.py"), "--collect-only", "-q",
+    "-c", str(root / "pytest.ini"), "--rootdir", str(root),
+    "--confcutdir", str(root / "benchmarks"), "--source-root", sys.argv[1]])
+assert rc == 0
+import tabsim
+assert tabsim.BENCHMARK_IMPORT_SENTINEL
+assert pathlib.Path(tabsim.__file__).resolve().is_relative_to(pathlib.Path(sys.argv[1]))
+'''
+    result = subprocess.run([sys.executable, "-c", code, str(tmp_path), str(root)], cwd=tmp_path,
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr

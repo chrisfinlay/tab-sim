@@ -17,6 +17,9 @@ from .cases import CASES, MODES, estimates
 def run_one(args, case, mode, root, python, prefix):
     report, log, junit = (prefix.with_suffix(s) for s in (".json", ".txt", ".xml"))
     cmd = [python, "-m", "pytest", str(Path(__file__).parent / "test_benchmarks.py"),
+           "-c", str(Path(__file__).resolve().parents[1] / "pytest.ini"),
+           "--rootdir", str(Path(__file__).resolve().parents[1]),
+           "--confcutdir", str(Path(__file__).parent.resolve()),
            "--case", case, "--mode", mode, "--device", args.device,
            "--source-root", str(root), "--rounds", str(args.rounds),
            "--workers", str(args.workers), "--chunk-mb", str(args.chunk_mb),
