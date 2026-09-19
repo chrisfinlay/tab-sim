@@ -81,8 +81,12 @@ def test_jax_noise_uses_per_component_standard_deviation():
     from tabsim.jax.interferometry import add_noise as jax_noise
     scales = np.array([.5, 2.])
     # Enable x64 explicitly as production does; avoid global test-order effects.
-    with jax.experimental.enable_x64():
+    previous = jax.config.jax_enable_x64
+    jax.config.update("jax_enable_x64", True)
+    try:
         _, noise = jax_noise(np.zeros((1024, 128, 2)), scales, jax.random.PRNGKey(123))
         noise = np.asarray(noise)
+    finally:
+        jax.config.update("jax_enable_x64", previous)
     for part in (noise.real, noise.imag):
         np.testing.assert_allclose(part.std(axis=(0, 1)), scales, rtol=.015)
