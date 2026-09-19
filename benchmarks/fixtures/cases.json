@@ -1,0 +1,12 @@
+{
+  "aa05-point": {"telescope":"SKA-Low-AA0.5","antennas":4,"times":32,"channels":16,"samples":3,"point_sources":8,"rfi_sources":0},
+  "aa1-mixed": {"telescope":"SKA-Low-AA1","antennas":16,"times":64,"channels":32,"samples":3,"point_sources":8,"rfi_sources":2},
+  "aa2-rfi": {"telescope":"SKA-Low-AA2","antennas":68,"times":32,"channels":32,"samples":3,"point_sources":0,"rfi_sources":4},
+  "phase1-mixed": {"telescope":"SKA-Low-AA*-Phase-1","antennas":108,"times":16,"channels":16,"samples":3,"point_sources":16,"rfi_sources":4},
+  "aastar-rfi": {"telescope":"SKA-Low-AA*","antennas":307,"times":8,"channels":8,"samples":3,"point_sources":0,"rfi_sources":4},
+  "aa4-mixed": {"telescope":"SKA-Low-AA4","antennas":512,"times":4,"channels":8,"samples":3,"point_sources":8,"rfi_sources":2},
+  "aa1-many-sources": {"telescope":"SKA-Low-AA1","antennas":16,"times":32,"channels":16,"samples":3,"point_sources":256,"rfi_sources":16},
+  "aa1-long": {"telescope":"SKA-Low-AA1","antennas":16,"times":2048,"channels":16,"samples":3,"point_sources":8,"rfi_sources":2},
+  "aa4-out-of-core": {"telescope":"SKA-Low-AA4","antennas":512,"times":32,"channels":128,"samples":3,"point_sources":8,"rfi_sources":2,"stress":true},
+  "aa1-host-stress": {"telescope":"SKA-Low-AA1","antennas":16,"times":32768,"channels":32,"samples":3,"point_sources":8,"rfi_sources":2,"stress":true}
+}

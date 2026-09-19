@@ -7,3 +7,6 @@ examples/**/data
 *log*
 build/*
 docs/_build
+
+.benchmarks/
+benchmark-runs/
