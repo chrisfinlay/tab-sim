@@ -430,7 +430,13 @@ def add_noise(vis: Array, noise_std: float, key: int):
     # Align a lazy channel scale without computing it or fragmenting noise chunks.
     scale = da.asarray(noise_std)
     scale = scale.map_blocks(_validate_noise_std, dtype=scale.dtype, meta=scale._meta)
-    scale = da.broadcast_to(scale, vis.shape).rechunk(vis.chunks)
+    if scale.ndim > vis.ndim or np.broadcast_shapes(scale.shape, vis.shape) != vis.shape:
+        raise ValueError("noise_std must broadcast to the visibility shape")
+    # Rechunk only existing scale dimensions; never create a full-cube broadcast
+    # task, whose strided view could be materialized during distributed transfer.
+    offset = vis.ndim - scale.ndim
+    scale = scale.rechunk(tuple((1,) if size == 1 else vis.chunks[offset + axis]
+                                for axis, size in enumerate(scale.shape)))
     noise = (real + 1.0j * imag) * scale
     return vis + noise, noise
 

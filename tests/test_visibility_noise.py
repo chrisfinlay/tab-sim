@@ -9,10 +9,22 @@ import skyfield.api  # Initialize its urllib feature probe before the network gu
 from tabsim.dask.interferometry import add_noise, SEFD_to_noise_std
 
 
-def test_noise_construction_is_lazy_and_preserves_chunks():
+def test_noise_construction_is_lazy_and_preserves_chunks(monkeypatch):
     # A 1 TiB logical cube must only construct a small graph, not allocate a cube.
     vis = da.zeros((65536, 1024, 1024), chunks=(256, 1024, 1024), dtype=complex)
     scale = da.ones(1024, chunks=128)
+    original_rng = np.random.default_rng
+    class GuardedGenerator:
+        def __init__(self, *args, **kwargs):
+            self.rng = original_rng(*args, **kwargs)
+        def __getattr__(self, name):
+            return getattr(self.rng, name)
+        def normal(self, *args, **kwargs):
+            if kwargs.get("size") == vis.shape:
+                raise AssertionError("attempted full visibility-cube allocation")
+            return self.rng.normal(*args, **kwargs)
+    # A regression to the old implementation should fail before allocating 1 TiB.
+    monkeypatch.setattr(np.random, "default_rng", GuardedGenerator)
     def forbidden(*args):
         raise AssertionError("noise construction executed a Dask task")
     with Callback(pretask=forbidden):
@@ -21,6 +33,7 @@ def test_noise_construction_is_lazy_and_preserves_chunks():
     assert noise.chunks == observed.chunks == vis.chunks
     assert noise.dtype == np.complex128
     assert len(noise.__dask_graph__()) < 10000
+    assert not any(name.startswith("broadcast_to-") for name in noise.dask.layers)
 
 
 @pytest.mark.parametrize("scale", [2., np.array([0., 1., 2.]), da.from_array([0., 1., 2.], chunks=1)])
