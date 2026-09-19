@@ -106,7 +106,7 @@ def test_trace_summary_counts_only_copy_events_and_keeps_unknown_sizes(tmp_path)
     assert not result["million_event_warning"]
 
 
-@pytest.mark.parametrize("limit,expected", [("timeout", "timeout"), ("memory", "host_memory_limit"), ("monitor", "monitor_error")])
+@pytest.mark.parametrize("limit,expected", [("timeout", "timeout"), ("memory", "host_memory_limit"), ("monitor", "monitor_error"), ("disk", "disk_space_limit")])
 def test_supervisor_terminates_only_its_worker(tmp_path, monkeypatch, limit, expected):
     import os
     import sys
@@ -121,6 +121,9 @@ def test_supervisor_terminates_only_its_worker(tmp_path, monkeypatch, limit, exp
     args = SimpleNamespace(device="cpu", rounds=5, workers=1, chunk_mb=16,
         host_budget_gib=0.000001 if limit == "memory" else 4,
         gpu_budget_gib=4, timeout=0.1 if limit == "timeout" else 10, trace=False)
+    if limit == "disk":
+        monkeypatch.setattr("benchmarks.run.shutil.disk_usage",
+                            lambda path: SimpleNamespace(total=100 * 2**30, free=2**30))
     if limit == "monitor":
         def denied(*args, **kwargs):
             raise PermissionError("process inspection unavailable")
@@ -310,4 +313,23 @@ def test_capacity_scratch_cleaned_on_interruption_or_parse_error(tmp_path, monke
     monkeypatch.setattr(run, '_run_one', interrupted)
     with pytest.raises(error):
         run.run_one(None, None, None, None, None, tmp_path / 'run')
+    assert not (tmp_path / 'run-scratch').exists()
+
+
+def test_invalid_worker_report_preserves_failure_record_and_cleans_scratch(tmp_path):
+    import sys
+    from types import SimpleNamespace
+    pytest.importorskip('psutil')
+    from benchmarks.run import run_one
+    worker = tmp_path / 'worker'
+    worker.write_text(f"#!{sys.executable}\nimport pathlib, sys\n"
+                      "pathlib.Path(sys.argv[sys.argv.index('--benchmark-json') + 1]).write_text('{broken')\n")
+    worker.chmod(0o700)
+    args = SimpleNamespace(device='cpu', rounds=5, workers=1, chunk_mb=16,
+                           host_budget_gib=4, gpu_budget_gib=4, timeout=10, trace=False)
+    result = run_one(args, 'aa05-point', 'zarr', tmp_path, str(worker), tmp_path / 'run')
+    assert result['status'] == 'failed'
+    assert result['reason'] == 'Invalid worker report'
+    assert result['report_errors']
+    assert 'supervisor_peak_rss_bytes' in result
     assert not (tmp_path / 'run-scratch').exists()
