@@ -216,3 +216,54 @@ parent, and bounds each subprocess to 180 seconds. Run these experiments seriall
 on each host to avoid benchmark interference.
 
 Measured issue #50 results are in [the noise report](results/noise50/README.md).
+
+## Mapped-callback scheduling measurements (#51)
+
+Use the ordinary strict comparator: this change is expected to preserve every
+sampled product, including noise and flags, for a fixed chunk layout. Compare the
+same SKA-Low AA1 mixed fixture with 0.125 MB and 16 MB target chunks, plus the larger
+AA2 RFI fixture at 16 MB. Actual chosen chunks are recorded; the target budget is
+not a proof of the full working set.
+
+```sh
+python -m benchmarks.run --source-root /path/to/parent \
+  --candidate-root /path/to/candidate --pairs 5 --device cpu \
+  --cases aa1-mixed --modes zarr --chunk-mb 0.125 --output benchmark-runs/mapped-small
+python -m benchmarks.run --source-root /path/to/parent \
+  --candidate-root /path/to/candidate --pairs 5 --device cpu \
+  --cases aa1-mixed aa2-rfi --modes zarr --chunk-mb 16 --output benchmark-runs/mapped-large
+```
+
+Repeat with `--device gpu` on the GPU host. Each command uses one worker and five
+warm rounds in each of five alternating fresh-process pairs. Pipeline memory,
+cold/warm phases, outer graph/task counts, and warm diagnostic compilation counts
+are retained. An additional **untimed** cProfile round instruments mapped callbacks
+on the local synchronous/threaded scheduler. It records each callback's qualified
+name, calls, calling-thread CPU time, inner `dask.base.compute` calls and inclusive
+time, and `dask.tokenize.tokenize` calls and inclusive time. It does not instrument
+nested scheduler threads. Inclusive compute time contains kernel work/waiting;
+it is **not pure scheduler overhead**, and overlaps other timings. Callback wall
+and thread CPU measurements include profiler overhead and are not completed GPU
+kernel timings. Do not add inclusive categories together or mix diagnostic times
+with the uninstrumented end-to-end medians.
+
+Repeated `jit()` wrapping did not necessarily recompile each block: distinguish
+compilation cache reuse from the removal of inner graphs and tokenization. The
+mapped kernels retain their existing JIT/non-JIT choices, precision and device
+behavior. Process-scheduler smoke tests use CPU to avoid multiple default JAX GPU
+allocators competing for VRAM; synchronous/threaded tests run on both backends.
+The pre-existing `ENU_to_GEO` template dimension mismatch and `ITRF_to_UVW`'s
+whole-antenna reference-origin requirement are outside this scheduling change.
+
+For a cumulative comparison to the original pre-noise-fix baseline, the explicit
+noise-migration comparator can select the same fixture:
+
+```sh
+python -m benchmarks.noise_comparison --source-root /path/to/original-baseline \
+  --candidate-root /path/to/candidate --device cpu --cases aa1-mixed \
+  --output benchmark-runs/mapped-cumulative
+```
+
+That cumulative comparison includes #50's intentional RNG/variance changes;
+only fixed signal samples must match across those revisions. The immediate-parent
+comparisons above retain the full strict sample check.
