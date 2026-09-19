@@ -36,7 +36,7 @@ def test_case_registry_uses_actual_ska_assemblies():
 def sample_record():
     return {"status": "passed", "stats": {"median": 1., "iqr": .1}, "extra_info": {
         "fixture_sha256": "fixture", "harness_sha256": "harness", "environment": {}, "case": {}, "options": {}, "host": "test",
-        "device_kind": "cpu", "x64": True, "versions": {"jax": "test"},
+        "device_kind": "cpu", "x64": True, "python": "3.11.0", "versions": {"jax": "test"},
         "output_sample": {"vis": {"shape": [1], "real": [1.], "imag": [0.]}}
     }}
 
@@ -129,3 +129,65 @@ def test_supervisor_terminates_only_its_worker(tmp_path, monkeypatch, limit, exp
     assert result["status"] == expected
     assert result["returncode"] != 0
     assert result["process_wall_s"] < 10
+
+
+def test_comparison_rejects_different_python():
+    pytest.importorskip("psutil")
+    from benchmarks.run import compare_records
+    base = sample_record()
+    candidate = copy.deepcopy(base)
+    candidate["extra_info"]["python"] = "3.13.0"
+    with pytest.raises(ValueError, match="python"):
+        compare_records(base, candidate)
+
+
+def test_successful_worker_without_measurements_fails(tmp_path):
+    import sys
+    from types import SimpleNamespace
+    pytest.importorskip("psutil")
+    from benchmarks.run import run_one
+    worker = tmp_path / "worker"
+    worker.write_text(f"#!{sys.executable}\n")
+    worker.chmod(0o700)
+    args = SimpleNamespace(device="cpu", rounds=5, workers=1, chunk_mb=16,
+        host_budget_gib=4, gpu_budget_gib=4, timeout=10, trace=False)
+    result = run_one(args, "aa05-point", "zarr", tmp_path, str(worker), tmp_path / "run")
+    assert result["status"] == "failed"
+    assert result["reason"] == "No benchmark statistics produced"
+
+
+def test_conversion_samples_both_products_and_rejects_missing_ms(tmp_path, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    import numpy as np
+    pytest.importorskip("psutil")
+    from benchmarks.harness import output_sample, check_samples
+
+    class Array:
+        sizes = {"row": 1}
+        shape = (1,)
+        def __init__(self, value):
+            self.value = value
+        def isel(self, selection):
+            return self
+        def compute(self):
+            return np.array([self.value])
+
+    class Dataset(dict):
+        def close(self):
+            pass
+
+    ms = Dataset(DATA=Array(1))
+    monkeypatch.setitem(sys.modules, "xarray", SimpleNamespace(
+        open_zarr=lambda path: Dataset(vis_obs=Array(1))))
+    monkeypatch.setitem(sys.modules, "daskms", SimpleNamespace(
+        xds_from_ms=lambda path: [ms]))
+    expected = output_sample(tmp_path, "zarr-ms")
+    assert set(expected) == {"zarr/vis_obs", "ms/DATA"}
+    ms["DATA"] = Array(2)
+    with pytest.raises(AssertionError):
+        check_samples(output_sample(tmp_path, "zarr-ms"), expected)
+    ms.clear()
+    ms["FLAG"] = Array(False)
+    with pytest.raises(ValueError, match="DATA"):
+        output_sample(tmp_path, "zarr-ms")

@@ -78,7 +78,7 @@ def run_one(args, case, mode, root, python, prefix):
               "report": report.name, "log": log.name, "command": cmd}
     if junit.exists():
         skipped = ET.parse(junit).findall(".//skipped")
-        if skipped and code == 0:
+        if skipped and code == 0 and status is None:
             result.update(status="skipped", reason=skipped[0].get("message"))
     if report.exists():
         content = json.loads(report.read_text())
@@ -88,6 +88,8 @@ def run_one(args, case, mode, root, python, prefix):
             result.update(stats=bench["stats"], extra_info=bench["extra_info"])
         elif result["status"] == "passed":
             result.update(status="failed", reason="No benchmark statistics produced")
+    if result["status"] == "passed" and "stats" not in result:
+        result.update(status="failed", reason="No benchmark statistics produced")
     return result
 
 
@@ -96,7 +98,7 @@ def compare_records(base, candidate):
     if base["status"] != "passed" or candidate["status"] != "passed":
         return {"status": "unavailable"}
     a, b = base["extra_info"], candidate["extra_info"]
-    for key in ("fixture_sha256", "harness_sha256", "case", "options", "host", "device_kind", "x64", "environment"):
+    for key in ("fixture_sha256", "harness_sha256", "case", "options", "host", "device_kind", "x64", "environment", "python"):
         if a[key] != b[key]:
             raise ValueError(f"Incomparable benchmark metadata: {key}")
     # tabsim's version can change with the implementation; dependency versions cannot.

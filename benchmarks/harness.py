@@ -38,7 +38,7 @@ def provenance(root, case, options):
         return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
     versions = {}
     for name in ("tabsim", "jax", "jaxlib", "numpy", "scipy", "dask", "xarray", "zarr",
-                 "dask-ms", "python-casacore", "pytest-benchmark", "satchecker-client", "ri-kernels"):
+                 "dask-ms", "python-casacore", "astropy", "pandas", "numcodecs", "pytest", "psutil", "pytest-benchmark", "satchecker-client", "ri-kernels"):
         try:
             versions[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
@@ -206,6 +206,10 @@ def simulation(case, mode, chunk_mb, directory):
 
 def output_sample(directory, mode):
     """Read bounded samples after timing. A regression signature, not a full-cube proof."""
+    if mode == "zarr-ms":
+        return {f"{product}/{name}": sample
+                for product in ("zarr", "ms")
+                for name, sample in output_sample(directory, product).items()}
     import xarray as xr
     if mode == "ms":
         from daskms import xds_from_ms
@@ -216,6 +220,9 @@ def output_sample(directory, mode):
         names = ("vis_ast", "vis_rfi", "vis_obs", "vis_calibrated", "flags")
     result = {}
     try:
+        required = "DATA" if mode == "ms" else "vis_obs"
+        if required not in ds:
+            raise ValueError(f"Missing required visibility product: {required}")
         for name in names:
             if name not in ds:
                 continue
