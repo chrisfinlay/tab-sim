@@ -141,6 +141,42 @@ not the pipeline's JAX pool, and does not provide GPU spilling.
 Measured successes, GPU OOMs, supervised stops and the final admission calibration
 are recorded in the [capacity report](results/capacity/README.md).
 
+## Capacity review required for every implementation PR
+
+Review the capacity matrix on every PR round, alongside the ordinary timing
+figures. Keep `aa1-host-stress`, `aa4-out-of-core` and
+`aa4-host-out-of-core` visible even while they fail or skip. Record the single
+visibility size, physical host RAM/VRAM, effective limits, actual chunks,
+revision, backend, dependency versions, completed output bytes and readback
+status. Distinguish PASS, admission SKIP (with the limiting estimate), RSS STOP,
+GPU OOM, TIMEOUT and other ERROR. A skipped case has not tested execution.
+
+Run bounded full-output probes on CPU and GPU against the PR's immediate parent
+and candidate with the same harness and fixtures. Reuse an existing parent
+record only when its revision, environment, configuration and resource limits
+match; otherwise rerun it. Review skips using currently available resources and
+the latest measured working set. If a case cannot be admitted safely, retain its
+skip and explain the blocker; do not bypass the supervisor to fill a chart.
+For previously failing cases, record whether the failure point, peak memory or
+completed capacity changed, and link a diagnosis or the next experiment.
+
+As soon as a case completes full output and bounded readback, attempt the normal
+benchmark protocol on that backend: at least five warm repetitions, alternating
+parent/candidate runs, matching numerical checks, median and dispersion, and
+memory peaks with headroom. Add successful repeated results to the timing
+figures in that PR. If the parent still fails, show candidate absolute timings
+and a parent capacity failure rather than a speedup ratio. A single cold success
+belongs in the capacity table immediately but is not a repeated timing result.
+Report an incomplete promotion explicitly, including runtime or resource limits.
+
+Each PR report must contain this checklist:
+
+- [ ] Capacity matrix reviewed for parent and candidate on CPU and GPU.
+- [ ] Skips recalibrated from current limits and measured evidence.
+- [ ] Remaining failures have a diagnosis and a targeted next experiment.
+- [ ] Newly successful cases attempted in repeated timing figures; any blocker recorded.
+- [ ] Single-array versus aggregate-output capacity claims kept distinct.
+
 ## What each measurement means
 
 - **Kernel modes:** `astro-kernel` and `rfi-kernel` use at most 8 times and 16

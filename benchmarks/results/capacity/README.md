@@ -6,6 +6,10 @@ repeatability, full-array numerical equivalence or performance improvements.
 Some server CPU/GPU runs overlap; their elapsed times are operational observations,
 not comparable benchmark timings. No simulation algorithm was changed.
 
+The follow-up [device-residency diagnosis](diagnosis.md) traces the retained
+arrays and unfinished consumers, and records separate synchronization, graph,
+placement and output-selection experiments.
+
 ## Completed execution outcomes
 
 | Host / backend | Fixture | Single complex128 visibility GiB | Target chunk MB | Outcome | Supervised peak RSS GiB | RSS cap GiB |
@@ -148,3 +152,19 @@ See the [benchmark guide](../../README.md#capacity-admission-and-supervision) fo
 commands and the meaning of each limit. To reproduce the wide GPU attempt, add
 `--cases aa4-host-out-of-core --chunk-mb 64 --host-budget-gib 8
 --available-memory-fraction 0.65 --timeout 3600` to the capacity command.
+
+## Review and timing-promotion status
+
+The [per-PR capacity checklist](../../README.md#capacity-review-required-for-every-implementation-pr)
+is mandatory throughout the rollout. This harness/documentation round reuses the
+full-output capacity matrix above and adds eight fresh GPU diagnostic runs; it
+does not change the production algorithm or introduce a newly passing capacity
+case. Failures and skips remain visible.
+
+The existing AA1 CUDA/CPU and AA4 server-CPU successes are single cold executions.
+They have not yet been promoted to repeated parent/candidate timing figures.
+Promotion requires isolated repeated runs with matching admission limits and
+dependencies; the original overlapping CPU/GPU runs cannot supply those figures.
+AA4 on the smaller CPU host still exceeds the tested 5 GiB cap; the 31.938 GiB
+single-cube case still fails on GPU and the current CPU estimate exceeds the
+server's physical RAM. Neither is represented as a successful timing point.
