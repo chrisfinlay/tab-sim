@@ -267,3 +267,6 @@ python -m benchmarks.noise_comparison --source-root /path/to/original-baseline \
 That cumulative comparison includes #50's intentional RNG/variance changes;
 only fixed signal samples must match across those revisions. The immediate-parent
 comparisons above retain the full strict sample check.
+
+Paired CPU/GPU measurements and raw records for #51 are in the
+[mapped-callback results](results/mapped51/README.md).
