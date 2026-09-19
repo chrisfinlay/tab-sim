@@ -295,3 +295,17 @@ def test_capacity_cannot_be_reported_as_speed_comparison():
     row['extra_info']['options']['capacity'] = True
     with pytest.raises(ValueError, match='Capacity'):
         compare_records(row, row)
+
+
+@pytest.mark.parametrize("error", [KeyboardInterrupt, ValueError])
+def test_capacity_scratch_cleaned_on_interruption_or_parse_error(tmp_path, monkeypatch, error):
+    pytest.importorskip('psutil')
+    from benchmarks import run
+    def interrupted(*args):
+        scratch = args[-1]
+        (scratch / 'partial-output').write_bytes(b'partial')
+        raise error()
+    monkeypatch.setattr(run, '_run_one', interrupted)
+    with pytest.raises(error):
+        run.run_one(None, None, None, None, None, tmp_path / 'run')
+    assert not (tmp_path / 'run-scratch').exists()

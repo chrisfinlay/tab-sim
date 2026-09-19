@@ -34,6 +34,15 @@ def terminate_worker(proc):
 
 
 def run_one(args, case, mode, root, python, prefix):
+    scratch = prefix.parent / (prefix.name + "-scratch")
+    scratch.mkdir()
+    try:
+        return _run_one(args, case, mode, root, python, prefix, scratch)
+    finally:
+        shutil.rmtree(scratch)
+
+
+def _run_one(args, case, mode, root, python, prefix, scratch):
     report, log, junit = (prefix.with_suffix(s) for s in (".json", ".txt", ".xml"))
     cmd = [python, "-m", "pytest", str(Path(__file__).parent / "test_benchmarks.py"),
            "-c", str(Path(__file__).resolve().parents[1] / "pytest.ini"),
@@ -55,8 +64,6 @@ def run_one(args, case, mode, root, python, prefix):
     status = None
     peak_rss = 0
     host_limit = min(args.host_budget_gib * 2**30, psutil.virtual_memory().available * 0.5)
-    scratch = prefix.parent / (prefix.name + "-scratch")
-    scratch.mkdir()
     cmd += ["--basetemp", str(scratch)]
     disk_reserve = max(2 * 2**30, shutil.disk_usage(scratch).total * 0.05)
     with log.open("w") as stream:
@@ -105,7 +112,6 @@ def run_one(args, case, mode, root, python, prefix):
             result.update(status="failed", reason="No benchmark statistics produced")
     if result["status"] == "passed" and "stats" not in result:
         result.update(status="failed", reason="No benchmark statistics produced")
-    shutil.rmtree(scratch)
     return result
 
 
