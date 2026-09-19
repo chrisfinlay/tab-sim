@@ -106,7 +106,7 @@ def test_trace_summary_counts_only_copy_events_and_keeps_unknown_sizes(tmp_path)
     assert not result["million_event_warning"]
 
 
-@pytest.mark.parametrize("limit,expected", [("timeout", "timeout"), ("memory", "host_memory_limit"), ("monitor", "monitor_error")])
+@pytest.mark.parametrize("limit,expected", [("timeout", "timeout"), ("memory", "host_memory_limit"), ("monitor", "monitor_error"), ("disk", "disk_space_limit")])
 def test_supervisor_terminates_only_its_worker(tmp_path, monkeypatch, limit, expected):
     import os
     import sys
@@ -121,6 +121,9 @@ def test_supervisor_terminates_only_its_worker(tmp_path, monkeypatch, limit, exp
     args = SimpleNamespace(device="cpu", rounds=5, workers=1, chunk_mb=16,
         host_budget_gib=0.000001 if limit == "memory" else 4,
         gpu_budget_gib=4, timeout=0.1 if limit == "timeout" else 10, trace=False)
+    if limit == "disk":
+        monkeypatch.setattr("benchmarks.run.shutil.disk_usage",
+                            lambda path: SimpleNamespace(total=100 * 2**30, free=2**30))
     if limit == "monitor":
         def denied(*args, **kwargs):
             raise PermissionError("process inspection unavailable")
@@ -261,3 +264,72 @@ def test_mapped_diagnostics_distinguishes_equal_short_names():
     callbacks = diagnostic.report()["callbacks"]
     assert len(callbacks) == 2
     assert all(value["calls"] == 2 for value in callbacks.values())
+
+
+@pytest.mark.parametrize("name", ["aa4-out-of-core", "aa1-host-stress", "aa1-mixed"])
+@pytest.mark.parametrize("chunk_mb", [0.125, 16, 64])
+def test_planning_chunks_match_simulation(name, chunk_mb):
+    from benchmarks.cases import planned_chunks
+    from tabsim.dask.extras import get_chunksizes
+    c = CASES[name]
+    actual = get_chunksizes(c['times'], c['channels'], c['samples'],
+                            c['antennas'] * (c['antennas'] - 1) // 2, chunk_mb)
+    assert planned_chunks(c, chunk_mb) == (actual['time'], actual['freq'])
+
+
+def test_chunked_guard_uses_working_set_but_retains_disk_and_worker_cost():
+    c = CASES['aa4-out-of-core']
+    e = estimates(c, 'zarr', memory_model='chunked', device='gpu')
+    assert e['host_plan_bytes'] < e['single_visibility_bytes']
+    cpu = estimates(c, 'zarr', memory_model='chunked', device='cpu')
+    assert cpu['host_plan_bytes'] == e['host_plan_bytes'] + e['single_visibility_bytes']
+    assert e['host_plan_bytes'] < e['legacy_host_plan_bytes']
+    assert e['disk_plan_bytes'] > 5 * e['single_visibility_bytes']
+    assert estimates(c, 'zarr', workers=4, memory_model='chunked')['host_plan_bytes'] > e['host_plan_bytes']
+    assert guard_reason(c, 'zarr', e['host_plan_bytes'] + 1, e['disk_plan_bytes'] + 1,
+                        memory_model='chunked', device='gpu') is None
+    assert 'disk plan' in guard_reason(c, 'zarr', 10**15, 1, memory_model='chunked')
+    assert estimates(c, 'ms', memory_model='chunked')['memory_model'] == 'conservative-eager-v1'
+    assert estimates(CASES['aa4-host-out-of-core'], 'zarr')['single_visibility_bytes'] > 24 * 2**30
+
+
+def test_capacity_cannot_be_reported_as_speed_comparison():
+    pytest.importorskip('psutil')
+    from benchmarks.run import compare_records
+    row = sample_record()
+    row['extra_info']['options']['capacity'] = True
+    with pytest.raises(ValueError, match='Capacity'):
+        compare_records(row, row)
+
+
+@pytest.mark.parametrize("error", [KeyboardInterrupt, ValueError])
+def test_capacity_scratch_cleaned_on_interruption_or_parse_error(tmp_path, monkeypatch, error):
+    pytest.importorskip('psutil')
+    from benchmarks import run
+    def interrupted(*args):
+        scratch = args[-1]
+        (scratch / 'partial-output').write_bytes(b'partial')
+        raise error()
+    monkeypatch.setattr(run, '_run_one', interrupted)
+    with pytest.raises(error):
+        run.run_one(None, None, None, None, None, tmp_path / 'run')
+    assert not (tmp_path / 'run-scratch').exists()
+
+
+def test_invalid_worker_report_preserves_failure_record_and_cleans_scratch(tmp_path):
+    import sys
+    from types import SimpleNamespace
+    pytest.importorskip('psutil')
+    from benchmarks.run import run_one
+    worker = tmp_path / 'worker'
+    worker.write_text(f"#!{sys.executable}\nimport pathlib, sys\n"
+                      "pathlib.Path(sys.argv[sys.argv.index('--benchmark-json') + 1]).write_text('{broken')\n")
+    worker.chmod(0o700)
+    args = SimpleNamespace(device='cpu', rounds=5, workers=1, chunk_mb=16,
+                           host_budget_gib=4, gpu_budget_gib=4, timeout=10, trace=False)
+    result = run_one(args, 'aa05-point', 'zarr', tmp_path, str(worker), tmp_path / 'run')
+    assert result['status'] == 'failed'
+    assert result['reason'] == 'Invalid worker report'
+    assert result['report_errors']
+    assert 'supervisor_peak_rss_bytes' in result
+    assert not (tmp_path / 'run-scratch').exists()

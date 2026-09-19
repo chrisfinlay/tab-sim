@@ -117,5 +117,15 @@
     "samples": 3,
     "point_sources": 0,
     "rfi_sources": 0
+  },
+  "aa4-host-out-of-core": {
+    "telescope": "SKA-Low-AA4",
+    "antennas": 512,
+    "times": 32,
+    "channels": 512,
+    "samples": 3,
+    "point_sources": 8,
+    "rfi_sources": 2,
+    "stress": true
   }
 }

@@ -12,8 +12,9 @@ from typing import Optional
 
 
 # Keep one callable per kernel in each worker. This does not imply that the
-# previous repeated jit() wrapping recompiled every block. Device placement and
-# completion behavior are unchanged; the outer Dask graph owns scheduling.
+# previous repeated jit() wrapping recompiled every block. No explicit device
+# placement or synchronization policy is added. Removing delayed tokenization
+# also removes its incidental serialization/synchronization of JAX inputs.
 _astro_vis_jit = jit(itf.astro_vis)
 _astro_vis_gauss_jit = jit(itf.astro_vis_gauss)
 _astro_vis_exp_jit = jit(itf.astro_vis_exp)
