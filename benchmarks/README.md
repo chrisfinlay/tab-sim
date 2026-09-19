@@ -70,6 +70,9 @@ in reports. SKA coordinates retain the pinned provenance supplied by PR #41.
 | aa1-long | 16 | 2048 | 16 | 8 / 2 |
 | aa4-out-of-core (stress) | 512 | 32 | 128 | 8 / 2 |
 | aa1-host-stress (stress) | 16 | 32768 | 32 | 8 / 2 |
+| aa1-noise-512 | 16 | 512 | 16 | 0 / 0 |
+| aa1-noise-2048 | 16 | 2048 | 16 | 0 / 0 |
+| aa1-noise-8192 | 16 | 8192 | 16 | 0 / 0 |
 
 ```sh
 python -m benchmarks.run --device gpu \
@@ -82,8 +85,10 @@ python -m benchmarks.run --cases aa4-out-of-core aa1-host-stress \
 ```
 
 The largest stress case has an 8.57 GB (7.98 GiB) **single** complex128 visibility
-cube, larger than the test GPU's 6 GiB. The current eager noise allocation prevents
-claiming bounded host RAM for such runs. Stress cases are listed, estimated and
+cube, larger than the test GPU's 6 GiB. Lazy noise removes one eager allocation,
+but other geometry, output and intermediate allocations still prevent a claim of
+bounded host RAM for the entire pipeline. The conservative baseline preflight
+estimate is retained for comparable parent/candidate runs. Stress cases are listed, estimated and
 safely skipped if the host/disk plan exceeds its budget; a skip is **not** evidence
 that out-of-core execution works. The host estimate includes ten visibility cubes,
 source arrays and 512 MiB overhead; it is conservative, not a proven XLA bound.
@@ -209,3 +214,5 @@ zero-copy chunk-view adapter time; it is not an end-to-end
 simulation timing. It caps cubes at 1 GiB, checks available host memory for the
 parent, and bounds each subprocess to 180 seconds. Run these experiments serially
 on each host to avoid benchmark interference.
+
+Measured issue #50 results are in [the noise report](results/noise50/README.md).

@@ -78,7 +78,9 @@ regardless of task execution order or worker count. Changing the input chunk lay
 can change the samples, and samples differ from earlier eager NumPy releases.
 Explicit ``random_seed=0`` is supported by ``Observation.calculate_vis``.
 These changes intentionally affect noisy visibilities, calibrated noise and flags;
-noise-free astronomical and RFI signals are unchanged.
+astronomical and RFI signals with fixed physical inputs are unchanged. Source
+flux limits expressed in image-noise ``sigma`` units also decrease with the
+corrected equation, so such configurations can generate different source fluxes.
 
 The baseline noise equation follows the `NRAO baseline sensitivity convention
 <https://science.nrao.edu/facilities/vlba/docs/manuals/oss2013a/baseline-sensitivity>`_.
