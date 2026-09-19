@@ -1,5 +1,6 @@
 """Run explicitly: pytest benchmarks --case aa1-mixed --mode zarr ..."""
 import gc
+import json
 from pathlib import Path
 import shutil
 import time
@@ -26,18 +27,20 @@ def test_workload(benchmark, request, tmp_path):
     applicable = case["point_sources"] if mode == "astro-kernel" else case["rfi_sources"]
     if mode.endswith("kernel") and not applicable:
         pytest.skip("This fixture has no sources for that kernel")
-    # Never exceed half of currently available host RAM, regardless of configured cap.
-    budget = min(get("--host-budget-gib") * 2**30, psutil.virtual_memory().available * 0.5)
-    reason = guard_reason(case, mode, budget, shutil.disk_usage(tmp_path).free * 0.5,
-                          get("--gpu-budget-gib") * 2**30 if get("--device") == "gpu" else None)
+    # Honor the configured cap/fraction and leave at least 2 GiB available.
+    budget = min(get("--host-budget-gib") * 2**30, psutil.virtual_memory().available * get("--available-memory-fraction"),
+                 max(0, psutil.virtual_memory().available - 2 * 2**30))
+    reason = guard_reason(case, mode, budget, max(0, shutil.disk_usage(tmp_path).free - max(2 * 2**30, shutil.disk_usage(tmp_path).total * 0.05)),
+                          get("--gpu-budget-gib") * 2**30 if get("--device") == "gpu" else None,
+                          get("--chunk-mb"), get("--workers"), get("--memory-model"), get("--device"))
     if reason:
         pytest.skip("Memory preflight: " + reason)
     offline()
     opts = {k: get("--" + k.replace("_", "-")) for k in (
-        "device", "rounds", "chunk_mb", "workers", "host_budget_gib", "gpu_budget_gib")}
+        "device", "rounds", "chunk_mb", "workers", "host_budget_gib", "gpu_budget_gib", "memory_model", "capacity", "available_memory_fraction")}
     info = benchmark.extra_info
     info.update(provenance(get("--source-root"), case, opts))
-    info.update(case_id=name, mode=mode, estimates=estimates(case, mode),
+    info.update(case_id=name, mode=mode, estimates=estimates(case, mode, get("--chunk-mb"), get("--workers"), get("--memory-model"), get("--device")),
                 runtime_import_s=time.perf_counter() - started)
     info["measurement_notes"] = {
         "startup": "runtime_import_s excludes Python/pytest startup; runner records process_wall_s",
@@ -94,8 +97,12 @@ def test_workload(benchmark, request, tmp_path):
             samples = []
             def setup():
                 path.mkdir()
+            def progress(stage, details):
+                print("CAPACITY " + json.dumps({"stage": stage, "elapsed_s": time.perf_counter() - started,
+                      "rss_bytes": psutil.Process().memory_info().rss, "details": details}), flush=True)
             def target():
-                record = simulation(case, mode, get("--chunk-mb"), path)
+                record = simulation(case, mode, get("--chunk-mb"), path,
+                                    progress=progress if get("--capacity") else None)
                 phases.append(record)
             def teardown():
                 samples.append(output_sample(path, mode))
@@ -104,6 +111,15 @@ def test_workload(benchmark, request, tmp_path):
                 info["output_bytes"] = sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
                 shutil.rmtree(path)
                 gc.collect()
+            if get("--capacity"):
+                # One complete cold simulation and bounded readback; no speed claim.
+                benchmark.pedantic(target, setup=setup, teardown=teardown, rounds=1, iterations=1)
+                info["capacity_phases"] = phases
+                info["output_sample"] = samples[0]
+                info["measurement_notes"]["warm"] = "capacity: one cold execution; no warm timing or repeatability claim"
+                info["measurement_notes"]["diagnostics"] = "capacity: no extra diagnostic execution"
+                info["memory"] = memory.report()
+                return
             setup()
             try:
                 target()

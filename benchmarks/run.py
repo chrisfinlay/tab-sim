@@ -5,6 +5,7 @@ import math
 import os
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -33,6 +34,15 @@ def terminate_worker(proc):
 
 
 def run_one(args, case, mode, root, python, prefix):
+    scratch = prefix.parent / (prefix.name + "-scratch")
+    scratch.mkdir()
+    try:
+        return _run_one(args, case, mode, root, python, prefix, scratch)
+    finally:
+        shutil.rmtree(scratch)
+
+
+def _run_one(args, case, mode, root, python, prefix, scratch):
     report, log, junit = (prefix.with_suffix(s) for s in (".json", ".txt", ".xml"))
     cmd = [python, "-m", "pytest", str(Path(__file__).parent / "test_benchmarks.py"),
            "-c", str(Path(__file__).resolve().parents[1] / "pytest.ini"),
@@ -45,10 +55,22 @@ def run_one(args, case, mode, root, python, prefix):
            "--gpu-budget-gib", str(args.gpu_budget_gib),
            "--benchmark-json", str(report),
            "--junitxml", str(junit), "-q"]
+    cmd += ["--available-memory-fraction", str(getattr(args, "available_memory_fraction", 0.5))]
+    cmd += ["--memory-model", getattr(args, "memory_model", "conservative")]
+    if getattr(args, "capacity", False):
+        cmd += ["--capacity", "-s"]
     if args.trace:
         cmd += ["--trace-dir", str(prefix.parent / (prefix.name + "-trace"))]
     started = time.perf_counter()
     status = None
+    peak_rss = 0
+    host_memory = psutil.virtual_memory()
+    source_revision = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                                     capture_output=True, text=True).stdout.strip()
+    host_limit = min(args.host_budget_gib * 2**30, host_memory.available * getattr(args, "available_memory_fraction", 0.5),
+                     max(0, host_memory.available - 2 * 2**30))
+    cmd += ["--basetemp", str(scratch)]
+    disk_reserve = max(2 * 2**30, shutil.disk_usage(scratch).total * 0.05)
     with log.open("w") as stream:
         proc = subprocess.Popen(cmd, cwd=root, stdout=stream, stderr=subprocess.STDOUT,
                                 start_new_session=True)
@@ -57,8 +79,11 @@ def run_one(args, case, mode, root, python, prefix):
                 try:
                     process = psutil.Process(proc.pid)
                     rss = sum(p.memory_info().rss for p in [process] + process.children(recursive=True))
-                    if rss > args.host_budget_gib * 2**30:
+                    peak_rss = max(peak_rss, rss)
+                    if rss > host_limit:
                         status = "host_memory_limit"
+                    elif shutil.disk_usage(scratch).free < disk_reserve:
+                        status = "disk_space_limit"
                     elif time.perf_counter() - started > args.timeout:
                         status = "timeout"
                 except psutil.NoSuchProcess:
@@ -74,20 +99,39 @@ def run_one(args, case, mode, root, python, prefix):
         code = proc.wait()
     result = {"case": case, "mode": mode, "root": str(root), "python": python,
               "status": status or ("passed" if code == 0 else "failed"),
+              "source_revision": source_revision, "host_total_bytes": host_memory.total,
+              "host_available_start_bytes": host_memory.available,
+              "planning": estimates(CASES[case], mode, args.chunk_mb, args.workers,
+                                    getattr(args, "memory_model", "conservative"), args.device),
+              "supervisor_peak_rss_bytes": peak_rss, "enforced_host_limit_bytes": host_limit,
+              "disk_reserve_bytes": disk_reserve,
               "returncode": code, "process_wall_s": time.perf_counter() - started,
               "report": report.name, "log": log.name, "command": cmd}
-    if junit.exists():
-        skipped = ET.parse(junit).findall(".//skipped")
-        if skipped and code == 0 and status is None:
-            result.update(status="skipped", reason=skipped[0].get("message"))
-    if report.exists():
-        content = json.loads(report.read_text())
-        benches = content.get("benchmarks", [])
-        if benches:
-            bench = benches[0]
-            result.update(stats=bench["stats"], extra_info=bench["extra_info"])
-        elif result["status"] == "passed":
-            result.update(status="failed", reason="No benchmark statistics produced")
+    result["capacity_progress"] = []
+    result["report_errors"] = []
+    for line in log.read_text(errors="replace").splitlines():
+        if line.startswith("CAPACITY "):
+            try:
+                result["capacity_progress"].append(json.loads(line.split("CAPACITY ", 1)[1]))
+            except ValueError:
+                result["report_errors"].append("Truncated capacity progress line")
+    try:
+        if junit.exists():
+            skipped = ET.parse(junit).findall(".//skipped")
+            if skipped and code == 0 and status is None:
+                result.update(status="skipped", reason=skipped[0].get("message"))
+        if report.exists():
+            content = json.loads(report.read_text())
+            benches = content.get("benchmarks", [])
+            if benches:
+                bench = benches[0]
+                result.update(stats=bench["stats"], extra_info=bench["extra_info"])
+            elif result["status"] == "passed":
+                result.update(status="failed", reason="No benchmark statistics produced")
+    except (ValueError, ET.ParseError, KeyError) as exc:
+        result["report_errors"].append(f"{type(exc).__name__}: {exc}")
+        if result["status"] == "passed":
+            result.update(status="failed", reason="Invalid worker report")
     if result["status"] == "passed" and "stats" not in result:
         result.update(status="failed", reason="No benchmark statistics produced")
     return result
@@ -98,6 +142,8 @@ def compare_records(base, candidate):
     if base["status"] != "passed" or candidate["status"] != "passed":
         return {"status": "unavailable"}
     a, b = base["extra_info"], candidate["extra_info"]
+    if a["options"].get("capacity") or b["options"].get("capacity"):
+        raise ValueError("Capacity runs are not repeated performance comparisons")
     for key in ("fixture_sha256", "harness_sha256", "case", "options", "host", "device_kind", "x64", "environment", "python"):
         if a[key] != b[key]:
             raise ValueError(f"Incomparable benchmark metadata: {key}")
@@ -129,25 +175,33 @@ def main():
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--chunk-mb", type=float, default=16)
     parser.add_argument("--host-budget-gib", type=float, default=4)
+    parser.add_argument("--available-memory-fraction", type=float, default=0.5)
     parser.add_argument("--gpu-budget-gib", type=float, default=4)
     parser.add_argument("--timeout", type=float, default=1200)
     parser.add_argument("--trace", action="store_true")
+    parser.add_argument("--capacity", action="store_true", help="One cold full-output execution; no performance comparison")
+    parser.add_argument("--memory-model", choices=("conservative", "chunked"), default="conservative",
+                        help="Chunked is calibrated for current lazy-noise Zarr only; use conservative for older checkouts")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--plan", action="store_true")
     args = parser.parse_args()
+    if not 0 < args.available_memory_fraction <= 0.8:
+        parser.error("Available-memory fraction must be in (0, 0.8]")
     if args.pairs < 1 or args.rounds < 5:
         parser.error("Require pairs >= 1 and rounds >= 5")
     for name in ("workers", "chunk_mb", "host_budget_gib", "gpu_budget_gib", "timeout"):
         value = getattr(args, name)
         if not math.isfinite(value) or value <= 0:
             parser.error(f"{name} must be finite and positive")
+    if args.capacity and (args.candidate_root or any(m != "zarr" for m in args.modes)):
+        parser.error("Capacity runs support Zarr only and cannot compare checkouts")
     if args.candidate_root and args.pairs < 5:
         parser.error("Checkout comparisons require at least five alternating pairs")
     args.source_root = args.source_root.resolve()
     if args.candidate_root:
         args.candidate_root = args.candidate_root.resolve()
     if args.plan:
-        print(json.dumps({case: {mode: estimates(CASES[case], mode) for mode in args.modes}
+        print(json.dumps({case: {mode: estimates(CASES[case], mode, args.chunk_mb, args.workers, args.memory_model, args.device) for mode in args.modes}
                           for case in args.cases}, indent=2))
         return
     # Exclusive directory prevents accidentally overwriting prior evidence.

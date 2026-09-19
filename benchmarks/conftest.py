@@ -15,9 +15,12 @@ def pytest_addoption(parser):
     group.addoption("--chunk-mb", type=float, default=16.0)
     group.addoption("--workers", type=int, default=1)
     group.addoption("--host-budget-gib", type=float, default=4.0)
+    group.addoption("--available-memory-fraction", type=float, default=0.5)
     group.addoption("--gpu-budget-gib", type=float, default=4.0)
     group.addoption("--source-root", default=str(Path(__file__).resolve().parents[1]))
     group.addoption("--trace-dir", default=None)
+    group.addoption("--capacity", action="store_true")
+    group.addoption("--memory-model", choices=("conservative", "chunked"), default="conservative")
 
 
 def pytest_configure(config):
@@ -41,6 +44,8 @@ def pytest_configure(config):
         raise pytest.UsageError(f"Wrong tabsim package: {tabsim.__file__}")
     if config.getoption("--rounds") < 5:
         raise pytest.UsageError("Use at least five measured warm rounds")
+    if not 0 < config.getoption("--available-memory-fraction") <= 0.8:
+        raise pytest.UsageError("Available-memory fraction must be in (0, 0.8]")
     for name in ("--workers", "--chunk-mb", "--host-budget-gib", "--gpu-budget-gib"):
         if not math.isfinite(config.getoption(name)) or config.getoption(name) <= 0:
             raise pytest.UsageError(f"{name} must be positive")
