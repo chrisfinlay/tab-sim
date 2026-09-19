@@ -39,7 +39,11 @@ cache reuse within a worker. Airy beam, power conversion and gain application
 retain their prior non-whole-function-JIT behavior. There is no inner delayed
 Dask graph or ``compute()`` in these callbacks.
 
-This changes scheduling overhead, not the device-transfer or completion policy.
+No explicit device-placement or synchronization policy is introduced. However,
+pure delayed-task tokenization can pickle JAX-valued inputs, materializing host
+values and reconstructing device arrays. Removing it also removes that incidental
+serialization and synchronization; the benefit is not necessarily pure scheduling
+overhead. A single Dask worker does not bound outstanding asynchronous GPU work.
 Callers must still complete asynchronous work when timing kernel results. Repeated
 ``jit()`` wrapping in the previous code did not by itself imply per-block
 recompilation. The benchmark guide documents separate warm compilation and

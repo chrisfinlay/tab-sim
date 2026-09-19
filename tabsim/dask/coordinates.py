@@ -8,8 +8,9 @@ import xarray as xr
 
 
 # Keep one callable per kernel in each worker. This does not imply that the
-# previous repeated jit() wrapping recompiled every block. Device placement and
-# completion behavior are unchanged; the outer Dask graph owns scheduling.
+# previous repeated jit() wrapping recompiled every block. No explicit device
+# placement or synchronization policy is added. Removing delayed tokenization
+# also removes its incidental serialization/synchronization of JAX inputs.
 _radec_to_lmn_jit = jit(coord.radec_to_lmn)
 _radec_to_XYZ_jit = jit(coord.radec_to_XYZ)
 _ENU_to_GEO_jit = jit(coord.ENU_to_GEO)
