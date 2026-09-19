@@ -432,7 +432,7 @@ def add_noise(vis: jnp.ndarray, noise_std: jnp.ndarray, key: jnp.ndarray):
     vis: ndarray (n_time, n_bl, n_freq)
         The visibilities to add noise to.
     noise_std: (n_freq, )
-        Standard deviation of the complex noise.
+        Standard deviation of each real/imaginary component.
     key: jax.random.PRNGKey
         Random number generator key.
     """
@@ -441,6 +441,7 @@ def add_noise(vis: jnp.ndarray, noise_std: jnp.ndarray, key: jnp.ndarray):
     key = jnp.asarray(key)
     noise = (
         random.normal(key, shape=vis.shape, dtype=jnp.complex128)
+        * jnp.sqrt(2.0)  # JAX complex normal has variance 1/2 per component.
         * noise_std[None, None, :]
     )
     return vis + noise, noise
@@ -449,7 +450,7 @@ def add_noise(vis: jnp.ndarray, noise_std: jnp.ndarray, key: jnp.ndarray):
 def SEFD_to_noise_std(
     SEFD: jnp.ndarray, chan_width: jnp.ndarray, int_time: jnp.ndarray
 ):
-    """Calculate the standard deviation of the complex noise in a visibility
+    """Calculate the per-real/imaginary-component noise standard deviation
     given the system equivalent flux density, the channel width and integration time.
 
     Parameters
@@ -464,7 +465,7 @@ def SEFD_to_noise_std(
     Returns
     -------
     noise_std: ndarray (n_time, n_ant, n_freq)
-        Standard deviation of the complex noise in a visibility.
+        Standard deviation of each real/imaginary component in Jy.
     """
     SEFD = jnp.asarray(SEFD)
     chan_width = jnp.asarray(chan_width)

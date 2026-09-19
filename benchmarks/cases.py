@@ -20,7 +20,7 @@ def estimates(case, mode):
         t, f = min(t, 8), min(f, 16)
     cube = 16 * t * b * f
     source = 8 * max(case["rfi_sources"], 1) * t * i * a * f
-    # Existing eager complex noise plus temporaries and multiple visibility products.
+    # Conservative eager-parent budget, retained unchanged for candidate comparisons.
     host = 512 * 2**20 + 10 * cube + 4 * source
     return {"single_visibility_bytes": cube, "host_plan_bytes": host,
             "disk_plan_bytes": 0 if mode.endswith("kernel") else 10 * cube + 4 * source,
