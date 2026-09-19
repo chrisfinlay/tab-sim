@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import signal
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -99,6 +100,10 @@ def _run_one(args, case, mode, root, python, prefix, scratch):
         code = proc.wait()
     result = {"case": case, "mode": mode, "root": str(root), "python": python,
               "status": status or ("passed" if code == 0 else "failed"),
+              "host": socket.gethostname(), "requested_device": args.device,
+              "environment": {key: os.getenv(key) for key in (
+                  "CUDA_VISIBLE_DEVICES", "XLA_PYTHON_CLIENT_PREALLOCATE",
+                  "XLA_PYTHON_CLIENT_MEM_FRACTION", "OMP_NUM_THREADS")},
               "source_revision": source_revision, "host_total_bytes": host_memory.total,
               "host_available_start_bytes": host_memory.available,
               "planning": estimates(CASES[case], mode, args.chunk_mb, args.workers,
