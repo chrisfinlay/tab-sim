@@ -18,8 +18,18 @@ Directory Structure
    └── input_data/
        ├── MeerKAT.itrf.txt
        ├── norad_ids.yaml
+       ├── used_orbits.json
        ├── norad_satellite.rfimodel
        └── sim_config.yaml
+
+``norad_ids.yaml`` and ``used_orbits.json`` are written together, as one validated
+pair: the satellites the run actually propagated, and the orbit record it used for
+each, with the provenance each record arrived with. ``sim-vis --replay-orbit-dir
+<sim_name>/input_data`` reads those two files and nothing else, so the run's
+orbital input can be reproduced without the shared cache, without the network and
+whatever the service serves by then. They are written even when the run modelled no
+satellites, since a missing file cannot state that. Directories written by earlier
+versions replay unchanged, and these replay with them.
 
 Zarr Output (.zarr)
 -------------------

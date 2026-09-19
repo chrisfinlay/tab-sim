@@ -43,7 +43,13 @@ from tabsim.jax.coordinates import (
 from tabsim.tools import beam_size
 from tabsim.write import construct_observation_ds, write_ms
 from tabsim.dask.extras import get_chunksizes
-from tabsim.tle import get_satellite_positions, ants_pos, sat_distance
+from tabsim.tle import (
+    ants_pos,
+    as_record,
+    get_satellite_positions,
+    record_tle_lines,
+    sat_distance,
+)
 
 from astropy.time import Time
 
@@ -463,6 +469,11 @@ Number of stationary RFI :  {n_stat}"""
         self.rfi_tle_satellite_ang_sep = []
         self.rfi_tle_satellite_A_app = []
         self.norad_ids = []
+        #: The orbit records the simulation actually propagated, aligned with
+        #: ``norad_ids``. Kept in full — the output schema can only carry TLE
+        #: lines, which an OMM record does not have — so ``used_orbits.json``
+        #: can reproduce this run's trajectories exactly.
+        self.orbit_records = []
 
         self.rfi_stationary_xyz = []
         self.rfi_stationary_geo = []
@@ -712,7 +723,7 @@ Number of stationary RFI :  {n_stat}"""
         self,
         Pv: Array,
         norad_ids: list[int],
-        tles: Array,
+        orbits: list,
     ):
         """
         Add a satellite-based source of RFI to the observation.
@@ -726,8 +737,10 @@ Number of stationary RFI :  {n_stat}"""
             is the spectrogram of a single RFI source.
         norad_ids: list[int] (n_src,)
             NORAD IDs for the satellites to include.
-        tles: Array (n_src, 2)
-            TLEs of the satellites corresponding to the NORAD IDs.
+        orbits: list (n_src,)
+            Orbit records — TLE or OMM — for the satellites corresponding to the
+            NORAD IDs, as resolved by :mod:`tabsim.orbit`. A bare
+            ``(line1, line2)`` TLE pair is also accepted per satellite.
         """
         Pv = da.atleast_2d(Pv)  # type: ignore
         if Pv.ndim == 2:
@@ -742,7 +755,7 @@ Number of stationary RFI :  {n_stat}"""
         n_src = len(norad_ids)
 
         rfi_xyz = da.asarray(
-            get_satellite_positions(tles, mjd_to_jd(self.times_mjd_fine.compute())),
+            get_satellite_positions(orbits, mjd_to_jd(self.times_mjd_fine.compute())),
             chunks=(n_src, self.time_fine_chunk, 3),
         )
         # from tabsim.jax.coordinates import kepler_orbit_many
@@ -750,7 +763,12 @@ Number of stationary RFI :  {n_stat}"""
         # rfi_xyz = da.asarray(
         #     kepler_orbit_many(mjd_to_jd(self.times_mjd_fine.compute()), )
         # )
-        tles = da.asarray(da.atleast_2d(tles), chunks=(-1,))
+        # The output schema carries the two TLE lines per satellite. An OMM record
+        # has none — its elements are the record — so those rows are left empty
+        # here and the full record is written to used_orbits.json instead.
+        tles = da.asarray(
+            da.atleast_2d([record_tle_lines(orbit) for orbit in orbits]), chunks=(-1,)
+        )
         # rfi_xyz is shape (n_src,n_time_fine,3)
         # self.ants_xyz is shape (n_time_fine,n_ant,3)
         distances = da.linalg.norm(
@@ -807,6 +825,7 @@ Number of stationary RFI :  {n_stat}"""
         self.rfi_tle_satellite_ang_sep.append(angular_seps)
         self.rfi_tle_satellite_A_app.append(rfi_A_app)
         self.norad_ids.append(norad_ids)
+        self.orbit_records += [as_record(orbit) for orbit in orbits]
         self.n_rfi_tle_satellite += len(I)
         self.n_rfi += len(I)
 

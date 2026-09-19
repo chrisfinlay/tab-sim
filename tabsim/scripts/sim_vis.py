@@ -63,19 +63,55 @@ def main():
     parser.add_argument(
         "-o",
         "--overwrite",
-        default=False,
+        default=None,
         action=argparse.BooleanOptionalAction,
-        help="Overwrite existing observation.",
+        help="Overwrite existing observation. Omitted, the config's own "
+        "'overwrite' is left alone.",
     )
     parser.add_argument(
-        "-st", "--spacetrack", help="Path to Space-Track login details."
+        "-eod",
+        "--extra-orbit-dir",
+        "--extra_orbit_dir",
+        dest="extra_orbit_dir",
+        help="Directory of local orbit files (TLE or OMM) to use, per NORAD ID, "
+        "before the managed cache and SatChecker. This is ordinary source "
+        "precedence: the run still chooses its own satellites, from its own names, "
+        "NORAD IDs, visibility cuts and max_n_sat. To reproduce a previous run's "
+        "selection as well as its trajectories, use --replay-orbit-dir.",
+    )
+    parser.add_argument(
+        "--replay-orbit-dir",
+        "--replay_orbit_dir",
+        dest="replay_orbit_dir",
+        help="A previous simulation's 'input_data' directory. Its saved NORAD IDs "
+        "and orbit records are the selection: no catalogue search, no cache, no "
+        "SatChecker request, no visibility reselection and no max_n_sat. Cannot be "
+        "combined with --extra-orbit-dir.",
+    )
+    parser.add_argument(
+        "--offline",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+        help="Forbid every SatChecker request. Cached catalogue searches are "
+        "reused whatever their age; cached orbit records still have to satisfy "
+        "remote_max_age_days. Omitted, the config's own 'offline' is left alone.",
+    )
+    parser.add_argument(
+        "--allow-missing-checksum",
+        "--allow_missing_checksum",
+        dest="allow_missing_checksum",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+        help="Accept TLE lines that reached us without their checksum digit — "
+        "roughly 2001-2018 in SatChecker's archive — and carry them as "
+        "unverified. Applies to remote records, local files and replay alike. "
+        "Omitted, the config's own 'allow_missing_checksum' is left alone.",
     )
     parser.add_argument(
         "-ra", "--ra", type=float, help="Right Ascension of the observation."
     )
     args = parser.parse_args()
     rfi_amp = args.rfi_amp
-    spacetrack_path = args.spacetrack
     config_path = Path(args.config_path)
 
     if not config_path.is_file():
@@ -94,21 +130,30 @@ def main():
     if args.ra is not None:
         sim_config["observation"]["ra"] = args.ra
 
-    config_st_path = sim_config["rfi_sources"]["tle_satellite"]["spacetrack_path"]
-    if spacetrack_path:
-        sim_config["rfi_sources"]["tle_satellite"]["spacetrack_path"] = os.path.abspath(
-            os.path.join(work_dir, spacetrack_path)
+    # A path typed on the command line is relative to where it was typed; one
+    # written in the config is relative to the config, like every other path here.
+    satellites = sim_config["rfi_sources"]["tle_satellite"]
+    for key, typed in (
+        ("extra_orbit_dir", args.extra_orbit_dir),
+        ("replay_orbit_dir", args.replay_orbit_dir),
+    ):
+        satellites[key] = (
+            os.path.abspath(typed) if typed else get_abs_path(satellites.get(key), work_dir)
         )
-    elif config_st_path:
-        config_st_path = get_abs_path(config_st_path, work_dir)
-        sim_config["rfi_sources"]["tle_satellite"]["spacetrack_path"] = config_st_path
-        spacetrack_path = config_st_path
+
+    # A boolean flag defaults to None, so omitting it is not an instruction to
+    # turn anything off: a deliberate `offline: true` in the config survives a
+    # command line that says nothing about it.
+    if args.offline is not None:
+        satellites["offline"] = args.offline
+    if args.allow_missing_checksum is not None:
+        satellites["allow_missing_checksum"] = args.allow_missing_checksum
+    if args.overwrite is not None:
+        sim_config["output"]["overwrite"] = args.overwrite
 
     sim_config["rfi_sources"]["tle_satellite"]["power_scale"] *= rfi_amp
     sim_config["rfi_sources"]["satellite"]["power_scale"] *= rfi_amp
     sim_config["rfi_sources"]["stationary"]["power_scale"] *= rfi_amp
-
-    sim_config["output"]["overwrite"] = args.overwrite
 
     if args.n_ant is not None:
         sim_config["telescope"]["n_ant"] = args.n_ant
@@ -138,9 +183,14 @@ def main():
         )
 
     sim_config["output"]["path"] = get_abs_path(sim_config["output"]["path"], work_dir)
-    sim_config["rfi_sources"]["tle_satellite"]["norad_ids_path"] = get_abs_path(
-        sim_config["rfi_sources"]["tle_satellite"]["norad_ids_path"], work_dir
-    )
+    # A frozen replay never opens the original ID file — its saved IDs are the
+    # selection — so the setting is not an input of this run and is left exactly as
+    # written. Processing it anyway made a leftover nothing will read able to stop
+    # the run: os.path.join raises on a value that is not a path at all.
+    if not satellites["replay_orbit_dir"]:
+        satellites["norad_ids_path"] = get_abs_path(
+            satellites["norad_ids_path"], work_dir
+        )
     sim_config["rfi_sources"]["tle_satellite"]["norad_spec_model"] = get_abs_path(
         sim_config["rfi_sources"]["tle_satellite"]["norad_spec_model"], work_dir
     )
@@ -151,7 +201,19 @@ def main():
         sim_config["telescope"]["itrf_path"], work_dir
     )
 
-    return run_sim_config(sim_config=sim_config, spacetrack_path=spacetrack_path)
+    return run_sim_config(sim_config=sim_config)
+
+
+def cli() -> None:
+    """The ``sim-vis`` console entry point.
+
+    :func:`main` returns the observation and its output path for callers that
+    drive a simulation from Python, tests included. The console script wraps its
+    entry point in ``sys.exit(...)``, which reads any value that is not ``None``
+    or an integer as failure: it prints the tuple and exits 1 after a successful
+    run. So the script points here, and the result stays with :func:`main`.
+    """
+    main()
 
 
 if __name__ == "__main__":

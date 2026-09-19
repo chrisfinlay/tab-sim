@@ -1,0 +1,27 @@
+Frozen PR #44 replay fixtures
+=============================
+
+tab-sim           : e3d957d7846b98617cc65874ef6d4c71bd8d2377 (branch satchecker-orbits, PR #44)
+satchecker-client : bb7027042b6ed6f5f76049201335d3cdc1dd1c06 (branch orbit-resolver, PR #5), __version__ 0.2.0
+python 3.10.12, numpy 2.2.6, on the Linux test host
+
+Generated with tabsim/ still at the tab-sim SHA above, by:
+
+    python tests/compat/generate_pr44_fixtures.py
+
+That generator and #44's frozen loader were removed in the test-trimming round;
+retrieve either from tab-sim 2b5918b:tests/compat/ if they are needed again.
+
+Each case directory holds the two files a completed #44 run writes —
+norad_ids.yaml (numpy.savetxt, fmt='%i', as tabsim.config.save_inputs wrote it)
+and used_orbits.json (tabsim.orbit.save_orbits_for_reuse) — plus expected.json,
+the (norad_ids, records) pair #44's own tabsim.orbit.load_replay_orbits read back
+from them, with every null spelled None and NumPy scalars unwrapped.
+
+Three cases are kept: `empty`, `mixed_tle_first` (unsorted IDs, a verified TLE
+beside an OMM, provenance, null cells, awkward floats) and `unverified` (missing
+checksum digits, persistent checksum provenance).
+
+These files are inputs, not outputs. NEVER REGENERATE HISTORICAL FIXTURES WITH
+ADOPTED CODE: doing so turns the cross-version test into a comparison of the new
+implementation with itself.
