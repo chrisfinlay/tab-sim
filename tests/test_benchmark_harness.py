@@ -104,3 +104,28 @@ def test_trace_summary_counts_only_copy_events_and_keeps_unknown_sizes(tmp_path)
         "events": 2, "duration_us": 5, "bytes_with_known_size": 128,
         "events_with_known_size": 1}
     assert not result["million_event_warning"]
+
+
+@pytest.mark.parametrize("limit,expected", [("timeout", "timeout"), ("memory", "host_memory_limit"), ("monitor", "monitor_error")])
+def test_supervisor_terminates_only_its_worker(tmp_path, monkeypatch, limit, expected):
+    import os
+    import sys
+    from types import SimpleNamespace
+    pytest.importorskip("psutil")
+    if os.name != "posix":
+        pytest.skip("Process-group supervision is POSIX-only")
+    from benchmarks.run import run_one
+    worker = tmp_path / "worker"
+    worker.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(30)\n")
+    worker.chmod(0o700)
+    args = SimpleNamespace(device="cpu", rounds=5, workers=1, chunk_mb=16,
+        host_budget_gib=0.000001 if limit == "memory" else 4,
+        gpu_budget_gib=4, timeout=0.1 if limit == "timeout" else 10, trace=False)
+    if limit == "monitor":
+        def denied(*args, **kwargs):
+            raise PermissionError("process inspection unavailable")
+        monkeypatch.setattr("benchmarks.run.psutil.Process", denied)
+    result = run_one(args, "aa05-point", "zarr", tmp_path, str(worker), tmp_path / "run")
+    assert result["status"] == expected
+    assert result["returncode"] != 0
+    assert result["process_wall_s"] < 10

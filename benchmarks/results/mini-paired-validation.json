@@ -1,0 +1,1782 @@
+{
+  "schema_version": 1,
+  "runs": [
+    {
+      "case": "aa05-point",
+      "mode": "astro-kernel",
+      "status": "passed",
+      "returncode": 0,
+      "process_wall_s": 1.484136250015581,
+      "stats": {
+        "min": 5.237499135546386e-05,
+        "max": 5.974998930469155e-05,
+        "mean": 5.4966803872957826e-05,
+        "stddev": 3.305819848069061e-06,
+        "rounds": 5,
+        "median": 5.27920201420784e-05,
+        "iqr": 5.093526851851493e-06,
+        "q1": 5.268774111755192e-05,
+        "q3": 5.7781267969403416e-05,
+        "iqr_outliers": 0,
+        "stddev_outliers": 1,
+        "outliers": "1;0",
+        "ld15iqr": 5.237499135546386e-05,
+        "hd15iqr": 5.974998930469155e-05,
+        "ops": 18192.79873560145,
+        "total": 0.00027483401936478913,
+        "data": [
+          5.974998930469155e-05,
+          5.712502752430737e-05,
+          5.279199103824794e-05,
+          5.27920201420784e-05,
+          5.237499135546386e-05
+        ],
+        "iterations": 1
+      },
+      "extra_info": {
+        "revision": "a3a2980dacedece196430e7de4eee79d50ebdb17",
+        "dirty": false,
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "fixture_sha256": "0163a6b85d475136699849599096cdfaa41292b773bf6c1dba6a756d01913b60",
+        "harness_sha256": "0192de53b4d9cb4c0e7caa2c9a738c993b8a6126f11e06759b33524bb38ce40a",
+        "host": "Chriss-Mac-mini.local",
+        "platform": "macOS-15.8-arm64-arm-64bit-Mach-O",
+        "processor": "arm",
+        "cpu_count": 10,
+        "host_total_bytes": 17179869184,
+        "python": "3.13.15",
+        "versions": {
+          "tabsim": "0.0.13",
+          "jax": "0.10.2",
+          "jaxlib": "0.10.2",
+          "numpy": "2.5.3",
+          "scipy": "1.18.0",
+          "dask": "2024.10.0",
+          "xarray": "2026.7.0",
+          "zarr": "2.18.7",
+          "dask-ms": "0.2.32",
+          "python-casacore": "3.8.1",
+          "pytest-benchmark": "5.3.0",
+          "satchecker-client": "0.2.0",
+          "ri-kernels": "0.2.1"
+        },
+        "jax_devices": [
+          "cpu:0"
+        ],
+        "device_kind": "cpu",
+        "x64": true,
+        "kernel_entrypoints": "tabsim.jax.interferometry (selected checkout)",
+        "kernel_source_sha256": "030e414670ebc3a2f416ba82c7090a4a6262755b4e0126d9c383615a940d01d9",
+        "environment": {
+          "JAX_PLATFORMS": "cpu",
+          "CUDA_VISIBLE_DEVICES": null,
+          "XLA_PYTHON_CLIENT_PREALLOCATE": null,
+          "XLA_PYTHON_CLIENT_MEM_FRACTION": null,
+          "OMP_NUM_THREADS": null
+        },
+        "case": {
+          "telescope": "SKA-Low-AA0.5",
+          "antennas": 4,
+          "times": 32,
+          "channels": 16,
+          "samples": 3,
+          "point_sources": 8,
+          "rfi_sources": 0
+        },
+        "options": {
+          "device": "cpu",
+          "rounds": 5,
+          "chunk_mb": 16.0,
+          "workers": 1,
+          "host_budget_gib": 4.0,
+          "gpu_budget_gib": 4.0
+        },
+        "case_id": "aa05-point",
+        "mode": "astro-kernel",
+        "estimates": {
+          "single_visibility_bytes": 12288,
+          "host_plan_bytes": 537042944,
+          "disk_plan_bytes": 0,
+          "kernel_plan_bytes": 196608
+        },
+        "runtime_import_s": 0.47586220799712464,
+        "measurement_notes": {
+          "startup": "runtime_import_s excludes Python/pytest startup; runner records process_wall_s",
+          "warm": "five or more single-iteration rounds after an explicit first call",
+          "memory": "50ms whole-process sampling includes untimed validation and diagnostics",
+          "transfer_counts": "isolated explicit copy timings/bytes only; pipeline counts require optional trace",
+          "diagnostics": "separate untimed instrumented round; not included in benchmark statistics"
+        },
+        "input_bytes": 9664,
+        "host_to_device_s": 0.0005966669996269047,
+        "input_shapes": [
+          [
+            8,
+            8,
+            16
+          ],
+          [
+            8,
+            6,
+            3
+          ],
+          [
+            8,
+            3
+          ],
+          [
+            16
+          ]
+        ],
+        "trace_and_lower_s": 0.020234916999470443,
+        "compile_s": 0.03071266697952524,
+        "compiled_memory_analysis": {
+          "argument_size_in_bytes": 9664,
+          "output_size_in_bytes": 12288,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 768,
+          "host_temp_size_in_bytes": 0
+        },
+        "first_execute_s": 0.00023391598369926214,
+        "device_to_host_s": 5.587501800619066e-05,
+        "output_bytes": 12288,
+        "numpy_reference_sample_passed": true,
+        "output_sample": {
+          "kernel": {
+            "shape": [
+              8,
+              6,
+              16
+            ],
+            "real": [
+              -1.7073584992294641,
+              -0.6288958726632758,
+              1.3989895241142538
+            ],
+            "imag": [
+              0.4120382224937402,
+              -0.11989056261576722,
+              -0.2019281011990503
+            ]
+          }
+        },
+        "diagnostic_tasks_executed": 0,
+        "diagnostic_xla_compile_log_events": 0,
+        "memory": {
+          "rss_peak_sampled_bytes": 398016512,
+          "gpu_process_peak_sampled_bytes": null,
+          "sample_interval_s": 0.05,
+          "jax_allocator_stats": null,
+          "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+        }
+      },
+      "label": "baseline",
+      "pair": 0
+    },
+    {
+      "case": "aa05-point",
+      "mode": "astro-kernel",
+      "status": "passed",
+      "returncode": 0,
+      "process_wall_s": 1.4968597920087632,
+      "stats": {
+        "min": 4.887502291239798e-05,
+        "max": 6.0708989622071385e-05,
+        "mean": 5.3883402142673734e-05,
+        "stddev": 4.3300554795818915e-06,
+        "rounds": 5,
+        "median": 5.308300023898482e-05,
+        "iqr": 4.520014044828713e-06,
+        "q1": 5.146924377186224e-05,
+        "q3": 5.598925781669095e-05,
+        "iqr_outliers": 0,
+        "stddev_outliers": 2,
+        "outliers": "2;0",
+        "ld15iqr": 4.887502291239798e-05,
+        "hd15iqr": 6.0708989622071385e-05,
+        "ops": 18558.59059070132,
+        "total": 0.00026941701071336865,
+        "data": [
+          6.0708989622071385e-05,
+          5.441601388156414e-05,
+          5.308300023898482e-05,
+          5.2333984058350325e-05,
+          4.887502291239798e-05
+        ],
+        "iterations": 1
+      },
+      "extra_info": {
+        "revision": "0f8746713f33ab1383e0229aa9ac438ddc8bc363",
+        "dirty": false,
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "fixture_sha256": "0163a6b85d475136699849599096cdfaa41292b773bf6c1dba6a756d01913b60",
+        "harness_sha256": "0192de53b4d9cb4c0e7caa2c9a738c993b8a6126f11e06759b33524bb38ce40a",
+        "host": "Chriss-Mac-mini.local",
+        "platform": "macOS-15.8-arm64-arm-64bit-Mach-O",
+        "processor": "arm",
+        "cpu_count": 10,
+        "host_total_bytes": 17179869184,
+        "python": "3.13.15",
+        "versions": {
+          "tabsim": "0.0.13",
+          "jax": "0.10.2",
+          "jaxlib": "0.10.2",
+          "numpy": "2.5.3",
+          "scipy": "1.18.0",
+          "dask": "2024.10.0",
+          "xarray": "2026.7.0",
+          "zarr": "2.18.7",
+          "dask-ms": "0.2.32",
+          "python-casacore": "3.8.1",
+          "pytest-benchmark": "5.3.0",
+          "satchecker-client": "0.2.0",
+          "ri-kernels": "0.2.1"
+        },
+        "jax_devices": [
+          "cpu:0"
+        ],
+        "device_kind": "cpu",
+        "x64": true,
+        "kernel_entrypoints": "tabsim.jax.interferometry (selected checkout)",
+        "kernel_source_sha256": "030e414670ebc3a2f416ba82c7090a4a6262755b4e0126d9c383615a940d01d9",
+        "environment": {
+          "JAX_PLATFORMS": "cpu",
+          "CUDA_VISIBLE_DEVICES": null,
+          "XLA_PYTHON_CLIENT_PREALLOCATE": null,
+          "XLA_PYTHON_CLIENT_MEM_FRACTION": null,
+          "OMP_NUM_THREADS": null
+        },
+        "case": {
+          "telescope": "SKA-Low-AA0.5",
+          "antennas": 4,
+          "times": 32,
+          "channels": 16,
+          "samples": 3,
+          "point_sources": 8,
+          "rfi_sources": 0
+        },
+        "options": {
+          "device": "cpu",
+          "rounds": 5,
+          "chunk_mb": 16.0,
+          "workers": 1,
+          "host_budget_gib": 4.0,
+          "gpu_budget_gib": 4.0
+        },
+        "case_id": "aa05-point",
+        "mode": "astro-kernel",
+        "estimates": {
+          "single_visibility_bytes": 12288,
+          "host_plan_bytes": 537042944,
+          "disk_plan_bytes": 0,
+          "kernel_plan_bytes": 196608
+        },
+        "runtime_import_s": 0.4763038330129348,
+        "measurement_notes": {
+          "startup": "runtime_import_s excludes Python/pytest startup; runner records process_wall_s",
+          "warm": "five or more single-iteration rounds after an explicit first call",
+          "memory": "50ms whole-process sampling includes untimed validation and diagnostics",
+          "transfer_counts": "isolated explicit copy timings/bytes only; pipeline counts require optional trace",
+          "diagnostics": "separate untimed instrumented round; not included in benchmark statistics"
+        },
+        "input_bytes": 9664,
+        "host_to_device_s": 0.0005707500095013529,
+        "input_shapes": [
+          [
+            8,
+            8,
+            16
+          ],
+          [
+            8,
+            6,
+            3
+          ],
+          [
+            8,
+            3
+          ],
+          [
+            16
+          ]
+        ],
+        "trace_and_lower_s": 0.02081562500097789,
+        "compile_s": 0.03142962499987334,
+        "compiled_memory_analysis": {
+          "argument_size_in_bytes": 9664,
+          "output_size_in_bytes": 12288,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 768,
+          "host_temp_size_in_bytes": 0
+        },
+        "first_execute_s": 0.0002346250112168491,
+        "device_to_host_s": 5.4041011026129127e-05,
+        "output_bytes": 12288,
+        "numpy_reference_sample_passed": true,
+        "output_sample": {
+          "kernel": {
+            "shape": [
+              8,
+              6,
+              16
+            ],
+            "real": [
+              -1.7073584992294641,
+              -0.6288958726632758,
+              1.3989895241142538
+            ],
+            "imag": [
+              0.4120382224937402,
+              -0.11989056261576722,
+              -0.2019281011990503
+            ]
+          }
+        },
+        "diagnostic_tasks_executed": 0,
+        "diagnostic_xla_compile_log_events": 0,
+        "memory": {
+          "rss_peak_sampled_bytes": 396492800,
+          "gpu_process_peak_sampled_bytes": null,
+          "sample_interval_s": 0.05,
+          "jax_allocator_stats": null,
+          "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+        }
+      },
+      "label": "candidate",
+      "pair": 0
+    },
+    {
+      "case": "aa05-point",
+      "mode": "astro-kernel",
+      "status": "passed",
+      "returncode": 0,
+      "process_wall_s": 1.488241916988045,
+      "stats": {
+        "min": 5.25419891346246e-05,
+        "max": 6.041600136086345e-05,
+        "mean": 5.5366603191941977e-05,
+        "stddev": 3.2574255346016767e-06,
+        "rounds": 5,
+        "median": 5.3916999604552984e-05,
+        "iqr": 4.68648795504123e-06,
+        "q1": 5.301076453179121e-05,
+        "q3": 5.769725248683244e-05,
+        "iqr_outliers": 0,
+        "stddev_outliers": 1,
+        "outliers": "1;0",
+        "ld15iqr": 5.25419891346246e-05,
+        "hd15iqr": 6.041600136086345e-05,
+        "ops": 18061.42949628413,
+        "total": 0.0002768330159597099,
+        "data": [
+          6.041600136086345e-05,
+          5.679100286215544e-05,
+          5.3916999604552984e-05,
+          5.3167022997513413e-05,
+          5.25419891346246e-05
+        ],
+        "iterations": 1
+      },
+      "extra_info": {
+        "revision": "0f8746713f33ab1383e0229aa9ac438ddc8bc363",
+        "dirty": false,
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "fixture_sha256": "0163a6b85d475136699849599096cdfaa41292b773bf6c1dba6a756d01913b60",
+        "harness_sha256": "0192de53b4d9cb4c0e7caa2c9a738c993b8a6126f11e06759b33524bb38ce40a",
+        "host": "Chriss-Mac-mini.local",
+        "platform": "macOS-15.8-arm64-arm-64bit-Mach-O",
+        "processor": "arm",
+        "cpu_count": 10,
+        "host_total_bytes": 17179869184,
+        "python": "3.13.15",
+        "versions": {
+          "tabsim": "0.0.13",
+          "jax": "0.10.2",
+          "jaxlib": "0.10.2",
+          "numpy": "2.5.3",
+          "scipy": "1.18.0",
+          "dask": "2024.10.0",
+          "xarray": "2026.7.0",
+          "zarr": "2.18.7",
+          "dask-ms": "0.2.32",
+          "python-casacore": "3.8.1",
+          "pytest-benchmark": "5.3.0",
+          "satchecker-client": "0.2.0",
+          "ri-kernels": "0.2.1"
+        },
+        "jax_devices": [
+          "cpu:0"
+        ],
+        "device_kind": "cpu",
+        "x64": true,
+        "kernel_entrypoints": "tabsim.jax.interferometry (selected checkout)",
+        "kernel_source_sha256": "030e414670ebc3a2f416ba82c7090a4a6262755b4e0126d9c383615a940d01d9",
+        "environment": {
+          "JAX_PLATFORMS": "cpu",
+          "CUDA_VISIBLE_DEVICES": null,
+          "XLA_PYTHON_CLIENT_PREALLOCATE": null,
+          "XLA_PYTHON_CLIENT_MEM_FRACTION": null,
+          "OMP_NUM_THREADS": null
+        },
+        "case": {
+          "telescope": "SKA-Low-AA0.5",
+          "antennas": 4,
+          "times": 32,
+          "channels": 16,
+          "samples": 3,
+          "point_sources": 8,
+          "rfi_sources": 0
+        },
+        "options": {
+          "device": "cpu",
+          "rounds": 5,
+          "chunk_mb": 16.0,
+          "workers": 1,
+          "host_budget_gib": 4.0,
+          "gpu_budget_gib": 4.0
+        },
+        "case_id": "aa05-point",
+        "mode": "astro-kernel",
+        "estimates": {
+          "single_visibility_bytes": 12288,
+          "host_plan_bytes": 537042944,
+          "disk_plan_bytes": 0,
+          "kernel_plan_bytes": 196608
+        },
+        "runtime_import_s": 0.47122691600816324,
+        "measurement_notes": {
+          "startup": "runtime_import_s excludes Python/pytest startup; runner records process_wall_s",
+          "warm": "five or more single-iteration rounds after an explicit first call",
+          "memory": "50ms whole-process sampling includes untimed validation and diagnostics",
+          "transfer_counts": "isolated explicit copy timings/bytes only; pipeline counts require optional trace",
+          "diagnostics": "separate untimed instrumented round; not included in benchmark statistics"
+        },
+        "input_bytes": 9664,
+        "host_to_device_s": 0.0005806249973829836,
+        "input_shapes": [
+          [
+            8,
+            8,
+            16
+          ],
+          [
+            8,
+            6,
+            3
+          ],
+          [
+            8,
+            3
+          ],
+          [
+            16
+          ]
+        ],
+        "trace_and_lower_s": 0.020455207995837554,
+        "compile_s": 0.03253308299463242,
+        "compiled_memory_analysis": {
+          "argument_size_in_bytes": 9664,
+          "output_size_in_bytes": 12288,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 768,
+          "host_temp_size_in_bytes": 0
+        },
+        "first_execute_s": 0.00023750000400468707,
+        "device_to_host_s": 5.695901927538216e-05,
+        "output_bytes": 12288,
+        "numpy_reference_sample_passed": true,
+        "output_sample": {
+          "kernel": {
+            "shape": [
+              8,
+              6,
+              16
+            ],
+            "real": [
+              -1.7073584992294641,
+              -0.6288958726632758,
+              1.3989895241142538
+            ],
+            "imag": [
+              0.4120382224937402,
+              -0.11989056261576722,
+              -0.2019281011990503
+            ]
+          }
+        },
+        "diagnostic_tasks_executed": 0,
+        "diagnostic_xla_compile_log_events": 0,
+        "memory": {
+          "rss_peak_sampled_bytes": 396853248,
+          "gpu_process_peak_sampled_bytes": null,
+          "sample_interval_s": 0.05,
+          "jax_allocator_stats": null,
+          "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+        }
+      },
+      "label": "candidate",
+      "pair": 1
+    },
+    {
+      "case": "aa05-point",
+      "mode": "astro-kernel",
+      "status": "passed",
+      "returncode": 0,
+      "process_wall_s": 1.4954648749844637,
+      "stats": {
+        "min": 5.2708026487380266e-05,
+        "max": 6.262501119635999e-05,
+        "mean": 5.586680490523577e-05,
+        "stddev": 4.161825481532178e-06,
+        "rounds": 5,
+        "median": 5.379199865274131e-05,
+        "iqr": 5.510002665687352e-06,
+        "q1": 5.298999894876033e-05,
+        "q3": 5.850000161444768e-05,
+        "iqr_outliers": 0,
+        "stddev_outliers": 1,
+        "outliers": "1;0",
+        "ld15iqr": 5.2708026487380266e-05,
+        "hd15iqr": 6.262501119635999e-05,
+        "ops": 17899.71704478631,
+        "total": 0.00027933402452617884,
+        "data": [
+          6.262501119635999e-05,
+          5.7124998420476913e-05,
+          5.379199865274131e-05,
+          5.308398976922035e-05,
+          5.2708026487380266e-05
+        ],
+        "iterations": 1
+      },
+      "extra_info": {
+        "revision": "a3a2980dacedece196430e7de4eee79d50ebdb17",
+        "dirty": false,
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "fixture_sha256": "0163a6b85d475136699849599096cdfaa41292b773bf6c1dba6a756d01913b60",
+        "harness_sha256": "0192de53b4d9cb4c0e7caa2c9a738c993b8a6126f11e06759b33524bb38ce40a",
+        "host": "Chriss-Mac-mini.local",
+        "platform": "macOS-15.8-arm64-arm-64bit-Mach-O",
+        "processor": "arm",
+        "cpu_count": 10,
+        "host_total_bytes": 17179869184,
+        "python": "3.13.15",
+        "versions": {
+          "tabsim": "0.0.13",
+          "jax": "0.10.2",
+          "jaxlib": "0.10.2",
+          "numpy": "2.5.3",
+          "scipy": "1.18.0",
+          "dask": "2024.10.0",
+          "xarray": "2026.7.0",
+          "zarr": "2.18.7",
+          "dask-ms": "0.2.32",
+          "python-casacore": "3.8.1",
+          "pytest-benchmark": "5.3.0",
+          "satchecker-client": "0.2.0",
+          "ri-kernels": "0.2.1"
+        },
+        "jax_devices": [
+          "cpu:0"
+        ],
+        "device_kind": "cpu",
+        "x64": true,
+        "kernel_entrypoints": "tabsim.jax.interferometry (selected checkout)",
+        "kernel_source_sha256": "030e414670ebc3a2f416ba82c7090a4a6262755b4e0126d9c383615a940d01d9",
+        "environment": {
+          "JAX_PLATFORMS": "cpu",
+          "CUDA_VISIBLE_DEVICES": null,
+          "XLA_PYTHON_CLIENT_PREALLOCATE": null,
+          "XLA_PYTHON_CLIENT_MEM_FRACTION": null,
+          "OMP_NUM_THREADS": null
+        },
+        "case": {
+          "telescope": "SKA-Low-AA0.5",
+          "antennas": 4,
+          "times": 32,
+          "channels": 16,
+          "samples": 3,
+          "point_sources": 8,
+          "rfi_sources": 0
+        },
+        "options": {
+          "device": "cpu",
+          "rounds": 5,
+          "chunk_mb": 16.0,
+          "workers": 1,
+          "host_budget_gib": 4.0,
+          "gpu_budget_gib": 4.0
+        },
+        "case_id": "aa05-point",
+        "mode": "astro-kernel",
+        "estimates": {
+          "single_visibility_bytes": 12288,
+          "host_plan_bytes": 537042944,
+          "disk_plan_bytes": 0,
+          "kernel_plan_bytes": 196608
+        },
+        "runtime_import_s": 0.4711208750086371,
+        "measurement_notes": {
+          "startup": "runtime_import_s excludes Python/pytest startup; runner records process_wall_s",
+          "warm": "five or more single-iteration rounds after an explicit first call",
+          "memory": "50ms whole-process sampling includes untimed validation and diagnostics",
+          "transfer_counts": "isolated explicit copy timings/bytes only; pipeline counts require optional trace",
+          "diagnostics": "separate untimed instrumented round; not included in benchmark statistics"
+        },
+        "input_bytes": 9664,
+        "host_to_device_s": 0.0005710419791284949,
+        "input_shapes": [
+          [
+            8,
+            8,
+            16
+          ],
+          [
+            8,
+            6,
+            3
+          ],
+          [
+            8,
+            3
+          ],
+          [
+            16
+          ]
+        ],
+        "trace_and_lower_s": 0.020533875009277835,
+        "compile_s": 0.031809625012101606,
+        "compiled_memory_analysis": {
+          "argument_size_in_bytes": 9664,
+          "output_size_in_bytes": 12288,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 768,
+          "host_temp_size_in_bytes": 0
+        },
+        "first_execute_s": 0.00024066600599326193,
+        "device_to_host_s": 5.954198422841728e-05,
+        "output_bytes": 12288,
+        "numpy_reference_sample_passed": true,
+        "output_sample": {
+          "kernel": {
+            "shape": [
+              8,
+              6,
+              16
+            ],
+            "real": [
+              -1.7073584992294641,
+              -0.6288958726632758,
+              1.3989895241142538
+            ],
+            "imag": [
+              0.4120382224937402,
+              -0.11989056261576722,
+              -0.2019281011990503
+            ]
+          }
+        },
+        "diagnostic_tasks_executed": 0,
+        "diagnostic_xla_compile_log_events": 0,
+        "memory": {
+          "rss_peak_sampled_bytes": 394706944,
+          "gpu_process_peak_sampled_bytes": null,
+          "sample_interval_s": 0.05,
+          "jax_allocator_stats": null,
+          "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+        }
+      },
+      "label": "baseline",
+      "pair": 1
+    },
+    {
+      "case": "aa05-point",
+      "mode": "astro-kernel",
+      "status": "passed",
+      "returncode": 0,
+      "process_wall_s": 1.49931258399738,
+      "stats": {
+        "min": 5.308401887305081e-05,
+        "max": 6.17500045336783e-05,
+        "mean": 5.6333409156650303e-05,
+        "stddev": 3.409061521778161e-06,
+        "rounds": 5,
+        "median": 5.6125019909814e-05,
+        "iqr": 4.447989340405911e-06,
+        "q1": 5.364575918065384e-05,
+        "q3": 5.809374852105975e-05,
+        "iqr_outliers": 0,
+        "stddev_outliers": 1,
+        "outliers": "1;0",
+        "ld15iqr": 5.308401887305081e-05,
+        "hd15iqr": 6.17500045336783e-05,
+        "ops": 17751.45539690717,
+        "total": 0.0002816670457832515,
+        "data": [
+          6.17500045336783e-05,
+          5.6125019909814e-05,
+          5.383300594985485e-05,
+          5.308401887305081e-05,
+          5.687499651685357e-05
+        ],
+        "iterations": 1
+      },
+      "extra_info": {
+        "revision": "a3a2980dacedece196430e7de4eee79d50ebdb17",
+        "dirty": false,
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "fixture_sha256": "0163a6b85d475136699849599096cdfaa41292b773bf6c1dba6a756d01913b60",
+        "harness_sha256": "0192de53b4d9cb4c0e7caa2c9a738c993b8a6126f11e06759b33524bb38ce40a",
+        "host": "Chriss-Mac-mini.local",
+        "platform": "macOS-15.8-arm64-arm-64bit-Mach-O",
+        "processor": "arm",
+        "cpu_count": 10,
+        "host_total_bytes": 17179869184,
+        "python": "3.13.15",
+        "versions": {
+          "tabsim": "0.0.13",
+          "jax": "0.10.2",
+          "jaxlib": "0.10.2",
+          "numpy": "2.5.3",
+          "scipy": "1.18.0",
+          "dask": "2024.10.0",
+          "xarray": "2026.7.0",
+          "zarr": "2.18.7",
+          "dask-ms": "0.2.32",
+          "python-casacore": "3.8.1",
+          "pytest-benchmark": "5.3.0",
+          "satchecker-client": "0.2.0",
+          "ri-kernels": "0.2.1"
+        },
+        "jax_devices": [
+          "cpu:0"
+        ],
+        "device_kind": "cpu",
+        "x64": true,
+        "kernel_entrypoints": "tabsim.jax.interferometry (selected checkout)",
+        "kernel_source_sha256": "030e414670ebc3a2f416ba82c7090a4a6262755b4e0126d9c383615a940d01d9",
+        "environment": {
+          "JAX_PLATFORMS": "cpu",
+          "CUDA_VISIBLE_DEVICES": null,
+          "XLA_PYTHON_CLIENT_PREALLOCATE": null,
+          "XLA_PYTHON_CLIENT_MEM_FRACTION": null,
+          "OMP_NUM_THREADS": null
+        },
+        "case": {
+          "telescope": "SKA-Low-AA0.5",
+          "antennas": 4,
+          "times": 32,
+          "channels": 16,
+          "samples": 3,
+          "point_sources": 8,
+          "rfi_sources": 0
+        },
+        "options": {
+          "device": "cpu",
+          "rounds": 5,
+          "chunk_mb": 16.0,
+          "workers": 1,
+          "host_budget_gib": 4.0,
+          "gpu_budget_gib": 4.0
+        },
+        "case_id": "aa05-point",
+        "mode": "astro-kernel",
+        "estimates": {
+          "single_visibility_bytes": 12288,
+          "host_plan_bytes": 537042944,
+          "disk_plan_bytes": 0,
+          "kernel_plan_bytes": 196608
+        },
+        "runtime_import_s": 0.47189716700813733,
+        "measurement_notes": {
+          "startup": "runtime_import_s excludes Python/pytest startup; runner records process_wall_s",
+          "warm": "five or more single-iteration rounds after an explicit first call",
+          "memory": "50ms whole-process sampling includes untimed validation and diagnostics",
+          "transfer_counts": "isolated explicit copy timings/bytes only; pipeline counts require optional trace",
+          "diagnostics": "separate untimed instrumented round; not included in benchmark statistics"
+        },
+        "input_bytes": 9664,
+        "host_to_device_s": 0.0006936249847058207,
+        "input_shapes": [
+          [
+            8,
+            8,
+            16
+          ],
+          [
+            8,
+            6,
+            3
+          ],
+          [
+            8,
+            3
+          ],
+          [
+            16
+          ]
+        ],
+        "trace_and_lower_s": 0.020184833003440872,
+        "compile_s": 0.03112837500520982,
+        "compiled_memory_analysis": {
+          "argument_size_in_bytes": 9664,
+          "output_size_in_bytes": 12288,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 768,
+          "host_temp_size_in_bytes": 0
+        },
+        "first_execute_s": 0.00023658399004489183,
+        "device_to_host_s": 5.4459000239148736e-05,
+        "output_bytes": 12288,
+        "numpy_reference_sample_passed": true,
+        "output_sample": {
+          "kernel": {
+            "shape": [
+              8,
+              6,
+              16
+            ],
+            "real": [
+              -1.7073584992294641,
+              -0.6288958726632758,
+              1.3989895241142538
+            ],
+            "imag": [
+              0.4120382224937402,
+              -0.11989056261576722,
+              -0.2019281011990503
+            ]
+          }
+        },
+        "diagnostic_tasks_executed": 0,
+        "diagnostic_xla_compile_log_events": 0,
+        "memory": {
+          "rss_peak_sampled_bytes": 396656640,
+          "gpu_process_peak_sampled_bytes": null,
+          "sample_interval_s": 0.05,
+          "jax_allocator_stats": null,
+          "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+        }
+      },
+      "label": "baseline",
+      "pair": 2
+    },
+    {
+      "case": "aa05-point",
+      "mode": "astro-kernel",
+      "status": "passed",
+      "returncode": 0,
+      "process_wall_s": 1.4926121659809723,
+      "stats": {
+        "min": 5.2665971452370286e-05,
+        "max": 6.170899723656476e-05,
+        "mean": 5.5233389139175416e-05,
+        "stddev": 3.742142588810759e-06,
+        "rounds": 5,
+        "median": 5.354199674911797e-05,
+        "iqr": 3.82374128093943e-06,
+        "q1": 5.297874304233119e-05,
+        "q3": 5.680248432327062e-05,
+        "iqr_outliers": 0,
+        "stddev_outliers": 1,
+        "outliers": "1;0",
+        "ld15iqr": 5.2665971452370286e-05,
+        "hd15iqr": 6.170899723656476e-05,
+        "ops": 18104.990759850538,
+        "total": 0.0002761669456958771,
+        "data": [
+          6.170899723656476e-05,
+          5.516698001883924e-05,
+          5.354199674911797e-05,
+          5.308300023898482e-05,
+          5.2665971452370286e-05
+        ],
+        "iterations": 1
+      },
+      "extra_info": {
+        "revision": "0f8746713f33ab1383e0229aa9ac438ddc8bc363",
+        "dirty": false,
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "fixture_sha256": "0163a6b85d475136699849599096cdfaa41292b773bf6c1dba6a756d01913b60",
+        "harness_sha256": "0192de53b4d9cb4c0e7caa2c9a738c993b8a6126f11e06759b33524bb38ce40a",
+        "host": "Chriss-Mac-mini.local",
+        "platform": "macOS-15.8-arm64-arm-64bit-Mach-O",
+        "processor": "arm",
+        "cpu_count": 10,
+        "host_total_bytes": 17179869184,
+        "python": "3.13.15",
+        "versions": {
+          "tabsim": "0.0.13",
+          "jax": "0.10.2",
+          "jaxlib": "0.10.2",
+          "numpy": "2.5.3",
+          "scipy": "1.18.0",
+          "dask": "2024.10.0",
+          "xarray": "2026.7.0",
+          "zarr": "2.18.7",
+          "dask-ms": "0.2.32",
+          "python-casacore": "3.8.1",
+          "pytest-benchmark": "5.3.0",
+          "satchecker-client": "0.2.0",
+          "ri-kernels": "0.2.1"
+        },
+        "jax_devices": [
+          "cpu:0"
+        ],
+        "device_kind": "cpu",
+        "x64": true,
+        "kernel_entrypoints": "tabsim.jax.interferometry (selected checkout)",
+        "kernel_source_sha256": "030e414670ebc3a2f416ba82c7090a4a6262755b4e0126d9c383615a940d01d9",
+        "environment": {
+          "JAX_PLATFORMS": "cpu",
+          "CUDA_VISIBLE_DEVICES": null,
+          "XLA_PYTHON_CLIENT_PREALLOCATE": null,
+          "XLA_PYTHON_CLIENT_MEM_FRACTION": null,
+          "OMP_NUM_THREADS": null
+        },
+        "case": {
+          "telescope": "SKA-Low-AA0.5",
+          "antennas": 4,
+          "times": 32,
+          "channels": 16,
+          "samples": 3,
+          "point_sources": 8,
+          "rfi_sources": 0
+        },
+        "options": {
+          "device": "cpu",
+          "rounds": 5,
+          "chunk_mb": 16.0,
+          "workers": 1,
+          "host_budget_gib": 4.0,
+          "gpu_budget_gib": 4.0
+        },
+        "case_id": "aa05-point",
+        "mode": "astro-kernel",
+        "estimates": {
+          "single_visibility_bytes": 12288,
+          "host_plan_bytes": 537042944,
+          "disk_plan_bytes": 0,
+          "kernel_plan_bytes": 196608
+        },
+        "runtime_import_s": 0.47418537500198,
+        "measurement_notes": {
+          "startup": "runtime_import_s excludes Python/pytest startup; runner records process_wall_s",
+          "warm": "five or more single-iteration rounds after an explicit first call",
+          "memory": "50ms whole-process sampling includes untimed validation and diagnostics",
+          "transfer_counts": "isolated explicit copy timings/bytes only; pipeline counts require optional trace",
+          "diagnostics": "separate untimed instrumented round; not included in benchmark statistics"
+        },
+        "input_bytes": 9664,
+        "host_to_device_s": 0.0005720830231439322,
+        "input_shapes": [
+          [
+            8,
+            8,
+            16
+          ],
+          [
+            8,
+            6,
+            3
+          ],
+          [
+            8,
+            3
+          ],
+          [
+            16
+          ]
+        ],
+        "trace_and_lower_s": 0.0201472089975141,
+        "compile_s": 0.031609500001650304,
+        "compiled_memory_analysis": {
+          "argument_size_in_bytes": 9664,
+          "output_size_in_bytes": 12288,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 768,
+          "host_temp_size_in_bytes": 0
+        },
+        "first_execute_s": 0.0002359169884584844,
+        "device_to_host_s": 5.5459007853642106e-05,
+        "output_bytes": 12288,
+        "numpy_reference_sample_passed": true,
+        "output_sample": {
+          "kernel": {
+            "shape": [
+              8,
+              6,
+              16
+            ],
+            "real": [
+              -1.7073584992294641,
+              -0.6288958726632758,
+              1.3989895241142538
+            ],
+            "imag": [
+              0.4120382224937402,
+              -0.11989056261576722,
+              -0.2019281011990503
+            ]
+          }
+        },
+        "diagnostic_tasks_executed": 0,
+        "diagnostic_xla_compile_log_events": 0,
+        "memory": {
+          "rss_peak_sampled_bytes": 395624448,
+          "gpu_process_peak_sampled_bytes": null,
+          "sample_interval_s": 0.05,
+          "jax_allocator_stats": null,
+          "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+        }
+      },
+      "label": "candidate",
+      "pair": 2
+    },
+    {
+      "case": "aa05-point",
+      "mode": "astro-kernel",
+      "status": "passed",
+      "returncode": 0,
+      "process_wall_s": 1.487717749987496,
+      "stats": {
+        "min": 5.312499706633389e-05,
+        "max": 5.9958023484796286e-05,
+        "mean": 5.548320477828383e-05,
+        "stddev": 2.7148970136403926e-06,
+        "rounds": 5,
+        "median": 5.458400119096041e-05,
+        "iqr": 3.333494532853365e-06,
+        "q1": 5.362450610846281e-05,
+        "q3": 5.6958000641316175e-05,
+        "iqr_outliers": 0,
+        "stddev_outliers": 1,
+        "outliers": "1;0",
+        "ld15iqr": 5.312499706633389e-05,
+        "hd15iqr": 5.9958023484796286e-05,
+        "ops": 18023.472220036587,
+        "total": 0.00027741602389141917,
+        "data": [
+          5.9958023484796286e-05,
+          5.458400119096041e-05,
+          5.3791009122505784e-05,
+          5.312499706633389e-05,
+          5.5957993026822805e-05
+        ],
+        "iterations": 1
+      },
+      "extra_info": {
+        "revision": "0f8746713f33ab1383e0229aa9ac438ddc8bc363",
+        "dirty": false,
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "fixture_sha256": "0163a6b85d475136699849599096cdfaa41292b773bf6c1dba6a756d01913b60",
+        "harness_sha256": "0192de53b4d9cb4c0e7caa2c9a738c993b8a6126f11e06759b33524bb38ce40a",
+        "host": "Chriss-Mac-mini.local",
+        "platform": "macOS-15.8-arm64-arm-64bit-Mach-O",
+        "processor": "arm",
+        "cpu_count": 10,
+        "host_total_bytes": 17179869184,
+        "python": "3.13.15",
+        "versions": {
+          "tabsim": "0.0.13",
+          "jax": "0.10.2",
+          "jaxlib": "0.10.2",
+          "numpy": "2.5.3",
+          "scipy": "1.18.0",
+          "dask": "2024.10.0",
+          "xarray": "2026.7.0",
+          "zarr": "2.18.7",
+          "dask-ms": "0.2.32",
+          "python-casacore": "3.8.1",
+          "pytest-benchmark": "5.3.0",
+          "satchecker-client": "0.2.0",
+          "ri-kernels": "0.2.1"
+        },
+        "jax_devices": [
+          "cpu:0"
+        ],
+        "device_kind": "cpu",
+        "x64": true,
+        "kernel_entrypoints": "tabsim.jax.interferometry (selected checkout)",
+        "kernel_source_sha256": "030e414670ebc3a2f416ba82c7090a4a6262755b4e0126d9c383615a940d01d9",
+        "environment": {
+          "JAX_PLATFORMS": "cpu",
+          "CUDA_VISIBLE_DEVICES": null,
+          "XLA_PYTHON_CLIENT_PREALLOCATE": null,
+          "XLA_PYTHON_CLIENT_MEM_FRACTION": null,
+          "OMP_NUM_THREADS": null
+        },
+        "case": {
+          "telescope": "SKA-Low-AA0.5",
+          "antennas": 4,
+          "times": 32,
+          "channels": 16,
+          "samples": 3,
+          "point_sources": 8,
+          "rfi_sources": 0
+        },
+        "options": {
+          "device": "cpu",
+          "rounds": 5,
+          "chunk_mb": 16.0,
+          "workers": 1,
+          "host_budget_gib": 4.0,
+          "gpu_budget_gib": 4.0
+        },
+        "case_id": "aa05-point",
+        "mode": "astro-kernel",
+        "estimates": {
+          "single_visibility_bytes": 12288,
+          "host_plan_bytes": 537042944,
+          "disk_plan_bytes": 0,
+          "kernel_plan_bytes": 196608
+        },
+        "runtime_import_s": 0.47223200000007637,
+        "measurement_notes": {
+          "startup": "runtime_import_s excludes Python/pytest startup; runner records process_wall_s",
+          "warm": "five or more single-iteration rounds after an explicit first call",
+          "memory": "50ms whole-process sampling includes untimed validation and diagnostics",
+          "transfer_counts": "isolated explicit copy timings/bytes only; pipeline counts require optional trace",
+          "diagnostics": "separate untimed instrumented round; not included in benchmark statistics"
+        },
+        "input_bytes": 9664,
+        "host_to_device_s": 0.000568667019251734,
+        "input_shapes": [
+          [
+            8,
+            8,
+            16
+          ],
+          [
+            8,
+            6,
+            3
+          ],
+          [
+            8,
+            3
+          ],
+          [
+            16
+          ]
+        ],
+        "trace_and_lower_s": 0.020343084004707634,
+        "compile_s": 0.03126720798900351,
+        "compiled_memory_analysis": {
+          "argument_size_in_bytes": 9664,
+          "output_size_in_bytes": 12288,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 768,
+          "host_temp_size_in_bytes": 0
+        },
+        "first_execute_s": 0.00024312501773238182,
+        "device_to_host_s": 5.6500022765249014e-05,
+        "output_bytes": 12288,
+        "numpy_reference_sample_passed": true,
+        "output_sample": {
+          "kernel": {
+            "shape": [
+              8,
+              6,
+              16
+            ],
+            "real": [
+              -1.7073584992294641,
+              -0.6288958726632758,
+              1.3989895241142538
+            ],
+            "imag": [
+              0.4120382224937402,
+              -0.11989056261576722,
+              -0.2019281011990503
+            ]
+          }
+        },
+        "diagnostic_tasks_executed": 0,
+        "diagnostic_xla_compile_log_events": 0,
+        "memory": {
+          "rss_peak_sampled_bytes": 396820480,
+          "gpu_process_peak_sampled_bytes": null,
+          "sample_interval_s": 0.05,
+          "jax_allocator_stats": null,
+          "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+        }
+      },
+      "label": "candidate",
+      "pair": 3
+    },
+    {
+      "case": "aa05-point",
+      "mode": "astro-kernel",
+      "status": "passed",
+      "returncode": 0,
+      "process_wall_s": 1.4954368749749847,
+      "stats": {
+        "min": 5.299999611452222e-05,
+        "max": 6.066699279472232e-05,
+        "mean": 5.53834019228816e-05,
+        "stddev": 3.1337126534734904e-06,
+        "rounds": 5,
+        "median": 5.387500277720392e-05,
+        "iqr": 3.5735065466724336e-06,
+        "q1": 5.3437252063304186e-05,
+        "q3": 5.701075860997662e-05,
+        "iqr_outliers": 0,
+        "stddev_outliers": 1,
+        "outliers": "1;0",
+        "ld15iqr": 5.299999611452222e-05,
+        "hd15iqr": 6.066699279472232e-05,
+        "ops": 18055.951156493527,
+        "total": 0.000276917009614408,
+        "data": [
+          6.066699279472232e-05,
+          5.579201388172805e-05,
+          5.358300404623151e-05,
+          5.387500277720392e-05,
+          5.299999611452222e-05
+        ],
+        "iterations": 1
+      },
+      "extra_info": {
+        "revision": "a3a2980dacedece196430e7de4eee79d50ebdb17",
+        "dirty": false,
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "fixture_sha256": "0163a6b85d475136699849599096cdfaa41292b773bf6c1dba6a756d01913b60",
+        "harness_sha256": "0192de53b4d9cb4c0e7caa2c9a738c993b8a6126f11e06759b33524bb38ce40a",
+        "host": "Chriss-Mac-mini.local",
+        "platform": "macOS-15.8-arm64-arm-64bit-Mach-O",
+        "processor": "arm",
+        "cpu_count": 10,
+        "host_total_bytes": 17179869184,
+        "python": "3.13.15",
+        "versions": {
+          "tabsim": "0.0.13",
+          "jax": "0.10.2",
+          "jaxlib": "0.10.2",
+          "numpy": "2.5.3",
+          "scipy": "1.18.0",
+          "dask": "2024.10.0",
+          "xarray": "2026.7.0",
+          "zarr": "2.18.7",
+          "dask-ms": "0.2.32",
+          "python-casacore": "3.8.1",
+          "pytest-benchmark": "5.3.0",
+          "satchecker-client": "0.2.0",
+          "ri-kernels": "0.2.1"
+        },
+        "jax_devices": [
+          "cpu:0"
+        ],
+        "device_kind": "cpu",
+        "x64": true,
+        "kernel_entrypoints": "tabsim.jax.interferometry (selected checkout)",
+        "kernel_source_sha256": "030e414670ebc3a2f416ba82c7090a4a6262755b4e0126d9c383615a940d01d9",
+        "environment": {
+          "JAX_PLATFORMS": "cpu",
+          "CUDA_VISIBLE_DEVICES": null,
+          "XLA_PYTHON_CLIENT_PREALLOCATE": null,
+          "XLA_PYTHON_CLIENT_MEM_FRACTION": null,
+          "OMP_NUM_THREADS": null
+        },
+        "case": {
+          "telescope": "SKA-Low-AA0.5",
+          "antennas": 4,
+          "times": 32,
+          "channels": 16,
+          "samples": 3,
+          "point_sources": 8,
+          "rfi_sources": 0
+        },
+        "options": {
+          "device": "cpu",
+          "rounds": 5,
+          "chunk_mb": 16.0,
+          "workers": 1,
+          "host_budget_gib": 4.0,
+          "gpu_budget_gib": 4.0
+        },
+        "case_id": "aa05-point",
+        "mode": "astro-kernel",
+        "estimates": {
+          "single_visibility_bytes": 12288,
+          "host_plan_bytes": 537042944,
+          "disk_plan_bytes": 0,
+          "kernel_plan_bytes": 196608
+        },
+        "runtime_import_s": 0.4693029580230359,
+        "measurement_notes": {
+          "startup": "runtime_import_s excludes Python/pytest startup; runner records process_wall_s",
+          "warm": "five or more single-iteration rounds after an explicit first call",
+          "memory": "50ms whole-process sampling includes untimed validation and diagnostics",
+          "transfer_counts": "isolated explicit copy timings/bytes only; pipeline counts require optional trace",
+          "diagnostics": "separate untimed instrumented round; not included in benchmark statistics"
+        },
+        "input_bytes": 9664,
+        "host_to_device_s": 0.0007018339820206165,
+        "input_shapes": [
+          [
+            8,
+            8,
+            16
+          ],
+          [
+            8,
+            6,
+            3
+          ],
+          [
+            8,
+            3
+          ],
+          [
+            16
+          ]
+        ],
+        "trace_and_lower_s": 0.020274167007301003,
+        "compile_s": 0.031635374994948506,
+        "compiled_memory_analysis": {
+          "argument_size_in_bytes": 9664,
+          "output_size_in_bytes": 12288,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 768,
+          "host_temp_size_in_bytes": 0
+        },
+        "first_execute_s": 0.0002295419981237501,
+        "device_to_host_s": 5.5374985095113516e-05,
+        "output_bytes": 12288,
+        "numpy_reference_sample_passed": true,
+        "output_sample": {
+          "kernel": {
+            "shape": [
+              8,
+              6,
+              16
+            ],
+            "real": [
+              -1.7073584992294641,
+              -0.6288958726632758,
+              1.3989895241142538
+            ],
+            "imag": [
+              0.4120382224937402,
+              -0.11989056261576722,
+              -0.2019281011990503
+            ]
+          }
+        },
+        "diagnostic_tasks_executed": 0,
+        "diagnostic_xla_compile_log_events": 0,
+        "memory": {
+          "rss_peak_sampled_bytes": 394739712,
+          "gpu_process_peak_sampled_bytes": null,
+          "sample_interval_s": 0.05,
+          "jax_allocator_stats": null,
+          "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+        }
+      },
+      "label": "baseline",
+      "pair": 3
+    },
+    {
+      "case": "aa05-point",
+      "mode": "astro-kernel",
+      "status": "passed",
+      "returncode": 0,
+      "process_wall_s": 1.49736620800104,
+      "stats": {
+        "min": 5.237499135546386e-05,
+        "max": 5.983299342915416e-05,
+        "mean": 5.457479855976999e-05,
+        "stddev": 3.113179943859529e-06,
+        "rounds": 5,
+        "median": 5.295799928717315e-05,
+        "iqr": 3.583510988391936e-06,
+        "q1": 5.262474587652832e-05,
+        "q3": 5.620825686492026e-05,
+        "iqr_outliers": 0,
+        "stddev_outliers": 1,
+        "outliers": "1;0",
+        "ld15iqr": 5.237499135546386e-05,
+        "hd15iqr": 5.983299342915416e-05,
+        "ops": 18323.47578717686,
+        "total": 0.00027287399279884994,
+        "data": [
+          5.983299342915416e-05,
+          5.500001134350896e-05,
+          5.295799928717315e-05,
+          5.270799738354981e-05,
+          5.237499135546386e-05
+        ],
+        "iterations": 1
+      },
+      "extra_info": {
+        "revision": "a3a2980dacedece196430e7de4eee79d50ebdb17",
+        "dirty": false,
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "fixture_sha256": "0163a6b85d475136699849599096cdfaa41292b773bf6c1dba6a756d01913b60",
+        "harness_sha256": "0192de53b4d9cb4c0e7caa2c9a738c993b8a6126f11e06759b33524bb38ce40a",
+        "host": "Chriss-Mac-mini.local",
+        "platform": "macOS-15.8-arm64-arm-64bit-Mach-O",
+        "processor": "arm",
+        "cpu_count": 10,
+        "host_total_bytes": 17179869184,
+        "python": "3.13.15",
+        "versions": {
+          "tabsim": "0.0.13",
+          "jax": "0.10.2",
+          "jaxlib": "0.10.2",
+          "numpy": "2.5.3",
+          "scipy": "1.18.0",
+          "dask": "2024.10.0",
+          "xarray": "2026.7.0",
+          "zarr": "2.18.7",
+          "dask-ms": "0.2.32",
+          "python-casacore": "3.8.1",
+          "pytest-benchmark": "5.3.0",
+          "satchecker-client": "0.2.0",
+          "ri-kernels": "0.2.1"
+        },
+        "jax_devices": [
+          "cpu:0"
+        ],
+        "device_kind": "cpu",
+        "x64": true,
+        "kernel_entrypoints": "tabsim.jax.interferometry (selected checkout)",
+        "kernel_source_sha256": "030e414670ebc3a2f416ba82c7090a4a6262755b4e0126d9c383615a940d01d9",
+        "environment": {
+          "JAX_PLATFORMS": "cpu",
+          "CUDA_VISIBLE_DEVICES": null,
+          "XLA_PYTHON_CLIENT_PREALLOCATE": null,
+          "XLA_PYTHON_CLIENT_MEM_FRACTION": null,
+          "OMP_NUM_THREADS": null
+        },
+        "case": {
+          "telescope": "SKA-Low-AA0.5",
+          "antennas": 4,
+          "times": 32,
+          "channels": 16,
+          "samples": 3,
+          "point_sources": 8,
+          "rfi_sources": 0
+        },
+        "options": {
+          "device": "cpu",
+          "rounds": 5,
+          "chunk_mb": 16.0,
+          "workers": 1,
+          "host_budget_gib": 4.0,
+          "gpu_budget_gib": 4.0
+        },
+        "case_id": "aa05-point",
+        "mode": "astro-kernel",
+        "estimates": {
+          "single_visibility_bytes": 12288,
+          "host_plan_bytes": 537042944,
+          "disk_plan_bytes": 0,
+          "kernel_plan_bytes": 196608
+        },
+        "runtime_import_s": 0.47370012500323355,
+        "measurement_notes": {
+          "startup": "runtime_import_s excludes Python/pytest startup; runner records process_wall_s",
+          "warm": "five or more single-iteration rounds after an explicit first call",
+          "memory": "50ms whole-process sampling includes untimed validation and diagnostics",
+          "transfer_counts": "isolated explicit copy timings/bytes only; pipeline counts require optional trace",
+          "diagnostics": "separate untimed instrumented round; not included in benchmark statistics"
+        },
+        "input_bytes": 9664,
+        "host_to_device_s": 0.0005782090011052787,
+        "input_shapes": [
+          [
+            8,
+            8,
+            16
+          ],
+          [
+            8,
+            6,
+            3
+          ],
+          [
+            8,
+            3
+          ],
+          [
+            16
+          ]
+        ],
+        "trace_and_lower_s": 0.020412124984432012,
+        "compile_s": 0.03227325002080761,
+        "compiled_memory_analysis": {
+          "argument_size_in_bytes": 9664,
+          "output_size_in_bytes": 12288,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 768,
+          "host_temp_size_in_bytes": 0
+        },
+        "first_execute_s": 0.0002382500097155571,
+        "device_to_host_s": 5.5208016419783235e-05,
+        "output_bytes": 12288,
+        "numpy_reference_sample_passed": true,
+        "output_sample": {
+          "kernel": {
+            "shape": [
+              8,
+              6,
+              16
+            ],
+            "real": [
+              -1.7073584992294641,
+              -0.6288958726632758,
+              1.3989895241142538
+            ],
+            "imag": [
+              0.4120382224937402,
+              -0.11989056261576722,
+              -0.2019281011990503
+            ]
+          }
+        },
+        "diagnostic_tasks_executed": 0,
+        "diagnostic_xla_compile_log_events": 0,
+        "memory": {
+          "rss_peak_sampled_bytes": 395444224,
+          "gpu_process_peak_sampled_bytes": null,
+          "sample_interval_s": 0.05,
+          "jax_allocator_stats": null,
+          "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+        }
+      },
+      "label": "baseline",
+      "pair": 4
+    },
+    {
+      "case": "aa05-point",
+      "mode": "astro-kernel",
+      "status": "passed",
+      "returncode": 0,
+      "process_wall_s": 1.5001013749861158,
+      "stats": {
+        "min": 5.3584022680297494e-05,
+        "max": 6.0457998188212514e-05,
+        "mean": 5.5525207426398995e-05,
+        "stddev": 2.873730608282397e-06,
+        "rounds": 5,
+        "median": 5.400000372901559e-05,
+        "iqr": 3.031003871001303e-06,
+        "q1": 5.383375537348911e-05,
+        "q3": 5.6864759244490415e-05,
+        "iqr_outliers": 0,
+        "stddev_outliers": 1,
+        "outliers": "1;0",
+        "ld15iqr": 5.3584022680297494e-05,
+        "hd15iqr": 6.0457998188212514e-05,
+        "ops": 18009.83816810666,
+        "total": 0.00027762603713199496,
+        "data": [
+          6.0457998188212514e-05,
+          5.566701292991638e-05,
+          5.400000372901559e-05,
+          5.3584022680297494e-05,
+          5.3916999604552984e-05
+        ],
+        "iterations": 1
+      },
+      "extra_info": {
+        "revision": "0f8746713f33ab1383e0229aa9ac438ddc8bc363",
+        "dirty": false,
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "fixture_sha256": "0163a6b85d475136699849599096cdfaa41292b773bf6c1dba6a756d01913b60",
+        "harness_sha256": "0192de53b4d9cb4c0e7caa2c9a738c993b8a6126f11e06759b33524bb38ce40a",
+        "host": "Chriss-Mac-mini.local",
+        "platform": "macOS-15.8-arm64-arm-64bit-Mach-O",
+        "processor": "arm",
+        "cpu_count": 10,
+        "host_total_bytes": 17179869184,
+        "python": "3.13.15",
+        "versions": {
+          "tabsim": "0.0.13",
+          "jax": "0.10.2",
+          "jaxlib": "0.10.2",
+          "numpy": "2.5.3",
+          "scipy": "1.18.0",
+          "dask": "2024.10.0",
+          "xarray": "2026.7.0",
+          "zarr": "2.18.7",
+          "dask-ms": "0.2.32",
+          "python-casacore": "3.8.1",
+          "pytest-benchmark": "5.3.0",
+          "satchecker-client": "0.2.0",
+          "ri-kernels": "0.2.1"
+        },
+        "jax_devices": [
+          "cpu:0"
+        ],
+        "device_kind": "cpu",
+        "x64": true,
+        "kernel_entrypoints": "tabsim.jax.interferometry (selected checkout)",
+        "kernel_source_sha256": "030e414670ebc3a2f416ba82c7090a4a6262755b4e0126d9c383615a940d01d9",
+        "environment": {
+          "JAX_PLATFORMS": "cpu",
+          "CUDA_VISIBLE_DEVICES": null,
+          "XLA_PYTHON_CLIENT_PREALLOCATE": null,
+          "XLA_PYTHON_CLIENT_MEM_FRACTION": null,
+          "OMP_NUM_THREADS": null
+        },
+        "case": {
+          "telescope": "SKA-Low-AA0.5",
+          "antennas": 4,
+          "times": 32,
+          "channels": 16,
+          "samples": 3,
+          "point_sources": 8,
+          "rfi_sources": 0
+        },
+        "options": {
+          "device": "cpu",
+          "rounds": 5,
+          "chunk_mb": 16.0,
+          "workers": 1,
+          "host_budget_gib": 4.0,
+          "gpu_budget_gib": 4.0
+        },
+        "case_id": "aa05-point",
+        "mode": "astro-kernel",
+        "estimates": {
+          "single_visibility_bytes": 12288,
+          "host_plan_bytes": 537042944,
+          "disk_plan_bytes": 0,
+          "kernel_plan_bytes": 196608
+        },
+        "runtime_import_s": 0.46876016701571643,
+        "measurement_notes": {
+          "startup": "runtime_import_s excludes Python/pytest startup; runner records process_wall_s",
+          "warm": "five or more single-iteration rounds after an explicit first call",
+          "memory": "50ms whole-process sampling includes untimed validation and diagnostics",
+          "transfer_counts": "isolated explicit copy timings/bytes only; pipeline counts require optional trace",
+          "diagnostics": "separate untimed instrumented round; not included in benchmark statistics"
+        },
+        "input_bytes": 9664,
+        "host_to_device_s": 0.0007486669928766787,
+        "input_shapes": [
+          [
+            8,
+            8,
+            16
+          ],
+          [
+            8,
+            6,
+            3
+          ],
+          [
+            8,
+            3
+          ],
+          [
+            16
+          ]
+        ],
+        "trace_and_lower_s": 0.020809208013815805,
+        "compile_s": 0.03155962500022724,
+        "compiled_memory_analysis": {
+          "argument_size_in_bytes": 9664,
+          "output_size_in_bytes": 12288,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 768,
+          "host_temp_size_in_bytes": 0
+        },
+        "first_execute_s": 0.00024287498672492802,
+        "device_to_host_s": 5.6374992709606886e-05,
+        "output_bytes": 12288,
+        "numpy_reference_sample_passed": true,
+        "output_sample": {
+          "kernel": {
+            "shape": [
+              8,
+              6,
+              16
+            ],
+            "real": [
+              -1.7073584992294641,
+              -0.6288958726632758,
+              1.3989895241142538
+            ],
+            "imag": [
+              0.4120382224937402,
+              -0.11989056261576722,
+              -0.2019281011990503
+            ]
+          }
+        },
+        "diagnostic_tasks_executed": 0,
+        "diagnostic_xla_compile_log_events": 0,
+        "memory": {
+          "rss_peak_sampled_bytes": 397869056,
+          "gpu_process_peak_sampled_bytes": null,
+          "sample_interval_s": 0.05,
+          "jax_allocator_stats": null,
+          "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+        }
+      },
+      "label": "candidate",
+      "pair": 4
+    }
+  ],
+  "comparisons": [
+    {
+      "case": "aa05-point",
+      "mode": "astro-kernel",
+      "pair": 0,
+      "status": "compared",
+      "sampled_outputs_match": true,
+      "median_change_percent": 0.5511819705389387,
+      "baseline_iqr_s": 5.093526851851493e-06,
+      "candidate_iqr_s": 4.520014044828713e-06,
+      "note": "Per-pair result, not a significance test; inspect all alternating pairs."
+    },
+    {
+      "case": "aa05-point",
+      "mode": "astro-kernel",
+      "pair": 1,
+      "status": "compared",
+      "sampled_outputs_match": true,
+      "median_change_percent": 0.23237833682037135,
+      "baseline_iqr_s": 5.510002665687352e-06,
+      "candidate_iqr_s": 4.68648795504123e-06,
+      "note": "Per-pair result, not a significance test; inspect all alternating pairs."
+    },
+    {
+      "case": "aa05-point",
+      "mode": "astro-kernel",
+      "pair": 2,
+      "status": "compared",
+      "sampled_outputs_match": true,
+      "median_change_percent": -4.6022668051550415,
+      "baseline_iqr_s": 4.447989340405911e-06,
+      "candidate_iqr_s": 3.82374128093943e-06,
+      "note": "Per-pair result, not a significance test; inspect all alternating pairs."
+    },
+    {
+      "case": "aa05-point",
+      "mode": "astro-kernel",
+      "pair": 3,
+      "status": "compared",
+      "sampled_outputs_match": true,
+      "median_change_percent": 1.3160062686001117,
+      "baseline_iqr_s": 3.5735065466724336e-06,
+      "candidate_iqr_s": 3.333494532853365e-06,
+      "note": "Per-pair result, not a significance test; inspect all alternating pairs."
+    },
+    {
+      "case": "aa05-point",
+      "mode": "astro-kernel",
+      "pair": 4,
+      "status": "compared",
+      "sampled_outputs_match": true,
+      "median_change_percent": 1.9676053775974367,
+      "baseline_iqr_s": 3.583510988391936e-06,
+      "candidate_iqr_s": 3.031003871001303e-06,
+      "note": "Per-pair result, not a significance test; inspect all alternating pairs."
+    }
+  ]
+}

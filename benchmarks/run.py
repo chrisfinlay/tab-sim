@@ -1,6 +1,7 @@
 """Isolated benchmark runner with guarded processes and paired checkout comparisons."""
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import signal
@@ -12,6 +13,23 @@ import xml.etree.ElementTree as ET
 import psutil
 
 from .cases import CASES, MODES, estimates
+
+
+def terminate_worker(proc):
+    """Reap our process group even after monitoring errors or Ctrl-C."""
+    if proc.poll() is None:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait()
 
 
 def run_one(args, case, mode, root, python, prefix):
@@ -34,24 +52,25 @@ def run_one(args, case, mode, root, python, prefix):
     with log.open("w") as stream:
         proc = subprocess.Popen(cmd, cwd=root, stdout=stream, stderr=subprocess.STDOUT,
                                 start_new_session=True)
-        while proc.poll() is None:
-            try:
-                process = psutil.Process(proc.pid)
-                rss = sum(p.memory_info().rss for p in [process] + process.children(recursive=True))
-                if rss > args.host_budget_gib * 2**30:
-                    status = "host_memory_limit"
-                elif time.perf_counter() - started > args.timeout:
-                    status = "timeout"
+        try:
+            while proc.poll() is None:
+                try:
+                    process = psutil.Process(proc.pid)
+                    rss = sum(p.memory_info().rss for p in [process] + process.children(recursive=True))
+                    if rss > args.host_budget_gib * 2**30:
+                        status = "host_memory_limit"
+                    elif time.perf_counter() - started > args.timeout:
+                        status = "timeout"
+                except psutil.NoSuchProcess:
+                    pass
+                except (psutil.Error, OSError):
+                    # Fail closed rather than continue an unmonitored allocation.
+                    status = "monitor_error"
                 if status:
-                    os.killpg(proc.pid, signal.SIGTERM)
-                    try:
-                        proc.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(proc.pid, signal.SIGKILL)
                     break
-            except psutil.NoSuchProcess:
-                pass
-            time.sleep(0.1)
+                time.sleep(0.1)
+        finally:
+            terminate_worker(proc)
         code = proc.wait()
     result = {"case": case, "mode": mode, "root": str(root), "python": python,
               "status": status or ("passed" if code == 0 else "failed"),
@@ -116,6 +135,10 @@ def main():
     args = parser.parse_args()
     if args.pairs < 1 or args.rounds < 5:
         parser.error("Require pairs >= 1 and rounds >= 5")
+    for name in ("workers", "chunk_mb", "host_budget_gib", "gpu_budget_gib", "timeout"):
+        value = getattr(args, name)
+        if not math.isfinite(value) or value <= 0:
+            parser.error(f"{name} must be finite and positive")
     if args.candidate_root and args.pairs < 5:
         parser.error("Checkout comparisons require at least five alternating pairs")
     args.source_root = args.source_root.resolve()

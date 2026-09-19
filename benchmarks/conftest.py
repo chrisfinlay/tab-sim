@@ -1,4 +1,5 @@
 import os
+import math
 from pathlib import Path
 import sys
 
@@ -41,5 +42,5 @@ def pytest_configure(config):
     if config.getoption("--rounds") < 5:
         raise pytest.UsageError("Use at least five measured warm rounds")
     for name in ("--workers", "--chunk-mb", "--host-budget-gib", "--gpu-budget-gib"):
-        if config.getoption(name) <= 0:
+        if not math.isfinite(config.getoption(name)) or config.getoption(name) <= 0:
             raise pytest.UsageError(f"{name} must be positive")
