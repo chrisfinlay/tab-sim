@@ -18,6 +18,8 @@ def pytest_addoption(parser):
     group.addoption("--gpu-budget-gib", type=float, default=4.0)
     group.addoption("--source-root", default=str(Path(__file__).resolve().parents[1]))
     group.addoption("--trace-dir", default=None)
+    group.addoption("--capacity", action="store_true")
+    group.addoption("--memory-model", choices=("conservative", "chunked"), default="conservative")
 
 
 def pytest_configure(config):

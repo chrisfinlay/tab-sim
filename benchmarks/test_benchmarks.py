@@ -28,16 +28,17 @@ def test_workload(benchmark, request, tmp_path):
         pytest.skip("This fixture has no sources for that kernel")
     # Never exceed half of currently available host RAM, regardless of configured cap.
     budget = min(get("--host-budget-gib") * 2**30, psutil.virtual_memory().available * 0.5)
-    reason = guard_reason(case, mode, budget, shutil.disk_usage(tmp_path).free * 0.5,
-                          get("--gpu-budget-gib") * 2**30 if get("--device") == "gpu" else None)
+    reason = guard_reason(case, mode, budget, max(0, shutil.disk_usage(tmp_path).free - max(2 * 2**30, shutil.disk_usage(tmp_path).total * 0.05)),
+                          get("--gpu-budget-gib") * 2**30 if get("--device") == "gpu" else None,
+                          get("--chunk-mb"), get("--workers"), get("--memory-model"))
     if reason:
         pytest.skip("Memory preflight: " + reason)
     offline()
     opts = {k: get("--" + k.replace("_", "-")) for k in (
-        "device", "rounds", "chunk_mb", "workers", "host_budget_gib", "gpu_budget_gib")}
+        "device", "rounds", "chunk_mb", "workers", "host_budget_gib", "gpu_budget_gib", "memory_model", "capacity")}
     info = benchmark.extra_info
     info.update(provenance(get("--source-root"), case, opts))
-    info.update(case_id=name, mode=mode, estimates=estimates(case, mode),
+    info.update(case_id=name, mode=mode, estimates=estimates(case, mode, get("--chunk-mb"), get("--workers"), get("--memory-model")),
                 runtime_import_s=time.perf_counter() - started)
     info["measurement_notes"] = {
         "startup": "runtime_import_s excludes Python/pytest startup; runner records process_wall_s",
@@ -104,6 +105,15 @@ def test_workload(benchmark, request, tmp_path):
                 info["output_bytes"] = sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
                 shutil.rmtree(path)
                 gc.collect()
+            if get("--capacity"):
+                # One complete cold simulation and bounded readback; no speed claim.
+                benchmark.pedantic(target, setup=setup, teardown=teardown, rounds=1, iterations=1)
+                info["capacity_phases"] = phases
+                info["output_sample"] = samples[0]
+                info["measurement_notes"]["warm"] = "capacity: one cold execution; no warm timing or repeatability claim"
+                info["measurement_notes"]["diagnostics"] = "capacity: no extra diagnostic execution"
+                info["memory"] = memory.report()
+                return
             setup()
             try:
                 target()

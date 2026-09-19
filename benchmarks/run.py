@@ -5,6 +5,7 @@ import math
 import os
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -45,10 +46,19 @@ def run_one(args, case, mode, root, python, prefix):
            "--gpu-budget-gib", str(args.gpu_budget_gib),
            "--benchmark-json", str(report),
            "--junitxml", str(junit), "-q"]
+    cmd += ["--memory-model", getattr(args, "memory_model", "conservative")]
+    if getattr(args, "capacity", False):
+        cmd += ["--capacity"]
     if args.trace:
         cmd += ["--trace-dir", str(prefix.parent / (prefix.name + "-trace"))]
     started = time.perf_counter()
     status = None
+    peak_rss = 0
+    host_limit = min(args.host_budget_gib * 2**30, psutil.virtual_memory().available * 0.5)
+    scratch = prefix.parent / (prefix.name + "-scratch")
+    scratch.mkdir()
+    cmd += ["--basetemp", str(scratch)]
+    disk_reserve = max(2 * 2**30, shutil.disk_usage(scratch).total * 0.05)
     with log.open("w") as stream:
         proc = subprocess.Popen(cmd, cwd=root, stdout=stream, stderr=subprocess.STDOUT,
                                 start_new_session=True)
@@ -57,8 +67,11 @@ def run_one(args, case, mode, root, python, prefix):
                 try:
                     process = psutil.Process(proc.pid)
                     rss = sum(p.memory_info().rss for p in [process] + process.children(recursive=True))
-                    if rss > args.host_budget_gib * 2**30:
+                    peak_rss = max(peak_rss, rss)
+                    if rss > host_limit:
                         status = "host_memory_limit"
+                    elif shutil.disk_usage(scratch).free < disk_reserve:
+                        status = "disk_space_limit"
                     elif time.perf_counter() - started > args.timeout:
                         status = "timeout"
                 except psutil.NoSuchProcess:
@@ -74,6 +87,8 @@ def run_one(args, case, mode, root, python, prefix):
         code = proc.wait()
     result = {"case": case, "mode": mode, "root": str(root), "python": python,
               "status": status or ("passed" if code == 0 else "failed"),
+              "supervisor_peak_rss_bytes": peak_rss, "enforced_host_limit_bytes": host_limit,
+              "disk_reserve_bytes": disk_reserve,
               "returncode": code, "process_wall_s": time.perf_counter() - started,
               "report": report.name, "log": log.name, "command": cmd}
     if junit.exists():
@@ -90,6 +105,7 @@ def run_one(args, case, mode, root, python, prefix):
             result.update(status="failed", reason="No benchmark statistics produced")
     if result["status"] == "passed" and "stats" not in result:
         result.update(status="failed", reason="No benchmark statistics produced")
+    shutil.rmtree(scratch)
     return result
 
 
@@ -98,6 +114,8 @@ def compare_records(base, candidate):
     if base["status"] != "passed" or candidate["status"] != "passed":
         return {"status": "unavailable"}
     a, b = base["extra_info"], candidate["extra_info"]
+    if a["options"].get("capacity") or b["options"].get("capacity"):
+        raise ValueError("Capacity runs are not repeated performance comparisons")
     for key in ("fixture_sha256", "harness_sha256", "case", "options", "host", "device_kind", "x64", "environment", "python"):
         if a[key] != b[key]:
             raise ValueError(f"Incomparable benchmark metadata: {key}")
@@ -132,6 +150,9 @@ def main():
     parser.add_argument("--gpu-budget-gib", type=float, default=4)
     parser.add_argument("--timeout", type=float, default=1200)
     parser.add_argument("--trace", action="store_true")
+    parser.add_argument("--capacity", action="store_true", help="One cold full-output execution; no performance comparison")
+    parser.add_argument("--memory-model", choices=("conservative", "chunked"), default="conservative",
+                        help="Chunked is calibrated for current lazy-noise Zarr only; use conservative for older checkouts")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--plan", action="store_true")
     args = parser.parse_args()
@@ -141,13 +162,15 @@ def main():
         value = getattr(args, name)
         if not math.isfinite(value) or value <= 0:
             parser.error(f"{name} must be finite and positive")
+    if args.capacity and (args.candidate_root or any(m != "zarr" for m in args.modes)):
+        parser.error("Capacity runs support Zarr only and cannot compare checkouts")
     if args.candidate_root and args.pairs < 5:
         parser.error("Checkout comparisons require at least five alternating pairs")
     args.source_root = args.source_root.resolve()
     if args.candidate_root:
         args.candidate_root = args.candidate_root.resolve()
     if args.plan:
-        print(json.dumps({case: {mode: estimates(CASES[case], mode) for mode in args.modes}
+        print(json.dumps({case: {mode: estimates(CASES[case], mode, args.chunk_mb, args.workers, args.memory_model) for mode in args.modes}
                           for case in args.cases}, indent=2))
         return
     # Exclusive directory prevents accidentally overwriting prior evidence.
