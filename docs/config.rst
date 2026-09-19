@@ -124,3 +124,45 @@ full per-satellite listing in a run's log.
 
 **dask**, **diagnostics**, **gains**:
 - Tuning for memory and plotting diagnostics, and simulation of instrument gain fluctuations.
+
+Planned SKA-Low configurations
+-----------------------------
+
+Set ``telescope.name`` to one of the following (case-insensitive), leaving
+``itrf_path``, ``enu_path`` and ``dish_d`` unset to use the packaged definition:
+
+.. list-table:: Packaged planned station layouts
+   :header-rows: 1
+
+   * - Name
+     - Stations
+   * - ``SKA-Low-AA0.5``
+     - 4
+   * - ``SKA-Low-AA1``
+     - 16
+   * - ``SKA-Low-AA2``
+     - 68
+   * - ``SKA-Low-AA*-Phase-1``
+     - 108
+   * - ``SKA-Low-AA*``
+     - 307
+   * - ``SKA-Low-AA4``
+     - 512
+
+For example::
+
+   telescope:
+     name: "SKA-Low-AA1"
+
+These are versioned **planned** layouts, not a live record of commissioned
+stations. Each row is a station centre in geocentric metres, rounded to 1 mm.
+The reference location is WGS84 longitude 116.7644482 degrees, latitude
+-26.82472208 degrees, and ellipsoidal height 365 m. The default 39 m diameter
+uses tab-sim's existing Airy beam approximation, not a detailed SKA station beam.
+Configured geometry, diameter and elevation overrides retain their usual
+precedence. ``n_ant`` selects the first rows of the chosen table, not another
+assembly stage.
+
+The public ``AA*`` names are literal names; their packaged filenames use
+``AAstar`` for portability. Source revisions and regeneration instructions are
+in ``tabsim/data/telescopes/SKA-Low-PROVENANCE.md``.
