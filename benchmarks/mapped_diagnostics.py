@@ -32,7 +32,7 @@ class MappedDiagnostics:
                     return func(*block_args, **block_kwargs)
                 finally:
                     profiler.disable()
-                    record = {"callback": func.__name__, "wall_s": time.perf_counter() - wall,
+                    record = {"callback": f"{func.__module__}.{func.__qualname__}", "wall_s": time.perf_counter() - wall,
                               "thread_cpu_s": time.thread_time() - cpu,
                               "nested_compute_calls": 0, "nested_compute_inclusive_s": 0.,
                               "tokenize_calls": 0, "tokenize_inclusive_s": 0.}

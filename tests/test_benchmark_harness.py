@@ -236,7 +236,28 @@ def test_mapped_diagnostics_detects_inner_graph_and_restores_hook():
         with MappedDiagnostics() as diagnostic:
             xr.map_blocks(callback, ds, template=ds).compute(scheduler="threads", num_workers=1)
         assert xr.map_blocks is original
-        result = diagnostic.report()["callbacks"]["callback"]
+        result = diagnostic.report()["callbacks"][f"{callback.__module__}.{callback.__qualname__}"]
         assert result["calls"] == 2
         assert result["nested_compute_calls"] == (2 if nested else 0)
         assert result["tokenize_calls"] > 0 if nested else result["tokenize_calls"] == 0
+
+
+def test_mapped_diagnostics_distinguishes_equal_short_names():
+    import dask.array as da
+    import xarray as xr
+    from benchmarks.mapped_diagnostics import MappedDiagnostics
+    def first():
+        def callback(block):
+            return block
+        return callback
+    def second():
+        def callback(block):
+            return block
+        return callback
+    ds = xr.Dataset({"x": (["t"], da.zeros(4, chunks=2))})
+    with MappedDiagnostics() as diagnostic:
+        for callback in (first(), second()):
+            xr.map_blocks(callback, ds, template=ds).compute(scheduler="synchronous")
+    callbacks = diagnostic.report()["callbacks"]
+    assert len(callbacks) == 2
+    assert all(value["calls"] == 2 for value in callbacks.values())
