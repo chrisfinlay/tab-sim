@@ -78,7 +78,7 @@ import pathlib, pytest, sys
 root = pathlib.Path(sys.argv[2])
 rc = pytest.main([str(root / "benchmarks/test_benchmarks.py"), "--collect-only", "-q",
     "-c", str(root / "pytest.ini"), "--rootdir", str(root),
-    "--confcutdir", str(root / "benchmarks"), "--source-root", sys.argv[1]])
+    "--confcutdir", str(root / "benchmarks"), "--source-root=" + sys.argv[1]])
 assert rc == 0
 import tabsim
 assert tabsim.BENCHMARK_IMPORT_SENTINEL

@@ -21,7 +21,7 @@ def run_one(args, case, mode, root, python, prefix):
            "--rootdir", str(Path(__file__).resolve().parents[1]),
            "--confcutdir", str(Path(__file__).parent.resolve()),
            "--case", case, "--mode", mode, "--device", args.device,
-           "--source-root", str(root), "--rounds", str(args.rounds),
+           f"--source-root={root}", "--rounds", str(args.rounds),
            "--workers", str(args.workers), "--chunk-mb", str(args.chunk_mb),
            "--host-budget-gib", str(args.host_budget_gib),
            "--gpu-budget-gib", str(args.gpu_budget_gib),
