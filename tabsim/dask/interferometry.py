@@ -405,12 +405,19 @@ def Pv_to_Sv(Pv, d):
 Pv_to_Sv.__doc__ = itf.Pv_to_Sv.__doc__
 
 
+def _validate_noise_std(scale):
+    if np.any(scale < 0):
+        raise ValueError("noise_std must be non-negative")
+    return scale
+
+
 def add_noise(vis: Array, noise_std: float, key: int):
     """Add independent complex Gaussian noise without allocating a full cube.
 
     ``noise_std`` is the standard deviation of each real/imaginary component,
     either scalar or broadcastable to ``vis`` (usually a channel vector).
     Both outputs are lazy Dask arrays with the visibility chunk layout.
+    Negative scales raise ValueError when the corresponding blocks execute.
 
     Dask spawns independent random streams for each block and component.
     Integer seeds repeat for a fixed shape, chunk layout and NumPy/Dask version,
@@ -421,7 +428,9 @@ def add_noise(vis: Array, noise_std: float, key: int):
     real = rng.standard_normal(size=vis.shape, chunks=vis.chunks)
     imag = rng.standard_normal(size=vis.shape, chunks=vis.chunks)
     # Align a lazy channel scale without computing it or fragmenting noise chunks.
-    scale = da.broadcast_to(da.asarray(noise_std), vis.shape).rechunk(vis.chunks)
+    scale = da.asarray(noise_std)
+    scale = scale.map_blocks(_validate_noise_std, dtype=scale.dtype, meta=scale._meta)
+    scale = da.broadcast_to(scale, vis.shape).rechunk(vis.chunks)
     noise = (real + 1.0j * imag) * scale
     return vis + noise, noise
 

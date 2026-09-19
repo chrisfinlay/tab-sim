@@ -24,6 +24,9 @@ def compare_noise_records(base, candidate):
         if sample.keys() != unchanged | changed:
             raise ValueError("Unexpected output products in noise comparison")
         row["extra_info"]["output_sample"] = {k: sample[k] for k in unchanged}
+    for name in changed:
+        if base["extra_info"]["output_sample"][name]["shape"] != candidate["extra_info"]["output_sample"][name]["shape"]:
+            raise ValueError(f"Output shape changed: {name}")
     result = compare_records(*records)
     result.pop("sampled_outputs_match")
     result.update(sampled_signals_match=True, intentionally_changed_products=sorted(changed),

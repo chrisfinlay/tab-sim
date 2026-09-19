@@ -90,3 +90,10 @@ def test_jax_noise_uses_per_component_standard_deviation():
         jax.config.update("jax_enable_x64", previous)
     for part in (noise.real, noise.imag):
         np.testing.assert_allclose(part.std(axis=(0, 1)), scales, rtol=.015)
+
+
+@pytest.mark.parametrize("scale", [-1., da.from_array([1., -1.], chunks=1)])
+def test_negative_scale_rejected_when_computed(scale):
+    _, noise = add_noise(da.zeros((2, 2, 2), chunks=1), scale, 0)
+    with pytest.raises(ValueError, match="non-negative"):
+        noise.compute()

@@ -191,3 +191,18 @@ def test_conversion_samples_both_products_and_rejects_missing_ms(tmp_path, monke
     ms["FLAG"] = Array(False)
     with pytest.raises(ValueError, match="DATA"):
         output_sample(tmp_path, "zarr-ms")
+
+
+def test_noise_comparison_only_allows_documented_output_changes():
+    pytest.importorskip("psutil")
+    from benchmarks.noise_comparison import compare_noise_records
+    base = sample_record()
+    value = base["extra_info"]["output_sample"]["vis"]
+    base["extra_info"]["output_sample"] = {name: copy.deepcopy(value) for name in
+        ("vis_ast", "vis_rfi", "vis_obs", "vis_calibrated", "flags")}
+    candidate = copy.deepcopy(base)
+    candidate["extra_info"]["output_sample"]["vis_obs"]["real"] = [2.]
+    assert compare_noise_records(base, candidate)["sampled_signals_match"]
+    candidate["extra_info"]["output_sample"]["vis_ast"]["real"] = [2.]
+    with pytest.raises(AssertionError):
+        compare_noise_records(base, candidate)

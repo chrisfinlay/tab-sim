@@ -173,3 +173,38 @@ significance test. Capacity changes may qualify through lower memory or a newly
 feasible case while explicitly reporting runtime cost. Changing requested output
 products is a tradeoff, not a speedup for identical computation. Kernel wins alone
 do not establish end-to-end benefit. Always retain failed/skipped outcomes.
+
+## Noise migration measurements (#50)
+
+Three additional SKA-Low AA1 noise-only fixtures (`aa1-noise-512`,
+`aa1-noise-2048`, `aa1-noise-8192`) vary observation length with 16 stations,
+16 channels and three integration samples. The mixed `aa1-long` fixture is a
+control for workloads that also calculate source signals.
+
+For this migration, exact parent/candidate noise equality is intentionally
+inapplicable: both the random streams and the radiometer equation changed. The
+normal comparator remains strict. A dedicated comparison command permits only
+changes to noisy/calibrated visibilities and flags, retaining strict metadata,
+shape/product checks within each run and cross-checkout astronomical/RFI signal
+comparisons. Statistical tests in `tests/test_visibility_noise.py` verify the new
+noise distribution independently; output equivalence is not claimed.
+
+```sh
+python -m benchmarks.noise_comparison --source-root /path/to/parent \
+  --candidate-root /path/to/candidate --device cpu --output benchmark-runs/noise-e2e
+python -m benchmarks.noise_scaling --source-root /path/to/parent \
+  --candidate-root /path/to/candidate --output benchmark-runs/noise-scaling
+```
+
+The first command uses five alternating process pairs and five warm rounds per
+side, with one worker and 16 MB target chunks, including standard cold/setup/graph,
+Zarr wall time, memory and diagnostic records. Use `--device gpu` on the GPU host.
+The second is a CPU-only noise microbenchmark: 60/240/960 MiB logical cubes,
+AA1's 120 baselines and 16 channels, fixed `(256,120,16)` chunks, and five alternating
+fresh-process pairs per size. It records noise graph-construction time and RSS,
+5 ms sampled peak RSS, and the time to consume the noise through channel means
+and second moments. This reduction does not gather the candidate cube. Its total
+includes the eager parent's generation at construction; it is not an end-to-end
+simulation timing. It caps cubes at 1 GiB, checks available host memory for the
+parent, and bounds each subprocess to 180 seconds. Run these experiments serially
+on each host to avoid benchmark interference.
