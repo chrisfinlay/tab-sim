@@ -32,7 +32,7 @@ def test_workload(benchmark, request, tmp_path):
                  max(0, psutil.virtual_memory().available - 2 * 2**30))
     reason = guard_reason(case, mode, budget, max(0, shutil.disk_usage(tmp_path).free - max(2 * 2**30, shutil.disk_usage(tmp_path).total * 0.05)),
                           get("--gpu-budget-gib") * 2**30 if get("--device") == "gpu" else None,
-                          get("--chunk-mb"), get("--workers"), get("--memory-model"))
+                          get("--chunk-mb"), get("--workers"), get("--memory-model"), get("--device"))
     if reason:
         pytest.skip("Memory preflight: " + reason)
     offline()
@@ -40,7 +40,7 @@ def test_workload(benchmark, request, tmp_path):
         "device", "rounds", "chunk_mb", "workers", "host_budget_gib", "gpu_budget_gib", "memory_model", "capacity", "available_memory_fraction")}
     info = benchmark.extra_info
     info.update(provenance(get("--source-root"), case, opts))
-    info.update(case_id=name, mode=mode, estimates=estimates(case, mode, get("--chunk-mb"), get("--workers"), get("--memory-model")),
+    info.update(case_id=name, mode=mode, estimates=estimates(case, mode, get("--chunk-mb"), get("--workers"), get("--memory-model"), get("--device")),
                 runtime_import_s=time.perf_counter() - started)
     info["measurement_notes"] = {
         "startup": "runtime_import_s excludes Python/pytest startup; runner records process_wall_s",

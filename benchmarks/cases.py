@@ -24,7 +24,7 @@ def planned_chunks(case, chunk_mb):
                key=lambda tf: abs(tf[0] * tf[1] - target))
 
 
-def estimates(case, mode, chunk_mb=16, workers=1, memory_model="conservative"):
+def estimates(case, mode, chunk_mb=16, workers=1, memory_model="conservative", device="cpu"):
     """Plan current chunked Zarr; keep conservative whole-array MS/kernel plans.
 
     Includes full baseline geometry, eager antenna geometry, Fourier-gain mode
@@ -47,6 +47,10 @@ def estimates(case, mode, chunk_mb=16, workers=1, memory_model="conservative"):
     graph = blocks * (256 + 32 * (case['point_sources'] + case['rfi_sources'])) * 1024
     host = (1024 * 2**20 + 6 * geometry + 4 * antenna_geometry + 6 * 1000 * a * 8
             + graph + workers * (16 * tile + 6 * gain_tile + 8 * (8 * case["rfi_sources"] * ct * i * a * cf))) if mode == 'zarr' and memory_model == 'chunked' else legacy
+    # Empirical CPU retention allowance: initial capacity probes exceeded the
+    # tile-only estimate. This is headroom, not proof of a full-cube allocation.
+    retention = cube if mode == 'zarr' and memory_model == 'chunked' and device == 'cpu' else 0
+    host += retention
     # Five complex cubes (including noise), flags, geometry, source/gain products,
     # plus conservative metadata/compression headroom. Never assume compression.
     disk = 0 if mode.endswith('kernel') else 6 * cube + 2 * geometry + 4 * source + 64 * 2**20
@@ -57,11 +61,11 @@ def estimates(case, mode, chunk_mb=16, workers=1, memory_model="conservative"):
             'kernel_plan_bytes': 4 * cube * i + 4 * source,
             'planned_time_chunk': ct, 'planned_frequency_chunk': cf,
             'full_baseline_geometry_bytes': geometry, 'gain_mode_tile_bytes': gain_tile,
-            'graph_allowance_bytes': graph, 'memory_model': 'chunked-zarr-v1' if mode == 'zarr' and memory_model == 'chunked' else 'conservative-eager-v1'}
+            'graph_allowance_bytes': graph, 'cpu_retention_allowance_bytes': retention, 'memory_model': 'chunked-zarr-v2' if mode == 'zarr' and memory_model == 'chunked' else 'conservative-eager-v1'}
 
 
-def guard_reason(case, mode, host_budget, disk_free, gpu_budget=None, chunk_mb=16, workers=1, memory_model="conservative"):
-    e = estimates(case, mode, chunk_mb, workers, memory_model)
+def guard_reason(case, mode, host_budget, disk_free, gpu_budget=None, chunk_mb=16, workers=1, memory_model="conservative", device="cpu"):
+    e = estimates(case, mode, chunk_mb, workers, memory_model, device)
     if e['host_plan_bytes'] > host_budget:
         return f"host plan {e['host_plan_bytes']} exceeds budget {host_budget} bytes"
     if e['disk_plan_bytes'] > disk_free:

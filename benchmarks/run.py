@@ -102,25 +102,36 @@ def _run_one(args, case, mode, root, python, prefix, scratch):
               "source_revision": source_revision, "host_total_bytes": host_memory.total,
               "host_available_start_bytes": host_memory.available,
               "planning": estimates(CASES[case], mode, args.chunk_mb, args.workers,
-                                    getattr(args, "memory_model", "conservative")),
+                                    getattr(args, "memory_model", "conservative"), args.device),
               "supervisor_peak_rss_bytes": peak_rss, "enforced_host_limit_bytes": host_limit,
               "disk_reserve_bytes": disk_reserve,
               "returncode": code, "process_wall_s": time.perf_counter() - started,
               "report": report.name, "log": log.name, "command": cmd}
-    result["capacity_progress"] = [json.loads(line.split("CAPACITY ", 1)[1])
-        for line in log.read_text(errors="replace").splitlines() if line.startswith("CAPACITY ")]
-    if junit.exists():
-        skipped = ET.parse(junit).findall(".//skipped")
-        if skipped and code == 0 and status is None:
-            result.update(status="skipped", reason=skipped[0].get("message"))
-    if report.exists():
-        content = json.loads(report.read_text())
-        benches = content.get("benchmarks", [])
-        if benches:
-            bench = benches[0]
-            result.update(stats=bench["stats"], extra_info=bench["extra_info"])
-        elif result["status"] == "passed":
-            result.update(status="failed", reason="No benchmark statistics produced")
+    result["capacity_progress"] = []
+    result["report_errors"] = []
+    for line in log.read_text(errors="replace").splitlines():
+        if line.startswith("CAPACITY "):
+            try:
+                result["capacity_progress"].append(json.loads(line.split("CAPACITY ", 1)[1]))
+            except ValueError:
+                result["report_errors"].append("Truncated capacity progress line")
+    try:
+        if junit.exists():
+            skipped = ET.parse(junit).findall(".//skipped")
+            if skipped and code == 0 and status is None:
+                result.update(status="skipped", reason=skipped[0].get("message"))
+        if report.exists():
+            content = json.loads(report.read_text())
+            benches = content.get("benchmarks", [])
+            if benches:
+                bench = benches[0]
+                result.update(stats=bench["stats"], extra_info=bench["extra_info"])
+            elif result["status"] == "passed":
+                result.update(status="failed", reason="No benchmark statistics produced")
+    except (ValueError, ET.ParseError, KeyError) as exc:
+        result["report_errors"].append(f"{type(exc).__name__}: {exc}")
+        if result["status"] == "passed":
+            result.update(status="failed", reason="Invalid worker report")
     if result["status"] == "passed" and "stats" not in result:
         result.update(status="failed", reason="No benchmark statistics produced")
     return result
@@ -190,7 +201,7 @@ def main():
     if args.candidate_root:
         args.candidate_root = args.candidate_root.resolve()
     if args.plan:
-        print(json.dumps({case: {mode: estimates(CASES[case], mode, args.chunk_mb, args.workers, args.memory_model) for mode in args.modes}
+        print(json.dumps({case: {mode: estimates(CASES[case], mode, args.chunk_mb, args.workers, args.memory_model, args.device) for mode in args.modes}
                           for case in args.cases}, indent=2))
         return
     # Exclusive directory prevents accidentally overwriting prior evidence.

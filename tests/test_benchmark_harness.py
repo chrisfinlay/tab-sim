@@ -276,13 +276,15 @@ def test_planning_chunks_match_simulation(name, chunk_mb):
 
 def test_chunked_guard_uses_working_set_but_retains_disk_and_worker_cost():
     c = CASES['aa4-out-of-core']
-    e = estimates(c, 'zarr', memory_model='chunked')
+    e = estimates(c, 'zarr', memory_model='chunked', device='gpu')
     assert e['host_plan_bytes'] < e['single_visibility_bytes']
+    cpu = estimates(c, 'zarr', memory_model='chunked', device='cpu')
+    assert cpu['host_plan_bytes'] == e['host_plan_bytes'] + e['single_visibility_bytes']
     assert e['host_plan_bytes'] < e['legacy_host_plan_bytes']
     assert e['disk_plan_bytes'] > 5 * e['single_visibility_bytes']
     assert estimates(c, 'zarr', workers=4, memory_model='chunked')['host_plan_bytes'] > e['host_plan_bytes']
     assert guard_reason(c, 'zarr', e['host_plan_bytes'] + 1, e['disk_plan_bytes'] + 1,
-                        memory_model='chunked') is None
+                        memory_model='chunked', device='gpu') is None
     assert 'disk plan' in guard_reason(c, 'zarr', 10**15, 1, memory_model='chunked')
     assert estimates(c, 'ms', memory_model='chunked')['memory_model'] == 'conservative-eager-v1'
     assert estimates(CASES['aa4-host-out-of-core'], 'zarr')['single_visibility_bytes'] > 24 * 2**30

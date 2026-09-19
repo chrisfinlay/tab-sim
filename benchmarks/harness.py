@@ -194,7 +194,8 @@ def simulation(case, mode, chunk_mb, directory, progress=None):
     obs.calculate_vis()
     graph = time.perf_counter()
     if progress:
-        progress("write_start", {name: [list(axis) for axis in obs.dataset[name].data.chunks]
+        progress("write_start", {name: [{"count": len(axis), "min": min(axis), "max": max(axis)}
+                                     for axis in obs.dataset[name].data.chunks]
                                  for name in ("vis_ast", "vis_rfi", "vis_obs")})
     if mode == "ms":
         write_ms(obs.dataset, str(directory / "result.ms"))

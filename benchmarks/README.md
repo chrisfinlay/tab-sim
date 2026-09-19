@@ -69,6 +69,7 @@ in reports. SKA coordinates retain the pinned provenance supplied by PR #41.
 | aa1-many-sources | 16 | 32 | 16 | 256 / 16 |
 | aa1-long | 16 | 2048 | 16 | 8 / 2 |
 | aa4-out-of-core (stress) | 512 | 32 | 128 | 8 / 2 |
+| aa4-host-out-of-core (stress) | 512 | 32 | 512 | 8 / 2 |
 | aa1-host-stress (stress) | 16 | 32768 | 32 | 8 / 2 |
 | aa1-noise-512 | 16 | 512 | 16 | 0 / 0 |
 | aa1-noise-2048 | 16 | 2048 | 16 | 0 / 0 |
@@ -84,24 +85,58 @@ python -m benchmarks.run --cases aa4-out-of-core aa1-host-stress \
   --modes zarr --plan --output benchmark-runs/plan
 ```
 
-The largest stress case has an 8.57 GB (7.98 GiB) **single** complex128 visibility
-cube, larger than the test GPU's 6 GiB. Lazy noise removes one eager allocation,
-but other geometry, output and intermediate allocations still prevent a claim of
-bounded host RAM for the entire pipeline. The conservative baseline preflight
-estimate is retained for comparable parent/candidate runs. Stress cases are listed, estimated and
-safely skipped if the host/disk plan exceeds its budget; a skip is **not** evidence
-that out-of-core execution works. The host estimate includes ten visibility cubes,
-source arrays and 512 MiB overhead; it is conservative, not a proven XLA bound.
-Preflight limits host use to the smaller of the configured cap and half currently
-available RAM, and output estimates to half free disk. The supervising runner also
-terminates a process exceeding its RSS cap or timeout. A 100 ms polling interval
-cannot prevent every instantaneous allocation spike.
+The `aa4-out-of-core` fixture has a 7.98 GiB single complex128 visibility cube,
+larger than the test GPU's 6 GiB. `aa4-host-out-of-core` increases channels from 128
+to 512 for a 31.94 GiB cube, larger than either test host's RAM. All products are
+written, so disk requirements are substantially larger than a single cube.
 
-Default caps: 4 GiB host RSS, 4 GiB isolated-kernel working-set estimate, 1200 s per
-process. `--host-budget-gib`, `--gpu-budget-gib`, `--timeout`, `--chunk-mb` and
-`--workers` are explicit controls. GPU budget is a preflight estimate for isolated
-kernels, not a cap on JAX's allocation pool or a GPU spill mechanism. Leave room
-for other users; do not raise limits just to provoke an OOM.
+### Capacity admission and supervision
+
+The default `--memory-model conservative` retains the old ten-cube host allowance
+for historical checkout comparisons. Use `--memory-model chunked` to test the
+current lazy-noise **Zarr** implementation. It estimates runtime/graph storage,
+full baseline and antenna geometry, Fourier-gain mode temporaries, source data,
+and active visibility tiles multiplied by worker count. CPU planning additionally
+reserves one full visibility cube as empirical retention headroom: the initial
+tile-only estimate underestimated measured CPU memory use. This is not proof of
+a particular full-cube allocation or a portable bound. It uses the same nearest
+factor-product chunk choice as the simulation. MS and isolated kernels retain
+conservative estimates regardless of this option. The chunked model must not be
+used to claim safety for pre-lazy-noise implementations.
+
+These are admission estimates, **not peak-memory bounds**. Graph retention,
+rechunking, allocator behavior and GPU-resident intermediates can exceed them.
+A preflight skip is not a simulation failure; a supervised RSS stop is not a
+machine-wide OOM. GPU allocation failures are recorded as actual execution failures.
+
+For capacity experiments use the supervising runner, not direct pytest:
+
+```sh
+python -m benchmarks.run --cases aa4-out-of-core aa1-host-stress --modes zarr \
+  --capacity --memory-model chunked --device gpu --host-budget-gib 8 \
+  --timeout 3600 --output /large-local-disk/capacity-results
+```
+
+`--capacity` runs one complete cold simulation/write and bounded readback samples.
+It does not run warm repetitions, diagnostic reruns or claim speedups. Capacity
+records are rejected by the paired speed comparator. Ordinary benchmarks retain
+at least five warm rounds. The runner puts scratch output on the **output directory's
+filesystem** and removes it after each run, including interruptions; logs and
+measurement records remain.
+
+Default caps are 4 GiB host RSS, 4 GiB isolated-kernel working-set estimate and
+1200 seconds. The effective RSS cap is the minimum of `--host-budget-gib`,
+`--available-memory-fraction` (default 0.5, maximum 0.8) times initially available
+RAM, and initially available RAM minus 2 GiB. That reserve is measured at startup;
+it cannot guarantee headroom if other applications allocate later. Preflight
+checks available RAM again after runtime imports. The supervisor enforces its
+startup cap against the sum of process-tree RSS every 100 ms and records its peak
+even on failed runs. A polling limit cannot prevent instantaneous allocation spikes.
+
+Disk planning reserves full uncompressed products and ancillary arrays; it does
+not rely on compression. Preflight and runtime checks leave the greater of 2 GiB
+or 5% of filesystem capacity free. GPU budget applies to isolated-kernel planning,
+not the pipeline's JAX pool, and does not provide GPU spilling.
 
 ## What each measurement means
 
