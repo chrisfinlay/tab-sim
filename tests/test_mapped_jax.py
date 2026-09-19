@@ -91,8 +91,12 @@ def test_mapped_kernel_matches_primitive_without_nested_compute(case, scheduler,
     np.testing.assert_allclose(actual, expected, rtol=1e-10, atol=1e-8)
 
 
-def test_coordinate_graph_with_process_scheduler():
-    # One worker keeps this CPU/GPU serialization smoke small and deterministic.
+def test_coordinate_graph_with_process_scheduler(monkeypatch):
+    # Exercise process serialization on CPU: two JAX GPU processes could each
+    # reserve most VRAM under the default allocator policy. Other tests use the
+    # selected backend, including GPU. Set child precision explicitly.
+    monkeypatch.setenv("JAX_PLATFORMS", "cpu")
+    monkeypatch.setenv("JAX_ENABLE_X64", "true")
     # Dask's default spawn context avoids forking JAX's multithreaded runtime.
     ra, dec = _array([10., 11., 12.], 2), _array([-30., -31., -32.], 2)
     graph = dc.radec_to_XYZ(ra, dec)

@@ -216,3 +216,27 @@ def test_noise_scaling_adapter_shares_eager_memory():
     assert all(np.shares_memory(original, block) for block in wrapped.dask.values())
     original[0, 0, 0] = 99
     np.testing.assert_array_equal(wrapped.compute(), original)
+
+
+def test_mapped_diagnostics_detects_inner_graph_and_restores_hook():
+    import dask.array as da
+    from dask import delayed
+    import xarray as xr
+    from benchmarks.mapped_diagnostics import MappedDiagnostics
+    original = xr.map_blocks
+    ds = xr.Dataset({"x": (["t"], da.zeros(6, chunks=3))})
+    for nested in (True, False):
+        def callback(block):
+            data = block.x.data
+            if nested:
+                data = delayed(lambda x: x + 1, pure=True)(data).compute(scheduler="synchronous")
+            else:
+                data = data + 1
+            return xr.Dataset({"x": (["t"], data)})
+        with MappedDiagnostics() as diagnostic:
+            xr.map_blocks(callback, ds, template=ds).compute(scheduler="threads", num_workers=1)
+        assert xr.map_blocks is original
+        result = diagnostic.report()["callbacks"]["callback"]
+        assert result["calls"] == 2
+        assert result["nested_compute_calls"] == (2 if nested else 0)
+        assert result["tokenize_calls"] > 0 if nested else result["tokenize_calls"] == 0

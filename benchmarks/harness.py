@@ -123,6 +123,8 @@ class Diagnostics:
         self.tasks = 0
         self.compiles = 0
         self.stack = contextlib.ExitStack()
+        from .mapped_diagnostics import MappedDiagnostics
+        self.mapped = self.stack.enter_context(MappedDiagnostics())
         def task(*args):
             self.tasks += 1
         self.stack.enter_context(Callback(posttask=task))
