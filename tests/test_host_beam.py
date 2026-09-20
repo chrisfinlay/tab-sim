@@ -68,3 +68,24 @@ def test_dask_host_blocks_and_compatibility_name():
         actual=blocks.compute(scheduler='synchronous')
     np.testing.assert_allclose(actual,airy_beam(theta,freq,35.),rtol=2e-12,atol=2e-14)
     assert historical is airy_beam
+
+
+@pytest.mark.parametrize('angle_dtype,freq_dtype,diameter', [
+    (np.float32,np.float32,np.float64(35.)),
+    (np.float64,np.float32,np.float32(35.)),
+    (np.float32,np.float64,np.float32(35.)),
+    (np.float32,np.float32,35.),
+])
+def test_mixed_float_precision(angle_dtype,freq_dtype,diameter):
+    theta=np.array([0.,.001,15.,45.],dtype=angle_dtype).reshape(-1,1,1)
+    freq=np.array([50e6,150e6],dtype=freq_dtype)
+    expected=legacy(theta,freq,diameter)
+    actual=airy_beam(theta,freq,diameter)
+    assert actual.dtype==expected.dtype
+    np.testing.assert_allclose(actual,expected,rtol=3e-6,atol=3e-8)
+
+
+def test_host_precision_is_independent_of_jax_global_x64():
+    jax.config.update('jax_enable_x64',False)
+    result=airy_beam(np.zeros((1,1,1),dtype=np.float64),np.array([150e6]),35.)
+    assert result.dtype==np.float64

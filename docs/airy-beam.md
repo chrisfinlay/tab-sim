@@ -26,3 +26,8 @@ checked separately at `rtol=3e-6, atol=3e-8`. A public JAX transfer-guard test f
 implicit transfers during both direct host evaluation and mapped Dask execution.
 Runtime and profiler results are recorded separately from numerical equivalence;
 removing transfers alone is not evidence of an end-to-end speedup.
+
+Host precision follows NumPy input promotion (including explicitly typed float64
+diameters) independently of JAX's global x64 flag. In particular, float64 host
+inputs are no longer silently truncated when JAX x64 is disabled. Python scalar
+diameters remain weakly typed under NumPy 2. Mixed floating dtypes are tested.
