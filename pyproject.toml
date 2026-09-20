@@ -36,7 +36,7 @@ sat = ["regions"]
 # all = ["jax[cuda12]", "regions", "bdsf", "TGEpy @ git+https://github.com/chrisfinlay/TGEpy.git"]
 # all_cpu = ["regions", "bdsf", "TGEpy @ git+https://github.com/chrisfinlay/TGEpy.git"]
 ipy = ["ipython", "ipykernel"]
-test = ["pytest"]
+test = ["pytest", "psutil>=5.9"]
 benchmark = ["pytest>=7", "pytest-benchmark>=5.1,<6", "psutil>=5.9", "nvidia-ml-py>=12; sys_platform == 'linux'"]
 docs = ["sphinx", "sphinx-rtd-theme"]
 
