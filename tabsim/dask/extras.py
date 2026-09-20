@@ -56,8 +56,9 @@ def estimate_working_set(time, freq, n_int, n_bl, *, n_ant, n_rfi=0, n_ast=0,
     scratch = math.ceil(factor * max(nominal, amplitude, distances))
     kernel = inputs + 2 * output + scratch
     composition = 6 * output + 2 * gains
-    host = max(workers * max(kernel if backend == 'cpu' else inputs + 2 * output,
-                             gain_modes + 3 * full_band_gains), composition)
+    # Host-side beam and device readback buffers coexist on GPU too. Do not
+    # omit their allowance merely because the visibility kernel is on device.
+    host = max(workers * max(kernel, gain_modes + 3 * full_band_gains), composition)
     device = max(workers * max(kernel, gain_modes + 3 * full_band_gains), composition) if backend == 'gpu' else 0
     return dict(host_bytes=host, device_bytes=device, estimated_bytes=max(host, device),
                 amplitude_bytes=amplitude, distance_bytes=distances,

@@ -46,7 +46,7 @@ saved dataset's `chunk_plan` attribute:
 - Antenna gains, 1000-mode Fourier gain allowance and full-band gain generation
   before its final frequency rechunk. Shrinking the frequency tile does not hide
   those upstream full-band buffers.
-- Concurrent component streams; CPU and GPU host/device budgets are distinct.
+- Concurrent component streams; GPU execution still includes host beam/readback buffer allowances. CPU device bytes are zero.
 
 Scratch uses an explicit allowance of four times the largest nominal tile,
 amplitude or distance buffer on CPU, six on GPU. `task_scratch_factor` can override

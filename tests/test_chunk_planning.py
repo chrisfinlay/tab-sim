@@ -89,3 +89,8 @@ def test_full_band_gain_allowance_survives_frequency_tiling():
     large=estimate_working_set(1,32,3,6,n_ant=4,full_n_freq=4096)
     assert small['full_band_gain_bytes']==large['full_band_gain_bytes']==16*2*4*4096
     assert small['host_bytes']>=2*(small['gain_mode_allowance_bytes']+3*small['full_band_gain_bytes'])
+
+
+def test_gpu_host_model_includes_beam_and_readback_buffers():
+    model=estimate_working_set(8,32,3,2278,n_ant=68,n_rfi=512,backend='gpu')
+    assert model['host_bytes'] >= 2*(model['amplitude_bytes']+model['scratch_bytes'])
