@@ -224,6 +224,13 @@ class Observation(Telescope):
         tel_name: str = "MeerKAT",
         target_name: str = "unknown",
         max_chunk_MB: float = 100.0,
+        *,
+        component_workers: int = 2,
+        max_memory_gb: Optional[float] = None,
+        memory_fraction: float = 0.7,
+        max_device_memory_gb: Optional[float] = None,
+        timeout_s: Optional[float] = None,
+        disk_reserve_gb: float = 1.0,
     ):
         super().__init__(
             latitude,
@@ -237,6 +244,15 @@ class Observation(Telescope):
             n_ant,
         )
 
+        from tabsim.staged import validate_limits
+        validate_limits(component_workers, max_memory_gb, memory_fraction,
+                        max_device_memory_gb, timeout_s, disk_reserve_gb)
+        if not np.isfinite(max_chunk_MB) or max_chunk_MB <= 0:
+            raise ValueError('max_chunk_MB must be finite and positive')
+        self.execution_options = dict(component_workers=component_workers,
+            max_memory_gb=max_memory_gb, memory_fraction=memory_fraction,
+            max_device_memory_gb=max_device_memory_gb, timeout_s=timeout_s,
+            disk_reserve_gb=disk_reserve_gb)
         n_time = len(times_mjd)
         start_mjd = times_mjd[0]
         # times = (times_mjd - times_mjd[0]) * 24 * 3600
@@ -1000,18 +1016,56 @@ Number of stationary RFI :  {n_stat}"""
                     > 3.0 * da.std(self.vis_ast, axis=0)[None, ...]
                 )
         else:
-            self.flags = da.zeros(shape=self.vis_cal.shape, dtype=bool)
+            self.flags = da.zeros(shape=self.vis_cal.shape, dtype=bool,
+                                  chunks=(self.time_chunk, self.bl_chunk, self.freq_chunk))
 
         self.dataset = construct_observation_ds(self)
+        self._calculate_flags = flags
+        self._disk_staged = False
+        self._snapshot_calculation()
         return self.dataset
 
-    def write_to_zarr(self, path: str = "Observation", overwrite: bool = False):
+    def _snapshot_calculation(self):
+        from dask.base import tokenize
+        names = ('vis_ast', 'vis_rfi', 'gains_ants', 'noise_data', 'vis_obs',
+                 'vis_calibrated', 'flags', 'antenna1', 'antenna2', 'noise_std')
+        self._calculation_tokens = {name: tokenize(self.dataset[name].data)
+                                    for name in names if name in self.dataset}
+
+    def write_to_zarr(self, path: str = "Observation", overwrite: bool = False, *,
+                      save_arrays=None, save_rfi_amplitudes=False, progress=None,
+                      **execution_options):
+        """Stage components and compose bounded chunks in one local Zarr store.
+
+        By default retain all arrays except rfi_*_A. An explicit save_arrays list
+        selects exact data variables; coordinates/attributes are always retained.
+        Constructor execution options may be overridden here. Memory and timeout
+        guards are checked between tasks, not hard caps on in-flight kernels.
+        Set max_chunk_MB in the constructor, before constructing source/noise graphs.
         """
-        Write the visibilities to disk using zarr format.
-        """
-        mode = "w" if overwrite else "w-"
-        self.dataset.to_zarr(path, mode=mode)
-        self.dataset = xr.open_zarr(path)
+        from dask.base import tokenize
+        from tabsim.staged import write_staged_observation, select_arrays
+        if not hasattr(self, 'dataset'):
+            self.calculate_vis()
+        if not self._disk_staged:
+            changed = [name for name, token in self._calculation_tokens.items()
+                       if name not in self.dataset or tokenize(self.dataset[name].data) != token]
+            if changed:
+                raise ValueError(f'Calculated arrays were modified: {changed}. '
+                                 'Re-run calculate_vis after changing observation inputs.')
+        from pathlib import Path
+        if self._disk_staged and (Path(path).resolve() == self._staged_path
+                                  or Path(path).resolve() in self._staged_path.parents
+                                  or self._staged_path in Path(path).resolve().parents):
+            raise ValueError('Cannot overwrite the store currently backing this observation')
+        selected = select_arrays(self.dataset, save_arrays, save_rfi_amplitudes)
+        options = dict(self.execution_options, **execution_options)
+        write_staged_observation(self, path, flags=self._calculate_flags,
+            save_arrays=selected, overwrite=overwrite, progress=progress,
+            recompose=not self._disk_staged, **options)
+        self.dataset = xr.open_zarr(path, chunks={})
+        self._disk_staged = True
+        self._staged_path = Path(path).resolve()
         return self.dataset
 
     def write_to_ms(
@@ -1023,6 +1077,35 @@ Number of stationary RFI :  {n_stat}"""
         """
         Write the visibilities to disk using Measurement Set format.
         """
-        if ds is None:
-            ds = self.dataset
-        write_ms(ds, path, overwrite=overwrite)
+        if ds is not None:
+            # An explicit external dataset is already under the caller's control.
+            import dask
+            with dask.config.set(scheduler='synchronous'):
+                write_ms(ds, path, overwrite=overwrite)
+            return
+        import tempfile
+        import dask
+        from pathlib import Path
+        if not hasattr(self, 'dataset'):
+            self.calculate_vis()
+        if self._disk_staged:
+            destination = Path(path).resolve()
+            if (destination == self._staged_path or destination in self._staged_path.parents
+                    or self._staged_path in destination.parents):
+                raise ValueError('MS destination overlaps the backing Zarr store')
+            with dask.config.set(scheduler='synchronous'):
+                write_ms(self.dataset, path, overwrite=overwrite)
+            return
+        original = self.dataset
+        with tempfile.TemporaryDirectory(prefix='tabsim-stage-', dir=Path(path).absolute().parent) as temporary:
+            try:
+                from tabsim.write import MS_REQUIRED_ARRAYS
+                self.write_to_zarr(Path(temporary) / 'components.zarr',
+                                   save_arrays=MS_REQUIRED_ARRAYS)
+                with dask.config.set(scheduler='synchronous'):
+                    write_ms(self.dataset, path, overwrite=overwrite)
+            finally:
+                if self.dataset is not original:
+                    self.dataset.close()
+                self.dataset = original
+                self._disk_staged = False

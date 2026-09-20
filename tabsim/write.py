@@ -450,6 +450,12 @@ def add_to_ms(
     dask.compute(xds_to_table([xds_ms], ms_path, cols))
 
 
+MS_REQUIRED_ARRAYS = frozenset((
+    'vis_obs', 'vis_ast', 'vis_rfi', 'vis_calibrated', 'noise_data', 'flags',
+    'noise_std', 'antenna1', 'antenna2', 'bl_uvw', 'time_idx', 'ants_itrf',
+))
+
+
 def write_ms(
     ds: Dataset,
     ms_path: str,
@@ -458,6 +464,10 @@ def write_ms(
     flags: dask.Array = None,
 ):
     """Write a dataset to a Measurement Set."""
+    ms_path = str(ms_path)
+    missing = MS_REQUIRED_ARRAYS - set(ds.variables)
+    if missing:
+        raise ValueError(f'Measurement Set output requires arrays: {sorted(missing)}')
     rm_dir(ms_path, overwrite)
 
     tables = [

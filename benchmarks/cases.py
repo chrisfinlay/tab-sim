@@ -46,7 +46,7 @@ def estimates(case, mode, chunk_mb=16, workers=1, memory_model="conservative", d
     blocks = math.ceil(t / ct) * math.ceil(f / cf)
     graph = blocks * (256 + 32 * (case['point_sources'] + case['rfi_sources'])) * 1024
     host = (1024 * 2**20 + 6 * geometry + 4 * antenna_geometry + 6 * 1000 * a * 8
-            + graph + workers * (16 * tile + 6 * gain_tile + 8 * (8 * case["rfi_sources"] * ct * i * a * cf))) if mode == 'zarr' and memory_model == 'chunked' else legacy
+            + graph + workers * (16 * tile + 6 * gain_tile + 8 * (8 * case["rfi_sources"] * ct * i * a * cf))) if mode == 'zarr' and memory_model in ('chunked', 'staged') else legacy
     # Empirical CPU retention allowance: initial capacity probes exceeded the
     # tile-only estimate. This is headroom, not proof of a full-cube allocation.
     retention = cube if mode == 'zarr' and memory_model == 'chunked' and device == 'cpu' else 0
@@ -61,7 +61,7 @@ def estimates(case, mode, chunk_mb=16, workers=1, memory_model="conservative", d
             'kernel_plan_bytes': 4 * cube * i + 4 * source,
             'planned_time_chunk': ct, 'planned_frequency_chunk': cf,
             'full_baseline_geometry_bytes': geometry, 'gain_mode_tile_bytes': gain_tile,
-            'graph_allowance_bytes': graph, 'cpu_retention_allowance_bytes': retention, 'memory_model': 'chunked-zarr-v2' if mode == 'zarr' and memory_model == 'chunked' else 'conservative-eager-v1'}
+            'graph_allowance_bytes': graph, 'cpu_retention_allowance_bytes': retention, 'memory_model': 'staged-zarr-v2' if mode == 'zarr' and memory_model == 'staged' else 'chunked-zarr-v2' if mode == 'zarr' and memory_model == 'chunked' else 'conservative-eager-v1'}
 
 
 def guard_reason(case, mode, host_budget, disk_free, gpu_budget=None, chunk_mb=16, workers=1, memory_model="conservative", device="cpu"):

@@ -110,6 +110,21 @@ def main():
     parser.add_argument(
         "-ra", "--ra", type=float, help="Right Ascension of the observation."
     )
+    for flag, kind, help_text in (
+        ('max-chunk-mb', float, 'Target compute chunk size in decimal MB; chosen before source/noise construction.'),
+        ('component-workers', int, 'Number of simultaneous component streams (default 2).'),
+        ('max-memory-gb', float, 'Host process RSS guard in GiB; checked between tasks.'),
+        ('memory-fraction', float, 'Automatic host guard fraction of available RAM (default 0.7).'),
+        ('max-device-memory-gb', float, 'Live JAX device allocation guard in GiB, excluding allocator reservation.'),
+        ('timeout-s', float, 'Writer time limit checked between tasks.'),
+        ('disk-reserve-gb', float, 'Free disk reserve in GiB (default 1).'),
+    ):
+        parser.add_argument('--' + flag, type=kind, default=None, help=help_text)
+    parser.add_argument('--save-arrays', nargs='*', default=None,
+                        help='Exact data variable names to retain; no names keeps metadata/coordinates only.')
+    parser.add_argument('--save-rfi-amplitudes', action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument('--flag-data', action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument('--signal-stats', action=argparse.BooleanOptionalAction, default=None)
     args = parser.parse_args()
     rfi_amp = args.rfi_amp
     config_path = Path(args.config_path)
@@ -122,6 +137,20 @@ def main():
     work_dir = os.path.split(config_path)[0]
 
     sim_config = load_config(config_path, config_type="sim")
+
+    for key in ('component_workers', 'max_memory_gb', 'memory_fraction',
+                'max_device_memory_gb', 'timeout_s', 'disk_reserve_gb'):
+        value = getattr(args, key)
+        if value is not None:
+            sim_config['dask'][key] = value
+    if args.max_chunk_mb is not None:
+        sim_config['dask']['max_chunk_MB'] = args.max_chunk_mb
+    for key in ('save_arrays', 'save_rfi_amplitudes', 'flag_data'):
+        value = getattr(args, key)
+        if value is not None:
+            sim_config['output'][key] = value
+    if args.signal_stats is not None:
+        sim_config['diagnostics']['signal_stats'] = args.signal_stats
 
     if args.save_path:
         save_path = Path(args.save_path)

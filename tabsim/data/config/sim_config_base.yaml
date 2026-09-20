@@ -75,11 +75,18 @@ ast_sources:
 # Dask parameters
 ##################
 dask:
+  component_workers: 2       # Independent component streams; composition is serial
+  max_memory_gb: null         # Process RSS guard in GiB; null uses memory_fraction
+  memory_fraction: 0.7        # Fraction of available host RAM added to baseline RSS
+  max_device_memory_gb: null  # Live JAX device allocation guard in GiB (excludes reserved pool)
+  timeout_s: null             # Writer timeout, checked between tasks
+  disk_reserve_gb: 1.0        # Free disk reserve in GiB
   max_chunk_MB: 100           # Required - Approximate size of the dask chunks to process in Megabytes
 ###################
 # Diagnostoc plots
 ###################
 diagnostics:
+  signal_stats: False        # Optional extra reductions over persisted visibility/noise/flag arrays
   rfi_seps: True              # Optional - Whether to plot the angular separations, over time, between the pointing direction and the RFI sources.
   src_alt: True               # Optional - Whether to plot the source altitude over time
   uv_cov: True                # Optional - Whether to plot the uv distribution of the observation in metres
@@ -120,6 +127,8 @@ observation:
 # Output parameters
 ####################
 output:
+  save_arrays: null           # Exact retained data variable names; null keeps all except rfi_*_A
+  save_rfi_amplitudes: False  # Include rfi_*_A in default selection (explicit save_arrays overrides)
   zarr: True                  # Optional - Whether to save the output to a zarr file. This contains almost all inputs ot the simulation
   ms: True                    # Optional - Whether to save the output to a Measurement Set file
   accumulate_ms: null         # Optional - Whether to add the RFI visibilities to a provided MS file. This should be the MS file path to add to.

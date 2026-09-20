@@ -333,3 +333,33 @@ def test_invalid_worker_report_preserves_failure_record_and_cleans_scratch(tmp_p
     assert result['report_errors']
     assert 'supervisor_peak_rss_bytes' in result
     assert not (tmp_path / 'run-scratch').exists()
+
+
+def test_staged_guard_removes_retention_but_accounts_for_parallel_workers():
+    c = CASES['aa4-out-of-core']
+    staged = estimates(c, 'zarr', workers=2, memory_model='staged', device='cpu')
+    chunked = estimates(c, 'zarr', workers=2, memory_model='chunked', device='cpu')
+    assert staged['memory_model'] == 'staged-zarr-v2'
+    assert staged['cpu_retention_allowance_bytes'] == 0
+    assert chunked['host_plan_bytes'] - staged['host_plan_bytes'] == staged['single_visibility_bytes']
+    assert staged['host_plan_bytes'] > estimates(c, 'zarr', workers=1, memory_model='staged')['host_plan_bytes']
+    assert staged['disk_plan_bytes'] == chunked['disk_plan_bytes']
+
+
+@pytest.mark.parametrize('fail', [False, True])
+def test_keep_output_retains_capacity_scratch(tmp_path, monkeypatch, fail):
+    from types import SimpleNamespace
+    from benchmarks import run
+    def worker(*args):
+        (args[-1] / 'component').write_bytes(b'reusable')
+        if fail:
+            raise ValueError('interrupted')
+        return {'status': 'passed'}
+    monkeypatch.setattr(run, '_run_one', worker)
+    args = SimpleNamespace(keep_output=True)
+    if fail:
+        with pytest.raises(ValueError):
+            run.run_one(args, None, None, None, None, tmp_path / 'run')
+    else:
+        run.run_one(args, None, None, None, None, tmp_path / 'run')
+    assert (tmp_path / 'run-scratch' / 'component').read_bytes() == b'reusable'

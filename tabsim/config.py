@@ -11,6 +11,7 @@ from typing import Tuple, Union, Optional
 
 from datetime import datetime
 
+import dask
 import dask.array as da
 from dask.array.core import Array
 import xarray as xr
@@ -487,6 +488,9 @@ def load_obs(sim_config: dict) -> Observation:
         tel_name=tel_["name"],
         target_name=obs_["target_name"],
         max_chunk_MB=dask_["max_chunk_MB"],
+        **{key: dask_[key] for key in ('component_workers', 'max_memory_gb',
+             'memory_fraction', 'max_device_memory_gb', 'timeout_s', 'disk_reserve_gb')
+           if key in dask_},
     )
 
     print()
@@ -977,39 +981,52 @@ def write_to_zarr(obs: Observation, zarr_path: str, overwrite: bool) -> None:
 
 def save_data(obs: Observation, sim_config: dict, zarr_path: str, ms_path: str) -> None:
 
-    if sim_config["output"]["zarr"] or sim_config["output"]["ms"]:
-        print()
-        print("Calculating visibilities ...")
-        obs.calculate_vis(flags=sim_config["output"]["flag_data"])
+    from tabsim.staged import select_arrays, prune_store
+    from tabsim.write import MS_REQUIRED_ARRAYS, add_to_ms
+    import tempfile
+    from pathlib import Path
 
-    overwrite = sim_config["output"]["overwrite"]
-
-    if sim_config["output"]["zarr"] and sim_config["output"]["ms"]:
-        write_to_zarr(obs, zarr_path, overwrite)
-        xds = xr.open_zarr(zarr_path)
-        write_to_ms(xds, ms_path, overwrite)
-        print_signal_specs(
-            xds.vis_rfi.data, xds.vis_ast.data, xds.noise_data.data, xds.flags.data
-        )
-    elif sim_config["output"]["zarr"]:
-        write_to_zarr(obs, zarr_path, overwrite)
-        xds = xr.open_zarr(zarr_path)
-        print_signal_specs(
-            xds.vis_rfi.data, xds.vis_ast.data, xds.noise_data.data, xds.flags.data
-        )
-    elif sim_config["output"]["ms"]:
-        write_to_ms(obs.dataset, ms_path, overwrite)
-        xds = xds_from_ms(ms_path)
-        print_signal_specs(
-            xds.RFI_MODEL_DATA.data,
-            xds.AST_MODEL_DATA.data,
-            xds.NOISE_DATA.data,
-            xds.FLAG.data,
-        )
-    else:
-        ValueError(
-            "No output format has been chosen. output: zarr: or output: ms: must be True."
-        )
+    output = sim_config['output']
+    if not (output['zarr'] or output['ms'] or output.get('accumulate_ms')):
+        raise ValueError('Choose Zarr, Measurement Set or accumulate_ms output')
+    obs.calculate_vis(flags=output['flag_data'])
+    selected = select_arrays(obs.dataset, output.get('save_arrays'),
+                             output.get('save_rfi_amplitudes', False))
+    required = set(selected) if output['zarr'] else set()
+    if output['ms']:
+        required.update(MS_REQUIRED_ARRAYS)
+    if output.get('accumulate_ms'):
+        required.add('vis_rfi')
+    statistics = sim_config.get('diagnostics', {}).get('signal_stats', False)
+    if statistics:
+        required.update(('vis_ast', 'vis_rfi', 'noise_data', 'flags'))
+    # MS-only output stages beside the requested output, never on a hidden /tmp disk.
+    temporary = None
+    original = obs.dataset
+    if not output['zarr']:
+        temporary = tempfile.TemporaryDirectory(prefix='tabsim-stage-', dir=Path(ms_path).parent)
+    stage_path = zarr_path if temporary is None else Path(temporary.name) / 'components.zarr'
+    try:
+        obs.write_to_zarr(stage_path, overwrite=output['overwrite'], save_arrays=required)
+        with dask.config.set(scheduler='synchronous'):
+            if output['ms']:
+                write_to_ms(obs.dataset, ms_path, output['overwrite'])
+            if output.get('accumulate_ms'):
+                add_to_ms(obs.dataset, output['accumulate_ms'])
+            if statistics:
+                print_signal_specs(obs.dataset.vis_rfi.data, obs.dataset.vis_ast.data,
+                                   obs.dataset.noise_data.data, obs.dataset.flags.data)
+        if output['zarr']:
+            obs.dataset.close()
+            prune_store(stage_path, selected)
+            obs.dataset = xr.open_zarr(stage_path, chunks={})
+    finally:
+        if temporary is not None:
+            if obs.dataset is not original:
+                obs.dataset.close()
+            obs.dataset = original
+            obs._disk_staged = False
+            temporary.cleanup()
 
 
 def save_inputs(obs: Observation, sim_config: dict, save_path: str) -> None:
@@ -1304,12 +1321,6 @@ def _run_sim_config(
         print("\nNo diagnostic plots.")
 
     save_data(obs, sim_config, zarr_path, ms_path)
-
-    if sim_config["output"]["accumulate_ms"] is not None:
-        from tabsim.write import add_to_ms
-
-        xds = xr.open_zarr(zarr_path)
-        add_to_ms(xds, sim_config["output"]["accumulate_ms"])
 
     end = datetime.now()
     print()

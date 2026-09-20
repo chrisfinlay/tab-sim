@@ -19,7 +19,7 @@ description = "Trajectory-based Radio Frequency Interference (RFI) simulations f
 
 requires-python = ">=3.10"  # satchecker-client floor
 dependencies = [
-    "jax", "dask", "xarray", "zarr<3.0.0",
+    "jax", "dask", "psutil", "xarray", "zarr<3.0.0",
     "dask-ms>=0.2.21", "scipy", "tqdm", "matplotlib",
     "astropy", "skyfield", "sgp4", "platformdirs", "numpy", "pyyaml", "pandas",
     # The selection, acquisition and replay machinery tabsim.orbit adapts —
@@ -36,7 +36,7 @@ sat = ["regions"]
 # all = ["jax[cuda12]", "regions", "bdsf", "TGEpy @ git+https://github.com/chrisfinlay/TGEpy.git"]
 # all_cpu = ["regions", "bdsf", "TGEpy @ git+https://github.com/chrisfinlay/TGEpy.git"]
 ipy = ["ipython", "ipykernel"]
-test = ["pytest"]
+test = ["pytest", "psutil>=5.9"]
 benchmark = ["pytest>=7", "pytest-benchmark>=5.1,<6", "psutil>=5.9", "nvidia-ml-py>=12; sys_platform == 'linux'"]
 docs = ["sphinx", "sphinx-rtd-theme"]
 

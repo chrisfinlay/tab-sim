@@ -250,6 +250,15 @@ You can run the help function to see what other command line options there are.
 sim-vis -h
 ```
 
+### Staged output and memory controls
+
+Simulation output now stages components into one Zarr store before composing
+observed visibilities. This is the default for CLI and Python writers. Large
+`rfi_*_A` diagnostics and signal-statistic reductions are omitted by default;
+output arrays, compute chunk size, component concurrency and resource guards are
+configurable. See [staged output](docs/staged-output.md) for CLI, YAML and Python
+examples and the distinction between task-boundary memory guards and hard caps.
+
 ### Config File Definition
 
 The simulation configuration file has many options with set defaults such that minimal configurations can be set unless more is required.

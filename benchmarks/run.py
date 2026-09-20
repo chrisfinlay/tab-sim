@@ -40,7 +40,8 @@ def run_one(args, case, mode, root, python, prefix):
     try:
         return _run_one(args, case, mode, root, python, prefix, scratch)
     finally:
-        shutil.rmtree(scratch)
+        if not getattr(args, "keep_output", False):
+            shutil.rmtree(scratch)
 
 
 def _run_one(args, case, mode, root, python, prefix, scratch):
@@ -58,6 +59,8 @@ def _run_one(args, case, mode, root, python, prefix, scratch):
            "--junitxml", str(junit), "-q"]
     cmd += ["--available-memory-fraction", str(getattr(args, "available_memory_fraction", 0.5))]
     cmd += ["--memory-model", getattr(args, "memory_model", "conservative")]
+    if getattr(args, "keep_output", False):
+        cmd += ["--keep-output"]
     if getattr(args, "capacity", False):
         cmd += ["--capacity", "-s"]
     if args.trace:
@@ -184,8 +187,9 @@ def main():
     parser.add_argument("--gpu-budget-gib", type=float, default=4)
     parser.add_argument("--timeout", type=float, default=1200)
     parser.add_argument("--trace", action="store_true")
+    parser.add_argument("--keep-output", action="store_true", help="Retain completed or partial capacity output for inspection")
     parser.add_argument("--capacity", action="store_true", help="One cold full-output execution; no performance comparison")
-    parser.add_argument("--memory-model", choices=("conservative", "chunked"), default="conservative",
+    parser.add_argument("--memory-model", choices=("conservative", "chunked", "staged"), default="conservative",
                         help="Chunked is calibrated for current lazy-noise Zarr only; use conservative for older checkouts")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--plan", action="store_true")
@@ -198,6 +202,10 @@ def main():
         value = getattr(args, name)
         if not math.isfinite(value) or value <= 0:
             parser.error(f"{name} must be finite and positive")
+    if args.keep_output and not args.capacity:
+        parser.error('--keep-output is restricted to single capacity runs')
+    if args.memory_model == 'staged' and (not args.capacity or 'benchmarks.staged_plugin' not in os.environ.get('PYTEST_PLUGINS', '').split(',')):
+        parser.error('Staged admission requires capacity mode and PYTEST_PLUGINS=benchmarks.staged_plugin')
     if args.capacity and (args.candidate_root or any(m != "zarr" for m in args.modes)):
         parser.error("Capacity runs support Zarr only and cannot compare checkouts")
     if args.candidate_root and args.pairs < 5:

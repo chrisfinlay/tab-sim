@@ -20,10 +20,15 @@ def pytest_addoption(parser):
     group.addoption("--source-root", default=str(Path(__file__).resolve().parents[1]))
     group.addoption("--trace-dir", default=None)
     group.addoption("--capacity", action="store_true")
-    group.addoption("--memory-model", choices=("conservative", "chunked"), default="conservative")
+    group.addoption("--keep-output", action="store_true")
+    group.addoption("--memory-model", choices=("conservative", "chunked", "staged"), default="conservative")
 
 
 def pytest_configure(config):
+    if config.getoption('--keep-output') and not config.getoption('--capacity'):
+        raise pytest.UsageError('--keep-output is restricted to single capacity runs')
+    if config.getoption('--memory-model') == 'staged' and not config.pluginmanager.hasplugin('benchmarks.staged_plugin'):
+        raise pytest.UsageError('Staged admission requires the staged writer plugin')
     # Pin this harness before adding another implementation checkout to sys.path.
     harness_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(harness_root))
