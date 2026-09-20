@@ -5,6 +5,9 @@ SatChecker service; everything else drives the same code over a two-antenna
 observation with a mocked transport. Completion is never the assertion: a run whose
 satellites all silently failed to resolve also completes and writes valid output, so
 these tests are about the satellites being *there*.
+
+The live one skips itself while the service is unreachable — see
+``live_service`` for which failures count as that and which stay failures.
 """
 
 import sys
@@ -25,6 +28,7 @@ from tabsim.config import load_config, run_sim_config
 from tabsim.orbit_config import read_norad_ids_file
 from tabsim.scripts import sim_vis
 
+from live_service import service_outage, skip_if_satchecker_is_down
 from orbit_helpers import (
     GPS_NORAD_ID,
     ISS_EPOCH_JD,
@@ -195,6 +199,11 @@ def test_simulation_runs_with_config(capsys, tmp_path):
     """The one live check: a real NAVSTAR selection, resolved against SatChecker.
 
     An outage dropping every named satellite finishes too, so that is not the assertion.
+
+    A service that cannot be reached skips this check instead of failing it: the
+    run needs a catalogue search and a record for each of the ~76 NAVSTARs it
+    selects, and an outage would otherwise redden every pull request. A service
+    that answers unusably still fails — that is the regression this test is for.
     """
     config_path = (
         Path(__file__).parent.parent / "examples" / "test" / "sim_test_16A.yaml"
@@ -210,7 +219,7 @@ def test_simulation_runs_with_config(capsys, tmp_path):
         str(tmp_path / "out"),
     ]
 
-    with patch.object(sys, "argv", args):
+    with skip_if_satchecker_is_down(), patch.object(sys, "argv", args):
         obs, output_path = sim_vis.main()
 
     output = capsys.readouterr().out
@@ -281,6 +290,8 @@ def test_sim_vis_named_outage_does_not_write_successful_observation(
     """A named satellite whose record could not be fetched stops the run.
 
     The search succeeds and only the acquisition fails, so no observation is written.
+    This is the shape the 2026-09-19 outage reached CI in, so it is also where the
+    coverage error is checked for carrying the failure it came from.
     """
     serve_search(monkeypatch, {"THING": [search_row(ISS_NORAD_ID, "THING ONE")]})
 
@@ -300,6 +311,9 @@ def test_sim_vis_named_outage_does_not_write_successful_observation(
 
     assert str(ISS_NORAD_ID) in str(excinfo.value)
     assert list(output_path.glob("**/*.zarr")) == []
+    # Chained, not merely described in the message: this is how the live check
+    # above tells an unreachable service from one that answered.
+    assert isinstance(service_outage(excinfo.value), client.SatCheckerTransportError)
 
 
 @pytest.mark.parametrize("replay", [False, True], ids=["selected", "frozen-replay"])

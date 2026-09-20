@@ -830,7 +830,67 @@ def _coverage_error(resolution: OrbitResolution, named: bool = False) -> OrbitEr
         "RFI: the run stops here rather than writing an observation that is "
         "missing a source it was asked for.",
     ]
-    return OrbitError("\n".join(lines))
+    error = OrbitError("\n".join(lines))
+    # Chain the service failure these gaps came from, so that "SatChecker was
+    # down" can be told from "this configuration asks for records the catalogue
+    # does not have" without parsing the message. A failed catalogue search
+    # already raises this way, so both routes out of an outage carry it.
+    outage = _outage_cause(resolution, unreachable)
+    if outage is not None:
+        error.__cause__ = outage
+    return error
+
+
+def _outage_cause(resolution: OrbitResolution, unreachable) -> Optional[BaseException]:
+    """The whole-service failure to chain, or ``None`` if the service answered.
+
+    A caller reads this cause as "SatChecker could not be reached", so one
+    contributing transport failure is not enough to attach it. The client
+    synthesises a transport failure of its own once a run of identical HTTP
+    statuses is long enough to be about the client rather than the satellites
+    (``service.RESPONSE_WALL_THRESHOLD``), and files further synthetic ones
+    against the IDs it then stops sending — so a renamed endpoint answering 404
+    to every record request ends up looking exactly like an outage. A resolution
+    holding a single ``SatCheckerResponseError`` anywhere is therefore not one to
+    call unreachable: the service answered at least once, and what it said is the
+    thing worth reporting.
+
+    One transport error stands for all the gaps, since it is whole-service by
+    classification: the batch stopped at the first and the rest were never sent.
+    """
+    if _service_answered_unusably(resolution):
+        return None
+    return next(
+        (
+            gap.error
+            for gap in unreachable
+            if isinstance(gap.error, satchecker.SatCheckerTransportError)
+        ),
+        None,
+    )
+
+
+def _service_answered_unusably(resolution: OrbitResolution) -> bool:
+    """Whether anything here records SatChecker answering with something unusable.
+
+    Every place the resolution keeps a per-satellite failure is searched, because
+    one satellite can hold both kinds: an archive that answered 404 and a fallback
+    that then timed out leaves only the timeout under ``service_errors``, and the
+    404 survives on its attempt. ``refresh_errors`` holds the same for a satellite
+    that fell back to a cached record and so is not missing at all.
+    """
+    failures = list(resolution.service_errors.values())
+    failures += list(resolution.refresh_errors.values())
+    failures += [
+        attempt.error
+        for attempts in resolution.attempts.values()
+        for attempt in attempts
+        if attempt is not None
+    ]
+    return any(
+        isinstance(failure, satchecker.SatCheckerResponseError)
+        for failure in failures
+    )
 
 
 def require_complete_coverage(resolution: OrbitResolution) -> OrbitResolution:
