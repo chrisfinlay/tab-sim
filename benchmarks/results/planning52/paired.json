@@ -1,0 +1,184 @@
+{
+  "protocol": "Five alternating parent/candidate processes, each with one untimed warm-up and one timed full write; 512 stationary RFI sources, 8 point sources, 68 SKA-Low AA2 stations, 16 times, 32 channels, 3 integration samples, 45 MB target, 2 component workers. Same output selection (all except rfi_*_A), no filesystem cache flush.",
+  "parent_revision": "6d9026129eb821f0d08b61ecfcbebc69cda73145",
+  "measured_candidate_revision": "2c5907c",
+  "note": "Subsequent host-estimate correction changes only reported GPU host headroom, not estimated_bytes, chosen chunks, kernels or execution.",
+  "cpu": {
+    "parent": {
+      "times_s": [
+        12.99357458302984,
+        12.102849250019062,
+        12.559131500020158,
+        12.18483424995793,
+        12.32624704099726
+      ],
+      "median_s": 12.32624704099726,
+      "mad_s": 0.223397790978197,
+      "peak_rss_bytes": [
+        2308194304,
+        2301493248,
+        2861826048,
+        2744631296,
+        2459025408
+      ],
+      "chunks": [
+        16,
+        32
+      ],
+      "live_device_peak_bytes": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "allocator_pool_bytes": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "candidate": {
+      "times_s": [
+        12.763563124986831,
+        11.993899040971883,
+        12.106794041988906,
+        11.87374379200628,
+        12.962434916000348
+      ],
+      "median_s": 12.106794041988906,
+      "mad_s": 0.23305024998262525,
+      "peak_rss_bytes": [
+        1770569728,
+        1961492480,
+        1814069248,
+        1826586624,
+        1953742848
+      ],
+      "chunks": [
+        8,
+        32
+      ],
+      "live_device_peak_bytes": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "allocator_pool_bytes": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    }
+  },
+  "gpu": {
+    "parent": {
+      "times_s": [
+        39.82256813196,
+        41.398746528080665,
+        34.41682656307239,
+        26.797997553949244,
+        27.20316518296022
+      ],
+      "median_s": 34.41682656307239,
+      "mad_s": 6.981919965008274,
+      "peak_rss_bytes": [
+        4236029952,
+        4233011200,
+        4005523456,
+        4190453760,
+        4044185600
+      ],
+      "chunks": [
+        16,
+        32
+      ],
+      "live_device_peak_bytes": [
+        2231144704,
+        2231144448,
+        2231144704,
+        2231144704,
+        2231144448
+      ],
+      "allocator_pool_bytes": [
+        3181379584,
+        3181379584,
+        3181379584,
+        3181379584,
+        3181379584
+      ]
+    },
+    "candidate": {
+      "times_s": [
+        19.185192974982783,
+        19.21303279302083,
+        19.25139058602508,
+        19.203803978976794,
+        19.182458129012957
+      ],
+      "median_s": 19.203803978976794,
+      "mad_s": 0.01861100399401039,
+      "peak_rss_bytes": [
+        2657689600,
+        2644987904,
+        2645217280,
+        2715938816,
+        2712928256
+      ],
+      "chunks": [
+        8,
+        32
+      ],
+      "live_device_peak_bytes": [
+        1340803584,
+        1340803328,
+        1334079744,
+        1340764416,
+        1340803328
+      ],
+      "allocator_pool_bytes": [
+        3181379584,
+        3181379584,
+        3181379584,
+        3181379584,
+        3181379584
+      ]
+    }
+  },
+  "gpu_3gib_capacity": [
+    {
+      "round": 0,
+      "label": "parent",
+      "status": "RSS STOP",
+      "supervisor_peak_rss": 3221331968,
+      "process_s": 34.132577060954645
+    },
+    {
+      "round": 0,
+      "label": "candidate",
+      "status": "PASS",
+      "supervisor_peak_rss": 2467352576,
+      "process_s": 47.51072563091293
+    }
+  ],
+  "compiled_rfi_kernel_memory": {
+    "8": {
+      "argument_size_in_bytes": 220630880,
+      "output_size_in_bytes": 9330688,
+      "temp_size_in_bytes": 455232,
+      "alias_size_in_bytes": 0
+    },
+    "16": {
+      "argument_size_in_bytes": 441225056,
+      "output_size_in_bytes": 18661376,
+      "temp_size_in_bytes": 905536,
+      "alias_size_in_bytes": 0
+    }
+  }
+}
