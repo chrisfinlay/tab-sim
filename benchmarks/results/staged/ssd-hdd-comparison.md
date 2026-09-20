@@ -1,6 +1,6 @@
 # CPU/SSD versus GPU/HDD staged-writer pilot
 
-Both systems ran revision `7635bf8`, with the same AA4 fixture, actual chunk shapes, component-worker settings and public-API staged writer. Each configuration is one cold run, not a repeated performance estimate. These compare complete systems: processor, GPU availability, storage, operating system and Dask version differ. No isolated SSD/HDD or CPU/GPU speedup is claimed.
+Both systems ran revision `7635bf8`, with the same AA4 fixture, actual chunk shapes, component-worker settings and public-API staged writer. Each configuration is one fresh-process run, not a repeated performance estimate. “Cold” does not mean filesystem caches were cleared. These compare complete systems: processor, GPU availability, storage, operating system and Dask version differ. No isolated SSD/HDD or CPU/GPU speedup is claimed.
 
 ## Matching 7.984 GiB visibility cases
 
@@ -30,7 +30,7 @@ The 16 MB planner target gives visibility chunks `(2, 130816, 1)` (~3.99 MiB). T
 
 During CPU/SSD observed composition, whole-host disk counters averaged approximately 665 MB/s read and 251 MB/s write. These include other host activity and caching effects; they are not process-exclusive or durable-media bandwidth measurements. The corresponding GPU/HDD run had about 0.74% average GPU activity in composition. This supports investigating storage/CPU-side stalls before increasing GPU memory allowance, but does not isolate disk as the sole bottleneck.
 
-JAX 0.10.2, xarray 2026.7.0, Zarr 2.18.7 and numcodecs 0.15.1 match. Dask is 2024.10.0 on CPU/SSD and 2026.8.0 on GPU/HDD. CPU-side background activity was not excluded; no competing GPU compute process was observed.
+JAX 0.10.2, xarray 2026.7.0, Zarr 2.18.7 and numcodecs 0.15.1 match. Dask is 2024.10.0 on CPU/SSD and 2026.8.0 on GPU/HDD. NumPy, SciPy and pandas versions also differ. CPU-side background activity was not excluded; no competing GPU compute process was observed.
 
 ## Larger-than-host-memory case
 
