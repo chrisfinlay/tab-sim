@@ -42,7 +42,7 @@ from tabsim.jax.coordinates import (
 )
 from tabsim.tools import beam_size
 from tabsim.write import construct_observation_ds, write_ms
-from tabsim.dask.extras import get_chunksizes
+from tabsim.dask.extras import get_chunksizes, estimate_working_set
 from tabsim.tle import (
     ants_pos,
     as_record,
@@ -226,6 +226,10 @@ class Observation(Telescope):
         max_chunk_MB: float = 100.0,
         *,
         component_workers: int = 2,
+        working_set_MB: Optional[float] = None,
+        planned_rfi_sources: int = 0,
+        planned_ast_sources: int = 0,
+        task_scratch_factor: Optional[float] = None,
         max_memory_gb: Optional[float] = None,
         memory_fraction: float = 0.7,
         max_device_memory_gb: Optional[float] = None,
@@ -276,9 +280,16 @@ class Observation(Telescope):
         self.ra = da.asarray(ra)
         self.dec = da.asarray(dec)
 
+        import jax
+        self._planning = dict(n_ant=self.n_ant, n_rfi=planned_rfi_sources,
+            n_ast=planned_ast_sources, workers=component_workers,
+            backend=jax.default_backend(), scratch_factor=task_scratch_factor, full_n_freq=len(freqs))
+        self.working_set_MB = working_set_MB
         chunksize = get_chunksizes(
-            len(times), len(freqs), n_int_samples, self.n_bl, max_chunk_MB
+            len(times), len(freqs), n_int_samples, self.n_bl, max_chunk_MB,
+            working_set_MB=working_set_MB, **self._planning
         )
+        self.chunk_plan = chunksize
         self.time_chunk = chunksize["time"]
         self.time_fine_chunk = self.time_chunk * n_int_samples
         self.freq_chunk = chunksize["freq"]
@@ -496,6 +507,29 @@ Number of stationary RFI :  {n_stat}"""
         self.rfi_stationary_ang_sep = []
         self.rfi_stationary_A_app = []
 
+    def _validate_working_set(self, *, n_rfi=None, n_ast=None, workers=None):
+        settings = dict(self._planning)
+        settings['n_rfi'] = max(settings['n_rfi'], self.n_rfi if n_rfi is None else n_rfi)
+        settings['n_ast'] = max(settings['n_ast'], self.n_ast if n_ast is None else n_ast)
+        if workers is not None:
+            settings['workers'] = workers
+        estimate = estimate_working_set(self.time_chunk, self.freq_chunk,
+            self.n_int_samples, self.n_bl, **settings)
+        if self.working_set_MB is not None and estimate['estimated_bytes'] > self.working_set_MB * 1e6:
+            raise ValueError('Sources/concurrency exceed the estimated working_set_MB budget. '
+                             'Rebuild Observation with planned_rfi_sources/planned_ast_sources '
+                             'covering the full workload, a smaller max_chunk_MB, or a larger budget.')
+        return estimate
+
+    def _check_source_budget(self, kind, intensity, *coordinates):
+        counts = [intensity.shape[0]] + [da.atleast_1d(value).shape[0] for value in coordinates]
+        count = max(counts)
+        if count < 1 or any(size not in (1, count) for size in counts):
+            raise ValueError('Source intensity and coordinate axes must match or broadcast from one source')
+        self._validate_working_set(**{('n_rfi' if kind == 'rfi' else 'n_ast'):
+                                      (self.n_rfi if kind == 'rfi' else self.n_ast) + count})
+        return da.broadcast_to(intensity, (count,) + intensity.shape[1:])
+
     def addAstro(self, I: Array, ra: Array, dec: Array):
         """
         Add a set of astronomical sources to the observation.
@@ -515,6 +549,9 @@ Number of stationary RFI :  {n_stat}"""
         I = da.atleast_2d(I)  # type: ignore
         if I.ndim == 2:
             I = da.expand_dims(I, axis=0)
+        I = self._check_source_budget('ast', I, ra, dec)
+        ra, dec = [da.broadcast_to(da.atleast_1d(value), (I.shape[0],))
+                         for value in (ra, dec)]
         I = I * da.ones(
             shape=(I.shape[0], self.n_time, self.n_freq),
             chunks=(I.shape[0], self.time_chunk, self.freq_chunk),
@@ -571,6 +608,9 @@ Number of stationary RFI :  {n_stat}"""
         I = da.atleast_2d(I)  # type: ignore
         if I.ndim == 2:
             I = da.expand_dims(I, axis=0)
+        I = self._check_source_budget('ast', I, ra, dec, major, minor, pos_angle)
+        ra, dec, major, minor, pos_angle = [da.broadcast_to(da.atleast_1d(value), (I.shape[0],))
+                         for value in (ra, dec, major, minor, pos_angle)]
         I = I * da.ones(
             shape=(I.shape[0], self.n_time, self.n_freq),
             chunks=(I.shape[0], self.time_chunk, self.freq_chunk),
@@ -623,6 +663,9 @@ Number of stationary RFI :  {n_stat}"""
         I = da.atleast_2d(I)
         if I.ndim == 2:
             I = da.expand_dims(I, axis=0)
+        I = self._check_source_budget('ast', I, ra, dec, shape)
+        ra, dec, shape = [da.broadcast_to(da.atleast_1d(value), (I.shape[0],))
+                         for value in (ra, dec, shape)]
         I = I * da.ones(
             shape=(I.shape[0], self.n_time, self.n_freq),
             chunks=(I.shape[0], self.time_chunk, self.freq_chunk),
@@ -680,6 +723,9 @@ Number of stationary RFI :  {n_stat}"""
         Pv = da.atleast_2d(Pv)
         if Pv.ndim == 2:
             Pv = da.expand_dims(Pv, axis=0)
+        Pv = self._check_source_budget('rfi', Pv, elevation, inclination, lon_asc_node, periapsis)
+        elevation, inclination, lon_asc_node, periapsis = [da.broadcast_to(da.atleast_1d(value), (Pv.shape[0],))
+                         for value in (elevation, inclination, lon_asc_node, periapsis)]
         Pv = (
             Pv
             * da.ones(
@@ -761,6 +807,9 @@ Number of stationary RFI :  {n_stat}"""
         Pv = da.atleast_2d(Pv)  # type: ignore
         if Pv.ndim == 2:
             Pv = da.expand_dims(Pv, axis=0)
+        Pv = self._check_source_budget('rfi', Pv, norad_ids)
+        if len(orbits) != Pv.shape[0] or da.atleast_1d(norad_ids).shape[0] != Pv.shape[0]:
+            raise ValueError('TLE orbit records and NORAD IDs must match the source count exactly')
         Pv = (
             Pv
             * da.ones(
@@ -872,6 +921,9 @@ Number of stationary RFI :  {n_stat}"""
         Pv = da.atleast_2d(Pv)
         if Pv.ndim == 2:
             Pv = da.expand_dims(Pv, axis=0)
+        Pv = self._check_source_budget('rfi', Pv, latitude, longitude, elevation)
+        latitude, longitude, elevation = [da.broadcast_to(da.atleast_1d(value), (Pv.shape[0],))
+                         for value in (latitude, longitude, elevation)]
         Pv = (
             Pv
             * da.ones(
@@ -1019,7 +1071,11 @@ Number of stationary RFI :  {n_stat}"""
             self.flags = da.zeros(shape=self.vis_cal.shape, dtype=bool,
                                   chunks=(self.time_chunk, self.bl_chunk, self.freq_chunk))
 
+        if hasattr(self, '_planning'):
+            self.chunk_plan['working_set'] = self._validate_working_set()
         self.dataset = construct_observation_ds(self)
+        if self.dataset is not None and hasattr(self, 'chunk_plan'):
+            self.dataset.attrs['chunk_plan'] = self.chunk_plan.copy()
         self._calculate_flags = flags
         self._disk_staged = False
         self._snapshot_calculation()
@@ -1060,6 +1116,7 @@ Number of stationary RFI :  {n_stat}"""
             raise ValueError('Cannot overwrite the store currently backing this observation')
         selected = select_arrays(self.dataset, save_arrays, save_rfi_amplitudes)
         options = dict(self.execution_options, **execution_options)
+        self._validate_working_set(workers=options['component_workers'])
         write_staged_observation(self, path, flags=self._calculate_flags,
             save_arrays=selected, overwrite=overwrite, progress=progress,
             recompose=not self._disk_staged, **options)

@@ -116,7 +116,7 @@ external `ds=` passed to `write_to_ms` remains a lower-level caller-managed path
 
 | Control | Meaning |
 | --- | --- |
-| `max_chunk_MB` | Existing target (decimal MB) used to choose time/frequency factors for the fine-time visibility tile. Default 100. It is not a total memory cap; factor rounding can exceed the target. Baseline and source axes are not split. |
+| `max_chunk_MB` | Strict upper bound (decimal MB) for the fine-time visibility tile. Default 100. An infeasible minimum tile raises an error. It is not a total memory cap. Baseline and source axes are not split. |
 | `component_workers` | Maximum concurrent component task streams; default 2. Composition and ancillary writes are sequential. More streams can increase memory and disk contention. |
 | `max_memory_gb` | Process host RSS guard in **GiB**, including allocations present before writing. `null` chooses baseline RSS + `memory_fraction` × currently available host RAM. |
 | `memory_fraction` | Automatic host budget fraction, default 0.7; used only when `max_memory_gb` is null. |
@@ -139,3 +139,5 @@ when a reserved GPU pool limit is needed. The writer never changes allocator
 settings after initialization or treats a low live-allocation reading as low
 reserved VRAM usage. The chunk/worker defaults remain conservative existing
 values; the Daint sweep is evidence for tuning, not a universal auto-heuristic.
+
+See [strict chunk planning](chunk-planning.md) for the optional source-aware working-set budget and its assumptions.

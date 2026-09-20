@@ -140,7 +140,7 @@ def test_composition_writes_before_reading_whole_component(tmp_path, monkeypatch
     import zarr
     case = dict(telescope='SKA-Low-AA0.5', antennas=4, times=8, channels=8,
                 samples=3, point_sources=0, rfi_sources=0)
-    obs = build_observation(case, .0001)
+    obs = build_observation(case, .000288)  # exact minimum: preserve the 1x1 read-ahead probe
     add_sources(obs, case)
     obs.calculate_vis(random_seed=0)
     active = False

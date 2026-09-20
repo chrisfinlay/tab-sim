@@ -75,6 +75,10 @@ ast_sources:
 # Dask parameters
 ##################
 dask:
+  working_set_MB: null       # Optional estimated per-memory-space budget in decimal MB (not RSS/VRAM cap)
+  planned_rfi_sources: 0     # Planning hint before source graphs are constructed; totals are conservative
+  planned_ast_sources: 0
+  task_scratch_factor: null  # null: CPU 4 / GPU 6; empirical allowance, not measured XLA temporaries
   component_workers: 2       # Independent component streams; composition is serial
   max_memory_gb: null         # Process RSS guard in GiB; null uses memory_fraction
   memory_fraction: 0.7        # Fraction of available host RAM added to baseline RSS
