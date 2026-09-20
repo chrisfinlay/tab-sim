@@ -84,6 +84,27 @@ def test_a_failure_merely_handled_beside_an_outage_is_not_one():
                 raise SatCheckerError("something else")
 
 
+def test_a_run_that_succeeded_is_left_alone():
+    """The guard hands a completed body straight back: no skip, nothing swallowed.
+
+    Without this, a guard that skipped *after* its body succeeded would pass every
+    other case here — and would quietly excuse the live check on the day the
+    service comes back.
+    """
+    reached = []
+
+    # A skip raised in here would end the test as skipped, not failed, so it has
+    # to be caught and turned into a failure: pytest.skip.Exception is a
+    # BaseException and would otherwise sail straight past an ordinary except.
+    try:
+        with skip_if_satchecker_is_down():
+            reached.append("body")
+    except BaseException as error:  # noqa: BLE001  a skip is the thing being caught
+        pytest.fail(f"a completed run must not be skipped: {error!r}")
+
+    assert reached == ["body"]
+
+
 def test_a_failed_assertion_is_not_swallowed():
     """The guard covers the service's failures, not the test's own."""
     with pytest.raises(AssertionError, match="no satellites"):
