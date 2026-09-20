@@ -167,7 +167,8 @@ def test_composition_writes_before_reading_whole_component(tmp_path, monkeypatch
     assert first_write_reads and 0 < first_write_reads[0] <= 12
 
 
-def test_composition_failure_leaves_store_incomplete(tmp_path, monkeypatch):
+@pytest.mark.parametrize('save_arrays', [None, ['vis_obs']])
+def test_composition_failure_leaves_store_incomplete(tmp_path, monkeypatch, save_arrays):
     import json
     case = dict(telescope='SKA-Low-AA0.5', antennas=4, times=4, channels=3,
                 samples=3, point_sources=0, rfi_sources=0)
@@ -181,8 +182,105 @@ def test_composition_failure_leaves_store_incomplete(tmp_path, monkeypatch):
         return original_write(dataset, *args, **kwargs)
     monkeypatch.setattr(xr.Dataset, 'to_zarr', injected)
     with pytest.raises(RuntimeError, match='injected composition failure'):
-        write_staged_observation(obs, tmp_path, flags=True)
+        write_staged_observation(obs, tmp_path, flags=True, save_arrays=save_arrays)
     status = json.loads((tmp_path / 'staged-status.json').read_text())
     assert not status['complete']
     assert set(status['completed']) == {'vis_ast', 'vis_rfi', 'gains_ants', 'noise_data'}
     assert not (tmp_path / 'result.zarr' / '.zmetadata').exists()
+
+
+@pytest.mark.parametrize('save_arrays', [
+    ['vis_obs'], ['vis_calibrated'], ['flags'], ['vis_ast'], ['noise_std'], [],
+])
+@pytest.mark.parametrize('unity', [True, False])
+def test_selected_arrays_match_reference(tmp_path, monkeypatch, save_arrays, unity):
+    import json
+    import benchmarks.staged_zarr as writer
+    case = dict(telescope='SKA-Low-AA0.5', antennas=4, times=4, channels=3,
+                samples=3, point_sources=2, rfi_sources=1)
+    obs = build_observation(case, .001)
+    add_sources(obs, case)
+    if unity:
+        obs.gains_ants = dask.array.ones_like(obs.gains_ants)
+    else:
+        obs.gains_ants = obs.gains_ants * (1.2 + .3j)
+    obs.calculate_vis(random_seed=7)
+    expected = obs.dataset.compute()
+    calls = []
+    apply = writer.apply_gains
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return apply(*args, **kwargs)
+    monkeypatch.setattr(writer, 'apply_gains', counted)
+    write_staged_observation(obs, tmp_path, flags=True, save_arrays=save_arrays)
+    with xr.open_zarr(tmp_path / 'result.zarr') as actual:
+        assert set(actual.data_vars) == set(save_arrays)
+        assert set(actual.coords) == set(expected.coords)
+        assert actual.attrs == expected.attrs
+        for name in actual.variables:
+            xr.testing.assert_allclose(actual[name], expected[name])
+    status = json.loads((tmp_path / 'staged-status.json').read_text())
+    assert status['complete']
+    if set(save_arrays) & {'vis_calibrated', 'flags'}:
+        assert status['calibration_skipped'] == unity
+        assert len(calls) == (1 if unity else 2)
+        if unity and 'vis_calibrated' not in save_arrays:
+            assert 'vis_calibrated' not in status['completed']
+    elif 'vis_obs' in save_arrays:
+        assert len(calls) == 1
+    else:
+        assert not calls
+        assert not (set(status['completed']) & {'vis_obs', 'vis_calibrated'})
+
+
+@pytest.mark.parametrize('gain', [1.0, 1.0 + 1e-12])
+def test_unity_calibrated_output_skips_inverse_kernel(tmp_path, monkeypatch, gain):
+    import benchmarks.staged_zarr as writer
+    case = dict(telescope='SKA-Low-AA0.5', antennas=4, times=4, channels=3,
+                samples=3, point_sources=1, rfi_sources=1)
+    obs = build_observation(case, .001)
+    add_sources(obs, case)
+    obs.gains_ants = dask.array.ones_like(obs.gains_ants) * gain
+    obs.calculate_vis(random_seed=7)
+    apply = writer.apply_gains
+    calls = []
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return apply(*args, **kwargs)
+    monkeypatch.setattr(writer, 'apply_gains', counted)
+    write_staged_observation(obs, tmp_path, flags=True,
+                             save_arrays=['vis_obs', 'vis_calibrated'])
+    assert len(calls) == (1 if gain == 1 else 2)
+    with xr.open_zarr(tmp_path / 'result.zarr') as actual:
+        if gain == 1:
+            np.testing.assert_array_equal(actual.vis_obs.values, actual.vis_calibrated.values)
+        else:
+            assert np.max(np.abs(actual.vis_obs.values - actual.vis_calibrated.values)) > 0
+
+
+def test_disabled_flags_need_no_components(tmp_path, monkeypatch):
+    import benchmarks.staged_zarr as writer
+    case = dict(telescope='SKA-Low-AA0.5', antennas=4, times=4, channels=3,
+                samples=3, point_sources=0, rfi_sources=0)
+    obs = build_observation(case, .001)
+    obs.calculate_vis(flags=False)
+    def forbidden(*args, **kwargs):
+        raise AssertionError('No visibility computation is required for disabled flags')
+    monkeypatch.setattr(writer, 'apply_gains', forbidden)
+    stages = write_staged_observation(obs, tmp_path, flags=False, save_arrays=['flags'])
+    assert not ({s['variable'] for s in stages} & {'vis_ast', 'vis_rfi', 'noise_data', 'gains_ants'})
+    with xr.open_zarr(tmp_path / 'result.zarr') as actual:
+        assert set(actual.data_vars) == {'flags'}
+        assert not actual.flags.values.any()
+
+
+@pytest.mark.parametrize('selection', [['typo'], 'vis_obs'])
+def test_invalid_selection_fails_before_writing(tmp_path, selection):
+    case = dict(telescope='SKA-Low-AA0.5', antennas=4, times=4, channels=3,
+                samples=3, point_sources=0, rfi_sources=0)
+    obs = build_observation(case, .001)
+    obs.calculate_vis()
+    target = tmp_path / 'new'
+    with pytest.raises(ValueError):
+        write_staged_observation(obs, target, flags=True, save_arrays=selection)
+    assert not target.exists()

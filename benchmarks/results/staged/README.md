@@ -58,3 +58,40 @@ sources, disabled flags, noiseless flags, concurrency and output retention.
 - Stage-specific measurements: component workers affect component creation;
   composition remains sequential. GPU process allocation includes reserved pool
   memory and must not be treated as live buffer demand.
+
+## Output selection and unity gains
+
+The experimental writer accepts `save_arrays`, a collection of data-variable
+names. `None` preserves the full output; an empty collection keeps coordinates
+and dataset attributes only. Unknown names are rejected before creating a store.
+For example:
+
+```python
+write_staged_observation(
+    obs, directory, flags=True,
+    save_arrays=['vis_obs', 'flags'],
+    component_workers=2,
+)
+```
+
+Only requested data arrays remain in the completed store. Components needed to
+build them are staged temporarily in that same store, then removed after their
+consumers finish. Unused component/composition stages are omitted. Failed runs
+retain completed inputs for diagnosis. Selection reduces final storage; admission
+must still allow for temporary dependencies, so existing conservative disk guards
+remain in force.
+
+Before inverse-gain calibration, a chunked reduction checks whether persisted
+gains are exactly unity. If so, flags use the observed values directly and no
+inverse-gain kernel runs. Near-unity gains still run calibration. If
+`vis_calibrated` is explicitly requested (including the default full output), its
+array is written with observed values and the original calibrated-array encoding.
+Selecting only `vis_obs` avoids that duplicate output. The status marker records
+selection, removed intermediates and whether calibration was skipped.
+
+These controls currently belong to the experimental writer API. Promotion to the
+production simulation configuration must expose the same selection semantics and
+coordinate them with any requested Measurement Set conversion before deleting
+its dependencies. This is a requirement for the final production PR. Historical
+benchmark figures and active host sweeps remain pinned to revision 7635bf8, before
+this change; their workload must not be conflated with selected-output timings.
