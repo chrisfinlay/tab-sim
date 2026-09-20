@@ -830,7 +830,25 @@ def _coverage_error(resolution: OrbitResolution, named: bool = False) -> OrbitEr
         "RFI: the run stops here rather than writing an observation that is "
         "missing a source it was asked for.",
     ]
-    return OrbitError("\n".join(lines))
+    error = OrbitError("\n".join(lines))
+    # Chain the service failure these gaps came from, so that "SatChecker was
+    # down" can be told from "this configuration asks for records the catalogue
+    # does not have" without parsing the message. A failed catalogue search
+    # already raises this way, so both routes out of an outage carry it. One
+    # error stands for all of them: a transport failure is whole-service, so the
+    # batch stopped at the first and the blocked IDs were never sent — and a
+    # blocked gap carries that same error.
+    outage = next(
+        (
+            gap.error
+            for gap in unreachable
+            if isinstance(gap.error, satchecker.SatCheckerTransportError)
+        ),
+        None,
+    )
+    if outage is not None:
+        error.__cause__ = outage
+    return error
 
 
 def require_complete_coverage(resolution: OrbitResolution) -> OrbitResolution:
