@@ -47,8 +47,10 @@ sources, disabled flags, noiseless flags, concurrency and output retention.
 
 ## Outstanding measurements
 
-- Complete end-to-end GPU run at the final revision, followed by a single
-  visibility larger than physical host RAM, under unchanged supervision.
+- Four complete end-to-end GPU configurations now pass at revision 7635bf8;
+  matching CPU/SSD runs and numerical sample comparisons also pass. See
+  [the comparison](ssd-hdd-comparison.md). The larger-than-host-RAM GPU run
+  remains underway; the CPU case is resource-skipped, not a capacity success.
 - GPU activity, memory-bandwidth activity, host RSS, process GPU allocation and
   allocator live-buffer peaks across chunk targets and component worker counts.
 - Repeated finalist timings before choosing defaults. Report actual chunk shapes:
