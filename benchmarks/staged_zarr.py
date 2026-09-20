@@ -5,6 +5,7 @@ from pathlib import Path
 from threading import Lock
 import time
 
+import dask
 import dask.array as da
 import xarray as xr
 import zarr
@@ -43,22 +44,32 @@ def write_staged_observation(obs, directory, *, flags, progress=None, component_
         path, mode='w-', consolidated=False)
     record_status()
 
-    def prepare(name, array):
+    def payload_for(name, array):
         # Preserve xarray encoders and safe-chunk validation. All preparation
         # happens serially; omit coordinates so parallel writes never share them.
         template = original[name]
         array = da.asarray(array).rechunk(template.data.chunks)
         variable = xr.Variable(template.dims, array, attrs=template.attrs,
                                encoding=template.encoding.copy())
-        payload = xr.Dataset({name: variable}, attrs=original.attrs)
-        return payload.to_zarr(path, mode='a', compute=False, consolidated=False)
+        return xr.Dataset({name: variable}, attrs=original.attrs)
 
-    def execute(name, graph):
+    def prepare(name, array):
+        return payload_for(name, array).to_zarr(
+            path, mode='a', compute=False, consolidated=False)
+
+    def execute(name, graph, *, immediate=False):
         start = time.perf_counter()
         with lock:
             if progress:
                 progress('stage_start', {'variable': name})
-        graph.compute(scheduler='synchronous')
+        if immediate:
+            # Keep the Array store graph out of delayed collection conversion.
+            # Dask 2026.8 wraps its data roots as tasks on that path, causing
+            # whole-component read-ahead with the synchronous scheduler.
+            with dask.config.set(scheduler='synchronous'):
+                graph.to_zarr(path, mode='a', compute=True, consolidated=False)
+        else:
+            graph.compute(scheduler='synchronous')
         with lock:
             item = {'variable': name, 'elapsed_s': time.perf_counter() - start}
             stages.append(item)
@@ -74,7 +85,7 @@ def write_staged_observation(obs, directory, *, flags, progress=None, component_
         return dataset[name].data
 
     def save(name, array):
-        execute(name, prepare(name, array))
+        execute(name, payload_for(name, array), immediate=True)
         return reopen(name)
 
     components = ('vis_ast', 'vis_rfi', 'gains_ants', 'noise_data')
@@ -106,7 +117,7 @@ def write_staged_observation(obs, directory, *, flags, progress=None, component_
         # ancillary arrays get exactly one data write, with their xarray encoding.
         for name in original.variables:
             if name not in components + composed and isinstance(original[name].data, da.Array):
-                execute(name, prepare(name, original[name].data))
+                execute(name, payload_for(name, original[name].data), immediate=True)
         zarr.consolidate_metadata(str(path))
         status['complete'] = True
         record_status()

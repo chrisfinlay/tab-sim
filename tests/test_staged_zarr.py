@@ -74,6 +74,8 @@ def test_single_store_encodings_and_one_write(tmp_path, monkeypatch):
     def counted(dataset, *args, **kwargs):
         if kwargs.get('mode') == 'a':
             writes.extend(dataset.data_vars)
+            if not set(dataset.data_vars) <= {'vis_ast', 'vis_rfi', 'gains_ants', 'noise_data'}:
+                assert kwargs.get('compute') is True
         return original_write(dataset, *args, **kwargs)
     monkeypatch.setattr(xr.Dataset, 'to_zarr', counted)
     target = tmp_path / 'staged'
@@ -132,3 +134,55 @@ def test_components_overlap_before_composition(tmp_path, monkeypatch):
         return graph
     monkeypatch.setattr(xr.Dataset, 'to_zarr', wrapped)
     write_staged_observation(obs, tmp_path, flags=True, component_workers=2)
+
+
+def test_composition_writes_before_reading_whole_component(tmp_path, monkeypatch):
+    import zarr
+    case = dict(telescope='SKA-Low-AA0.5', antennas=4, times=8, channels=8,
+                samples=3, point_sources=0, rfi_sources=0)
+    obs = build_observation(case, .0001)
+    add_sources(obs, case)
+    obs.calculate_vis(random_seed=0)
+    active = False
+    reads = 0
+    first_write_reads = []
+    getitem, setitem = zarr.Array.__getitem__, zarr.Array.__setitem__
+    def read(array, key):
+        nonlocal reads
+        if active and array.path in {'vis_ast', 'vis_rfi', 'gains_ants', 'noise_data'}:
+            reads += 1
+        return getitem(array, key)
+    def write(array, key, value):
+        if active and array.path == 'vis_obs' and not first_write_reads:
+            first_write_reads.append(reads)
+        return setitem(array, key, value)
+    def progress(event, details):
+        nonlocal active
+        if details.get('variable') == 'vis_obs':
+            active = event == 'stage_start'
+    monkeypatch.setattr(zarr.Array, '__getitem__', read)
+    monkeypatch.setattr(zarr.Array, '__setitem__', write)
+    write_staged_observation(obs, tmp_path, flags=True, progress=progress)
+    # Four inputs per tile; allow small read-ahead, but not a full 64-tile cube.
+    assert first_write_reads and 0 < first_write_reads[0] <= 12
+
+
+def test_composition_failure_leaves_store_incomplete(tmp_path, monkeypatch):
+    import json
+    case = dict(telescope='SKA-Low-AA0.5', antennas=4, times=4, channels=3,
+                samples=3, point_sources=0, rfi_sources=0)
+    obs = build_observation(case, .001)
+    add_sources(obs, case)
+    obs.calculate_vis()
+    original_write = xr.Dataset.to_zarr
+    def injected(dataset, *args, **kwargs):
+        if set(dataset.data_vars) == {'vis_obs'}:
+            raise RuntimeError('injected composition failure')
+        return original_write(dataset, *args, **kwargs)
+    monkeypatch.setattr(xr.Dataset, 'to_zarr', injected)
+    with pytest.raises(RuntimeError, match='injected composition failure'):
+        write_staged_observation(obs, tmp_path, flags=True)
+    status = json.loads((tmp_path / 'staged-status.json').read_text())
+    assert not status['complete']
+    assert set(status['completed']) == {'vis_ast', 'vis_rfi', 'gains_ants', 'noise_data'}
+    assert not (tmp_path / 'result.zarr' / '.zmetadata').exists()

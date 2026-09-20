@@ -9,7 +9,13 @@ and the existing `noise_data` concurrently into distinct arrays of one
 number of independent synchronous Dask task streams (two in the command below).
 After all components finish, new graphs read their stored chunks and append
 `vis_obs`, then `vis_calibrated`, then `flags` to that same store. Ancillary
-variables are written once with their xarray encodings. No second output store
+variables are written once with their xarray encodings. Sequential composition
+and ancillary writes use `Dataset.to_zarr(compute=True)` under the synchronous
+scheduler. This keeps the Dask Array store graph out of deferred collection
+conversion, which caused input-read accumulation with Dask 2026.8.0. It does
+not call `Dataset.compute()` or materialize the full dataset. The parallel
+component phase still prepares metadata serially before executing its writes.
+No second output store
 or final copy is created. Metadata is consolidated only after success; the
 adjacent `staged-status.json` marks incomplete stores and completed stages.
 
@@ -38,7 +44,10 @@ on success and failure; select a fresh output directory for every attempt.
 Tests compare every output with the ordinary writer, including seed overrides,
 disabled flags, noiseless flags, empty sources, uneven chunks and encoded
 ancillary variables. Separate tests exercise concurrent component execution,
-failure barriers, output retention and admission accounting.
+failure barriers, output retention and admission accounting. A read-ahead
+regression verifies that the first composition chunk is written before a whole
+input component is read. Composition failures must leave the store incomplete
+and unconsolidated.
 
 ## Requirements before the production PR
 
