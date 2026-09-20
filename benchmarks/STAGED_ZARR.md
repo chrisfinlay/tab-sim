@@ -1,7 +1,11 @@
 # Staged Zarr investigation
 
-Started from merged main `e61dcdf` after #62 and #63. This is an experiment for
-#54, not a replacement for the production writer or a merge-ready capacity fix.
+Started from merged main `e61dcdf` after #62 and #63 for #54. The investigated
+writer is now promoted to `tabsim.staged` and is the CLI/Python default; see
+[production usage and controls](../docs/staged-output.md). Historical measurements
+below and in `results/staged` used the revisions explicitly recorded there. The
+benchmark adapter retains all arrays for comparability, unlike the production
+default which omits RFI amplitude diagnostics.
 
 `staged_zarr.write_staged_observation` writes `vis_ast`, `vis_rfi`, `gains_ants`
 and the existing `noise_data` concurrently into distinct arrays of one
@@ -17,11 +21,10 @@ not call `Dataset.compute()` or materialize the full dataset. The parallel
 component phase still prepares metadata serially before executing its writes.
 No second output store
 or final copy is created. Metadata is consolidated only after success; the
-adjacent `staged-status.json` marks incomplete stores and completed stages.
+`staged-status.json` inside the store (also copied adjacent by the benchmark adapter) marks incomplete stores and completed stages.
 
 The caller must provide the original `flags` option. Noise comes from the
-existing calculation, preserving its seed. This prototype assumes no custom
-changes to the composed dataset variables. Retained components support manual
+existing calculation, preserving its seed. The production Observation API rejects changes to core calculated arrays and preserves ancillary/metadata customizations. Retained components support manual
 investigation; automatic restart/resume is not implemented.
 
 ## Run under the capacity supervisor
@@ -49,10 +52,9 @@ regression verifies that the first composition chunk is written before a whole
 input component is read. Composition failures must leave the store incomplete
 and unconsolidated.
 
-## Requirements before the production PR
+## Remaining capacity investigations
 
-- Preserve supported dataset customizations and calculation options.
-- Define interrupted-stage restart, overwrite and cleanup semantics.
+- Automatic restart/resume is not implemented; failed permanent stores are retained.
 - Measure peak host/device memory across all stages and parallel workers.
 - Verify retained full output and CPU/GPU numerical equivalence.
 - Test increasing datasets at fixed tiles/concurrency, including a visibility

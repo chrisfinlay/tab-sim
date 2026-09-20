@@ -80,7 +80,8 @@ def test_observation_honors_explicit_zero_seed(monkeypatch):
     from tabsim.dask import observation as module
     vis = da.zeros((4, 2, 3), chunks=(2, 2, 3), dtype=complex)
     obs = SimpleNamespace(vis_ast=vis, vis_rfi=vis, gains_ants=None, a1=None, a2=None,
-        time_chunk=2, bl_chunk=2, freq_chunk=3, noise_std=da.ones(3), random_seed=123)
+        time_chunk=2, bl_chunk=2, freq_chunk=3, noise_std=da.ones(3), random_seed=123,
+        _snapshot_calculation=lambda: None)
     monkeypatch.setattr(module, "apply_gains", lambda data, *args: data)
     # Gains are inverted before the second call.
     obs.gains_ants = 1.

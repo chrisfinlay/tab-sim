@@ -187,6 +187,10 @@ def simulation(case, mode, chunk_mb, directory, progress=None):
     if progress:
         progress("setup_start", {})
     obs = build_observation(case, chunk_mb)
+    # Older revision comparisons do not have execution_options.
+    if hasattr(obs, 'execution_options'):
+        import dask
+        obs.execution_options['component_workers'] = dask.config.get('num_workers', default=2)
     if progress:
         progress("setup_complete", {"time_chunk": obs.time_chunk, "frequency_chunk": obs.freq_chunk})
     setup = time.perf_counter()
@@ -198,7 +202,7 @@ def simulation(case, mode, chunk_mb, directory, progress=None):
                                      for axis in obs.dataset[name].data.chunks]
                                  for name in ("vis_ast", "vis_rfi", "vis_obs")})
     if mode == "ms":
-        write_ms(obs.dataset, str(directory / "result.ms"))
+        obs.write_to_ms(str(directory / "result.ms"))
     else:
         obs.write_to_zarr(str(directory / "result.zarr"))
     first_write = time.perf_counter()

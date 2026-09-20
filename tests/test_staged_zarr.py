@@ -195,7 +195,7 @@ def test_composition_failure_leaves_store_incomplete(tmp_path, monkeypatch, save
 @pytest.mark.parametrize('unity', [True, False])
 def test_selected_arrays_match_reference(tmp_path, monkeypatch, save_arrays, unity):
     import json
-    import benchmarks.staged_zarr as writer
+    import tabsim.staged as writer
     case = dict(telescope='SKA-Low-AA0.5', antennas=4, times=4, channels=3,
                 samples=3, point_sources=2, rfi_sources=1)
     obs = build_observation(case, .001)
@@ -235,7 +235,7 @@ def test_selected_arrays_match_reference(tmp_path, monkeypatch, save_arrays, uni
 
 @pytest.mark.parametrize('gain', [1.0, 1.0 + 1e-12])
 def test_unity_calibrated_output_skips_inverse_kernel(tmp_path, monkeypatch, gain):
-    import benchmarks.staged_zarr as writer
+    import tabsim.staged as writer
     case = dict(telescope='SKA-Low-AA0.5', antennas=4, times=4, channels=3,
                 samples=3, point_sources=1, rfi_sources=1)
     obs = build_observation(case, .001)
@@ -259,7 +259,7 @@ def test_unity_calibrated_output_skips_inverse_kernel(tmp_path, monkeypatch, gai
 
 
 def test_disabled_flags_need_no_components(tmp_path, monkeypatch):
-    import benchmarks.staged_zarr as writer
+    import tabsim.staged as writer
     case = dict(telescope='SKA-Low-AA0.5', antennas=4, times=4, channels=3,
                 samples=3, point_sources=0, rfi_sources=0)
     obs = build_observation(case, .001)

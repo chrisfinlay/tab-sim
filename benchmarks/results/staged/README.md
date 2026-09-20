@@ -1,6 +1,9 @@
 # Staged Zarr evidence
 
-This is an opt-in capacity experiment, not completion of #54 or a production default.
+These measurements predate promotion of the staged writer to the production
+CLI/Python default. See [current usage](../../../docs/staged-output.md). They are
+historical evidence at the recorded revisions, not timings of the final API
+revision or completion of every #54 capacity investigation.
 All figures below are isolated cold diagnostic outcomes, not repeated speed comparisons.
 
 | Test | Result | Time | Peak host RSS |
