@@ -1,9 +1,7 @@
-import sys
 
 import jax.numpy as jnp
 from jax import jit, random
 from jax.lax import scan
-from scipy.special import jv
 
 from functools import partial
 
@@ -364,40 +362,9 @@ def _ants_to_bl(G, a1, a2):
     return G_bl
 
 
-def airy_beam(theta: jnp.ndarray, freqs: jnp.ndarray, dish_d: float):
-    """
-    Calculate the primary beam voltage at a given angular distance from the
-    pointing direction. The beam intensity model is the Airy disk as
-    defined by the dish diameter. This is the same a the CASA default.
-
-    Parameters
-    ----------
-    theta: (n_src, n_time, n_ant)
-        The angular separation (in degrees) between the pointing direction and the
-        source.
-    freqs: (n_freq,)
-        The frequencies at which to calculate the beam in Hz.
-    dish_d: float
-        The diameter of the dish in meters.
-
-    Returns
-    -------
-    E: ndarray (n_src, n_time, n_ant, n_freq)
-        The beam voltage at each frequency.
-    """
-    theta = jnp.asarray(theta[:, :, :, None])
-    freqs = jnp.asarray(freqs)
-    dish_d = jnp.asarray(dish_d).flatten()[0]  # type: ignore
-    # mask = jnp.where(theta > 90.0, 0, 1)
-    theta = jnp.deg2rad(theta)
-    x = jnp.where(
-        theta == 0.0,
-        sys.float_info.epsilon,
-        jnp.pi * freqs[None, None, None, :] * dish_d * jnp.sin(theta) / c,
-    )
-
-    return 2 * jv(1, x) / x
-    # return (2 * jv(1, x) / x) * mask
+# Compatibility import: beam blocks execute on NumPy/SciPy. The historical
+# public name remains available, but now explicitly returns a host ndarray.
+from tabsim.beam import airy_beam
 
 
 def Pv_to_Sv(Pv: jnp.ndarray, d: jnp.ndarray) -> jnp.ndarray:
