@@ -44,7 +44,7 @@ GB is decimal stored bytes, including all retained arrays and metadata.
 | mini · CPU · AA4 | 12.752 ± 0.268 | 7.857 ± 0.051 | 38.4% | 5.110 → 2.530 |
 | Daint GH200 · GPU · AA4 | 24.127 ± 4.317 | 16.560 ± 0.923 | 31.4% | 5.110 → 2.530 |
 
-Daint AA4 double timings ranged from 19.81 to 38.18 s, versus 15.36 to 17.50 s
+Daint AA4 double timings ranged from 19.81 to 38.18 s, versus 15.36 to 17.82 s
 in single mode; every matched pair improved, but the magnitude varies.
 
 AA4 gains are substantial; the 512-RFI workload is neutral. This is consistent
