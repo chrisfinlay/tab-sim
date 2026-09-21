@@ -1,6 +1,6 @@
 """Opt-in pytest plugin to run the staged experiment under existing supervision.
 
-Set PYTEST_PLUGINS=benchmarks.staged_plugin for an experimental capacity run.
+Set PYTEST_PLUGINS=benchmarks.staged_plugin for capacity or explicit staged-warm runs.
 This changes the benchmark workload and must never be compared as identical
 output-I/O timing without accounting for the single-store stage boundaries.
 """
@@ -9,12 +9,25 @@ import shutil
 import time
 
 
-def pytest_configure(config):
+def pytest_addoption(parser):
+    parser.getgroup('staged output').addoption('--staged-warm', action='store_true',
+        help='Explicitly time repeated all-array production staged writes.')
+
+
+def validate_mode(config):
     import pytest
-    if not config.getoption('--capacity', default=False):
-        raise pytest.UsageError('The staged experiment is capacity-only; do not compare it as an ordinary benchmark')
+    capacity = config.getoption('--capacity', default=False)
+    warm = config.getoption('--staged-warm', default=False)
+    if capacity and warm:
+        raise pytest.UsageError('Choose capacity or staged-warm, not both')
+    if not capacity and not warm:
+        raise pytest.UsageError('Repeated staged timing requires explicit --staged-warm')
     if config.getoption('--memory-model') != 'staged':
         raise pytest.UsageError('Use --memory-model staged for single-store staged admission')
+
+
+def pytest_configure(config):
+    validate_mode(config)
     from benchmarks import harness
 
     def staged_simulation(case, mode, chunk_mb, directory, progress=None):

@@ -63,6 +63,8 @@ def _run_one(args, case, mode, root, python, prefix, scratch):
         cmd += ["--keep-output"]
     if getattr(args, "capacity", False):
         cmd += ["--capacity", "-s"]
+    if getattr(args, 'staged_warm', False):
+        cmd += ['--staged-warm']
     if args.trace:
         cmd += ["--trace-dir", str(prefix.parent / (prefix.name + "-trace"))]
     started = time.perf_counter()
@@ -188,6 +190,7 @@ def main():
     parser.add_argument("--timeout", type=float, default=1200)
     parser.add_argument("--trace", action="store_true")
     parser.add_argument("--keep-output", action="store_true", help="Retain completed or partial capacity output for inspection")
+    parser.add_argument('--staged-warm', action='store_true', help='Opt in to repeated all-array staged timing; requires staged plugin')
     parser.add_argument("--capacity", action="store_true", help="One cold full-output execution; no performance comparison")
     parser.add_argument("--memory-model", choices=("conservative", "chunked", "staged"), default="conservative",
                         help="Chunked is calibrated for current lazy-noise Zarr only; use conservative for older checkouts")
@@ -204,8 +207,11 @@ def main():
             parser.error(f"{name} must be finite and positive")
     if args.keep_output and not args.capacity:
         parser.error('--keep-output is restricted to single capacity runs')
-    if args.memory_model == 'staged' and (not args.capacity or 'benchmarks.staged_plugin' not in os.environ.get('PYTEST_PLUGINS', '').split(',')):
-        parser.error('Staged admission requires capacity mode and PYTEST_PLUGINS=benchmarks.staged_plugin')
+    staged_plugin = 'benchmarks.staged_plugin' in os.environ.get('PYTEST_PLUGINS', '').split(',')
+    if args.staged_warm and (args.capacity or args.memory_model != 'staged' or not staged_plugin or any(m != 'zarr' for m in args.modes)):
+        parser.error('--staged-warm requires Zarr, staged admission and staged plugin, without --capacity')
+    if args.memory_model == 'staged' and (not (args.capacity or args.staged_warm) or not staged_plugin):
+        parser.error('Staged admission requires capacity or explicit staged-warm mode and PYTEST_PLUGINS=benchmarks.staged_plugin')
     if args.capacity and (args.candidate_root or any(m != "zarr" for m in args.modes)):
         parser.error("Capacity runs support Zarr only and cannot compare checkouts")
     if args.candidate_root and args.pairs < 5:
