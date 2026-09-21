@@ -10,11 +10,13 @@ import psutil
 from benchmarks.output_sweep import stop_group
 
 
-def validate_report(report, precision):
+def validate_report(report, precision, require_native=False):
     import numpy as np
 
     if report.get("validated") is not True or report.get("precision") != precision:
         raise ValueError("Invalid precision or validation")
+    if require_native and report.get("rfi_implementation") != "native":
+        raise ValueError("Native RFI implementation required")
     for name in ("total_s", "writer_s"):
         value = report[name]
         if (
@@ -113,8 +115,8 @@ def compare(left, right):
         np.testing.assert_allclose(
             y,
             x,
-            rtol=3e-5 if left["precision"] != right["precision"] else 1e-9,
-            atol=2e-6 if left["precision"] != right["precision"] else 1e-9,
+            rtol=3e-5 if "single" in (left["precision"], right["precision"]) else 1e-9,
+            atol=2e-6 if "single" in (left["precision"], right["precision"]) else 1e-9,
         )
         errors[key] = float(np.max(np.abs(x - y)))
     return errors
@@ -126,6 +128,12 @@ def main():
         p.add_argument("--" + name, required=True)
     p.add_argument(
         "--candidate-precision", choices=("single", "double"), default="single"
+    )
+    p.add_argument("--base-precision", choices=("single", "double"), default="double")
+    p.add_argument("--samples", type=int, default=3)
+    p.add_argument("--times", type=int, default=16)
+    p.add_argument(
+        "--require-native", action="store_true", help="Require native RFI on candidate"
     )
     p.add_argument("--device", choices=("cpu", "gpu"), default="cpu")
     p.add_argument("--case", choices=("rfi", "io", "capacity"), default="rfi")
@@ -139,6 +147,9 @@ def main():
     if (
         a.rounds < 1
         or a.channels < 1
+        or a.samples < 1
+        or a.samples % 2 != 1
+        or a.times < 2
         or any(not math.isfinite(v) or v <= 0 for v in (a.rss_gib, a.timeout))
     ):
         p.error("Require positive rounds, channels, finite RSS and timeout")
@@ -148,7 +159,7 @@ def main():
     for index in range(a.rounds):
         pair = {}
         targets = [
-            ("parent", a.base, "double"),
+            ("parent", a.base, a.base_precision),
             ("candidate", a.candidate, a.candidate_precision),
         ]
         if a.candidate_only:
@@ -172,7 +183,13 @@ def main():
                 a.case,
                 "--channels",
                 str(a.channels),
+                "--samples",
+                str(a.samples),
+                "--times",
+                str(a.times),
             ]
+            if a.require_native and label == "candidate":
+                command.append("--require-native")
             if a.cold:
                 command.append("--cold")
             started = time.monotonic()
@@ -214,7 +231,11 @@ def main():
                         status = "PASS" if proc.returncode == 0 else "ERROR"
                 if status == "PASS":
                     report = json.loads((target / "result.json").read_text())
-                    pair[label] = validate_report(report, precision)
+                    pair[label] = validate_report(
+                        report,
+                        precision,
+                        require_native=a.require_native and label == "candidate",
+                    )
             except Exception:
                 status = "INVALID REPORT" if status == "PASS" else status
                 raise

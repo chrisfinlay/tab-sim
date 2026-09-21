@@ -1,4 +1,3 @@
-import sys
 import warnings
 
 import jax.numpy as jnp
@@ -73,8 +72,14 @@ def rfi_vis(
     _require_x64()
     visibility_dtype(visibility_precision)
     implementation = rfi_vis_kernel if kernel_usable() else rfi_vis_jax
-    return implementation(app_amplitude, c_distances, freqs, a1, a2,
-                          visibility_precision=visibility_precision)
+    return implementation(
+        app_amplitude,
+        c_distances,
+        freqs,
+        a1,
+        a2,
+        visibility_precision=visibility_precision,
+    )
 
 
 def kernel_usable():
@@ -98,18 +103,21 @@ def _kernel_usable(platform):
         RFIVisOp(1, index, index).eval(
             jnp.zeros((1,) * 6, dtype=jnp.complex64),
             jnp.zeros((1,) * 6, dtype=jnp.float32),
-        )
+        ).block_until_ready()
     except RuntimeError as err:
         warnings.warn(f"RFI visibilities fall back to pure JAX, which is slower: {err}")
         return False
     return True
 
 
-def rfi_vis_kernel(app_amplitude, c_distances, freqs, a1, a2, *, visibility_precision="single"):
+def rfi_vis_kernel(
+    app_amplitude, c_distances, freqs, a1, a2, *, visibility_precision="single"
+):
     """:func:`rfi_vis` through ``ri_kernels.jax_api.RFIVisOp``.
 
     The kernel reads a complex amplitude and a phase for every source, antenna,
-    channel and sample, so this holds about 3x the size of ``app_amplitude``.
+    channel and sample. These dense native-call operands cannot fuse through
+    the FFI boundary; the staged writer bounds them to a compute tile.
     """
     _require_x64()
     app_amplitude = jnp.asarray(app_amplitude)
@@ -133,8 +141,10 @@ def rfi_vis_kernel(app_amplitude, c_distances, freqs, a1, a2, *, visibility_prec
     if visibility_precision == "single":
         # RFIVisOp accepts matched precision only. Evaluate the full phase in
         # float64 first; narrowing an unwrapped phase would lose fringes.
-        amp = to_kernel(_visibility_operand(app_amplitude, visibility_precision)
-                        * _phasor(phase, visibility_precision))
+        amp = to_kernel(
+            _visibility_operand(app_amplitude, visibility_precision)
+            * _phasor(phase, visibility_precision)
+        )
         kernel_phase = jnp.zeros(amp.shape, dtype=jnp.float32)
     else:
         amp = to_kernel(app_amplitude).astype(dtype)
@@ -145,7 +155,9 @@ def rfi_vis_kernel(app_amplitude, c_distances, freqs, a1, a2, *, visibility_prec
     return jnp.transpose(vis, (2, 0, 1))
 
 
-def rfi_vis_jax(app_amplitude, c_distances, freqs, a1, a2, *, visibility_precision="single"):
+def rfi_vis_jax(
+    app_amplitude, c_distances, freqs, a1, a2, *, visibility_precision="single"
+):
     """:func:`rfi_vis` in pure JAX, one source at a time over every baseline."""
     _require_x64()
     app_amplitude = jnp.asarray(app_amplitude)

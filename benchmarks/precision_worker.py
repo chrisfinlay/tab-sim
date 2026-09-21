@@ -20,7 +20,12 @@ p.add_argument("--device", choices=("cpu", "gpu"), default="cpu")
 p.add_argument("--case", choices=("rfi", "io", "capacity"), default="rfi")
 p.add_argument("--channels", type=int, default=544)
 p.add_argument("--cold", action="store_true")
+p.add_argument("--samples", type=int, default=3)
+p.add_argument("--times", type=int, default=16)
+p.add_argument("--require-native", action="store_true")
 a = p.parse_args()
+if a.samples < 1 or a.samples % 2 != 1 or a.times < 2:
+    p.error("Require odd positive integration samples and at least two times")
 os.environ.update(
     JAX_PLATFORMS="cuda" if a.device == "gpu" else "cpu",
     JAX_ENABLE_X64="true",
@@ -38,13 +43,20 @@ assert Path(tabsim.__file__).resolve().is_relative_to(Path(a.root).resolve())
 from tabsim.execution import configure_execution
 
 configure_execution(gpu_concurrency=1)
+from tabsim.jax import interferometry as itf
+
+native = hasattr(itf, "kernel_usable") and itf.kernel_usable()
+if a.require_native and not native:
+    raise RuntimeError(
+        "Native RFI kernel required, but this backend would fall back to JAX"
+    )
 offline()
 case = dict(
     telescope="SKA-Low-AA2",
     antennas=68,
-    times=16,
+    times=a.times,
     channels=32,
-    samples=3,
+    samples=a.samples,
     point_sources=8,
     rfi_sources=512,
 )
@@ -162,6 +174,7 @@ def run(name):
                 for k, v in samples.items()
             },
             validated=True,
+            rfi_implementation="native" if native else "jax",
         )
         ds.close()
     shutil.rmtree(store)
@@ -180,7 +193,22 @@ result.update(
     jax_memory=jax.devices()[0].memory_stats(),
     cold=a.cold,
 )
+native_packages = {}
+for package in ("ri_kernels", "ri_kernels_cuda12", "ri_kernels_cuda13"):
+    try:
+        distribution = importlib.metadata.distribution(package)
+    except importlib.metadata.PackageNotFoundError:
+        continue
+    native_packages[package] = dict(
+        version=distribution.version,
+        binaries={
+            str(f): hashlib.sha256(distribution.locate_file(f).read_bytes()).hexdigest()
+            for f in distribution.files or ()
+            if str(f).endswith((".so", ".dylib"))
+        },
+    )
 result["provenance"] = dict(
+    native_packages=native_packages,
     python=platform.python_version(),
     host=socket.gethostname(),
     environment={

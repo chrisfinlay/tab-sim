@@ -35,13 +35,17 @@ seeded noise are never silently rechunked. Rebuild with appropriate source hints
 a lower nominal limit or a larger modeled budget. Increasing writer concurrency
 also rechecks the estimate.
 
-The x64 `scan-staged-x64-v1` model exposes its terms in `obs.chunk_plan` and the
+The x64 `scan-native-staged-x64-v2` model exposes its terms in `obs.chunk_plan` and the
 saved dataset's `chunk_plan` attribute:
 
 - All-source RFI amplitude input: `8*S*T*n_int*A*F` bytes.
 - Source distances, geometry and astronomical intensity/direction inputs.
-- One-source baseline scratch: the kernels scan sources; the model does **not**
+- Baseline scratch for the JAX fallback: it scans sources; the model does **not**
   assume all `S*B` visibility intermediates materialize simultaneously.
+- Native RFI dense amplitude/phase operands: a conservative `24*S*T*n_int*A*F`
+  byte floor in scratch, covering complex128 amplitudes and float64 phases.
+  Single mode needs 12 bytes per element at the FFI boundary; the model retains
+  the double allowance.
 - Coarse visibility outputs and six visibility buffers for sequential composition.
 - Antenna gains, 1000-mode Fourier gain allowance and full-band gain generation
   before its final frequency rechunk. Shrinking the frequency tile does not hide
@@ -50,7 +54,7 @@ saved dataset's `chunk_plan` attribute:
 
 Scratch uses an explicit allowance of four times the largest nominal tile,
 amplitude or distance buffer on CPU, six on GPU. `task_scratch_factor` can override
-it. These coefficients are planning headroom, **not measured XLA temporaries**.
+it, but cannot reduce scratch below the native operand floor. These coefficients are planning headroom, **not measured XLA temporaries**.
 Compiler `memory_analysis()` and sampled runtime peaks must be reported separately.
 The model takes the maximum of concurrent components and sequential composition,
 not their sum, because the writer has a phase barrier.

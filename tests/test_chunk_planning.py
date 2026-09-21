@@ -94,3 +94,14 @@ def test_full_band_gain_allowance_survives_frequency_tiling():
 def test_gpu_host_model_includes_beam_and_readback_buffers():
     model=estimate_working_set(8,32,3,2278,n_ant=68,n_rfi=512,backend='gpu')
     assert model['host_bytes'] >= 2*(model['amplitude_bytes']+model['scratch_bytes'])
+
+
+@pytest.mark.parametrize("sources", [0, 512])
+def test_native_dense_operands_survive_small_scratch_override(sources):
+    model = estimate_working_set(2, 32, 9, 6, n_ant=4, n_rfi=sources,
+                                 workers=1, scratch_factor=0.01)
+    assert model["native_operand_bytes"] == 24 * sources * 2 * 32 * 9 * 4
+    assert model["scratch_bytes"] >= model["native_operand_bytes"]
+    if sources:
+        assert model["scratch_bytes"] == model["native_operand_bytes"]
+    assert model["model"] == "scan-native-staged-x64-v2"
