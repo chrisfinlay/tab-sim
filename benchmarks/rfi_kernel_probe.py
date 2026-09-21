@@ -38,6 +38,20 @@ def main():
     )
     if input_bytes >= 2**30:
         parser.error("Input payload must be smaller than 1 GiB; reduce dimensions")
+    output_bytes = (
+        (8 if args.precision == "single" else 16)
+        * args.times
+        * baselines
+        * args.channels
+    )
+    native_operand_bytes = (12 if args.precision == "single" else 24) * math.prod(shape)
+    # Both executables and their outputs coexist. Reject obviously unsafe shapes
+    # before allocating inputs; this is not a bound on compiler/runtime memory.
+    payload_allowance = input_bytes + native_operand_bytes + 4 * output_bytes
+    if payload_allowance >= 2**31:
+        parser.error(
+            "Inputs, native operands and output allowance must total less than 2 GiB"
+        )
     if args.output.exists():
         parser.error("Output already exists; choose a fresh JSON path")
 
@@ -141,6 +155,9 @@ def main():
         repeats=args.repeats,
         inputs=[dict(shape=list(v.shape), dtype=str(v.dtype)) for v in inputs],
         input_payload_bytes=input_bytes,
+        output_payload_bytes=output_bytes,
+        native_operand_bytes=native_operand_bytes,
+        payload_allowance_bytes=payload_allowance,
         initial_device_transfer_s=transfer_s,
         output_shape=list(actual.shape),
         output_dtype=str(actual.dtype),

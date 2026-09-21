@@ -271,3 +271,34 @@ def test_candidate_only_native_fallback_is_invalid_not_pass(tmp_path, monkeypatc
     rows = json.loads((tmp_path / "run/summary.json").read_text())
     assert len(rows) == 1 and rows[0]["status"] == "INVALID REPORT"
     assert rows[0]["report"] is None
+
+
+@pytest.mark.parametrize(
+    "dimensions",
+    [
+        [
+            "--sources",
+            "1",
+            "--times",
+            "128",
+            "--samples",
+            "1",
+            "--antennas",
+            "1000",
+            "--channels",
+            "128",
+        ],
+        ["--samples", "1000"],
+    ],
+)
+def test_kernel_probe_rejects_large_inputs_or_outputs_before_allocation(
+    tmp_path, monkeypatch, dimensions
+):
+    from benchmarks import rfi_kernel_probe
+
+    output = tmp_path / "result.json"
+    monkeypatch.setattr(sys, "argv", ["probe", "--output", str(output), *dimensions])
+    with pytest.raises(SystemExit) as error:
+        rfi_kernel_probe.main()
+    assert error.value.code == 2
+    assert not output.exists()
