@@ -3,20 +3,28 @@ import dask.array as da
 import jax
 import numpy as np
 import pytest
+import socket
+from astropy.utils import iers
 
 from tabsim.dask import coordinates as dc
 from tabsim import tle
-from benchmarks.harness import build_observation, offline
+from benchmarks.harness import build_observation
 from orbit_helpers import ISS_EPOCH_JD, ISS_NORAD_ID, tle_record, omm_record_from_tle
 
 
 @pytest.fixture(autouse=True)
-def precision():
+def precision(monkeypatch):
     old = jax.config.jax_enable_x64
     jax.config.update('jax_enable_x64', True)
-    offline()
-    yield
-    jax.config.update('jax_enable_x64', old)
+    def forbidden(*args, **kwargs):
+        raise RuntimeError("Geometry fixtures are offline: network access attempted")
+    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    monkeypatch.setattr(socket, "create_connection", forbidden)
+    with iers.conf.set_temp("auto_download", False), iers.conf.set_temp("iers_degraded_accuracy", "ignore"):
+        try:
+            yield
+        finally:
+            jax.config.update("jax_enable_x64", old)
 
 
 @pytest.mark.parametrize('chunk', [1, 3, 7])
