@@ -129,3 +129,20 @@ def test_default_device_override(as_string):
         result = ex.execute_kernel(kernel, np.array([1.]))
     assert seen == [device]
     np.testing.assert_array_equal(result, [2.])
+
+
+@pytest.mark.parametrize('gpu_count', [1, 2])
+def test_gpu_override_counts_its_own_backend(monkeypatch, gpu_count):
+    device = SimpleNamespace(platform='gpu', id=0)
+    monkeypatch.setattr(jax, 'config', SimpleNamespace(jax_default_device=device))
+    def devices(backend=None):
+        return [device] * gpu_count if backend == 'gpu' else [SimpleNamespace(platform='cpu')] * 4
+    monkeypatch.setattr(jax, 'local_devices', devices)
+    monkeypatch.setattr(jax, 'default_device', lambda d: nullcontext())
+    monkeypatch.setattr(jax, 'device_put', lambda values, d: values)
+    monkeypatch.setattr(jax, 'device_get', lambda value: value)
+    if gpu_count == 2:
+        with pytest.raises(RuntimeError, match='exactly one GPU'):
+            ex.execute_kernel(lambda x: x, np.ones(2))
+    else:
+        np.testing.assert_array_equal(ex.execute_kernel(lambda x: x, np.ones(2)), np.ones(2))
