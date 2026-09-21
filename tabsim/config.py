@@ -489,7 +489,8 @@ def load_obs(sim_config: dict) -> Observation:
         target_name=obs_["target_name"],
         max_chunk_MB=dask_["max_chunk_MB"],
         **{key: dask_[key] for key in ('component_workers', 'max_memory_gb',
-             'memory_fraction', 'max_device_memory_gb', 'timeout_s', 'disk_reserve_gb')
+             'memory_fraction', 'max_device_memory_gb', 'timeout_s', 'disk_reserve_gb',
+             'working_set_MB', 'planned_rfi_sources', 'planned_ast_sources', 'task_scratch_factor')
            if key in dask_},
     )
 

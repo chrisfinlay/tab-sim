@@ -14,14 +14,16 @@ def fixture_hash():
 
 
 def planned_chunks(case, chunk_mb):
-    """Mirror get_chunksizes' nearest factor product without importing JAX."""
+    """Mirror the strict nominal planner without importing a numerical backend."""
     def factors(n):
         return sorted({v for k in range(1, math.isqrt(n) + 1) if n % k == 0
                        for v in (k, n // k)})
-    a = case['antennas']
-    target = chunk_mb * 1e6 / (16 * case['samples'] * (a * (a - 1) // 2))
-    return min(((t, f) for f in factors(case['channels']) for t in factors(case['times'])),
-               key=lambda tf: abs(tf[0] * tf[1] - target))
+    unit = 16 * case['samples'] * (case['antennas'] * (case['antennas'] - 1) // 2)
+    candidates = [(t, f) for t in factors(case['times']) for f in factors(case['channels'])
+                  if unit * t * f <= math.floor(chunk_mb * 1e6)]
+    if not candidates:
+        raise ValueError(f'No feasible nominal tile: minimum {unit} bytes exceeds chunk limit')
+    return max(candidates, key=lambda tf: (tf[0] * tf[1], -tf[0]))
 
 
 def estimates(case, mode, chunk_mb=16, workers=1, memory_model="conservative", device="cpu"):
@@ -38,7 +40,12 @@ def estimates(case, mode, chunk_mb=16, workers=1, memory_model="conservative", d
     cube = 16 * t * b * f
     source = 8 * max(case['rfi_sources'], 1) * t * i * a * f
     legacy = 512 * 2**20 + 10 * cube + 4 * source
-    ct, cf = planned_chunks(case, chunk_mb)
+    chunk_error = None
+    try:
+        ct, cf = planned_chunks(case, chunk_mb)
+    except ValueError as error:
+        ct, cf = 1, 1
+        chunk_error = str(error)
     geometry = 24 * t * i * b
     antenna_geometry = 24 * t * i * a
     tile = 16 * ct * cf * b * i
@@ -56,7 +63,7 @@ def estimates(case, mode, chunk_mb=16, workers=1, memory_model="conservative", d
     disk = 0 if mode.endswith('kernel') else 6 * cube + 2 * geometry + 4 * source + 64 * 2**20
     if mode == 'zarr-ms':
         disk *= 2
-    return {'single_visibility_bytes': cube, 'host_plan_bytes': host,
+    return {'chunk_plan_error': chunk_error, 'single_visibility_bytes': cube, 'host_plan_bytes': host,
             'legacy_host_plan_bytes': legacy, 'disk_plan_bytes': disk,
             'kernel_plan_bytes': 4 * cube * i + 4 * source,
             'planned_time_chunk': ct, 'planned_frequency_chunk': cf,
@@ -66,6 +73,8 @@ def estimates(case, mode, chunk_mb=16, workers=1, memory_model="conservative", d
 
 def guard_reason(case, mode, host_budget, disk_free, gpu_budget=None, chunk_mb=16, workers=1, memory_model="conservative", device="cpu"):
     e = estimates(case, mode, chunk_mb, workers, memory_model, device)
+    if e['chunk_plan_error']:
+        return e['chunk_plan_error']
     if e['host_plan_bytes'] > host_budget:
         return f"host plan {e['host_plan_bytes']} exceeds budget {host_budget} bytes"
     if e['disk_plan_bytes'] > disk_free:

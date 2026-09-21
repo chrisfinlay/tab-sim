@@ -272,6 +272,14 @@ def test_planning_chunks_match_simulation(name, chunk_mb):
     from benchmarks.cases import planned_chunks
     from tabsim.dask.extras import get_chunksizes
     c = CASES[name]
+    minimum = 16 * c['samples'] * c['antennas'] * (c['antennas'] - 1) // 2
+    if minimum > chunk_mb * 1e6:
+        with pytest.raises(ValueError, match='No feasible'):
+            planned_chunks(c, chunk_mb)
+        with pytest.raises(ValueError, match='No feasible'):
+            get_chunksizes(c['times'], c['channels'], c['samples'],
+                           c['antennas'] * (c['antennas'] - 1) // 2, chunk_mb)
+        return
     actual = get_chunksizes(c['times'], c['channels'], c['samples'],
                             c['antennas'] * (c['antennas'] - 1) // 2, chunk_mb)
     assert planned_chunks(c, chunk_mb) == (actual['time'], actual['freq'])

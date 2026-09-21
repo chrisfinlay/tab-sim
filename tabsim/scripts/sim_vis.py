@@ -111,6 +111,10 @@ def main():
         "-ra", "--ra", type=float, help="Right Ascension of the observation."
     )
     for flag, kind, help_text in (
+        ('working-set-mb', float, 'Estimated task working-set budget in decimal MB, not an allocator limit.'),
+        ('planned-rfi-sources', int, 'RFI source count planning hint before adding sources.'),
+        ('planned-ast-sources', int, 'Astronomical source count planning hint.'),
+        ('task-scratch-factor', float, 'Override the empirical backend scratch allowance multiplier.'),
         ('max-chunk-mb', float, 'Target compute chunk size in decimal MB; chosen before source/noise construction.'),
         ('component-workers', int, 'Number of simultaneous component streams (default 2).'),
         ('max-memory-gb', float, 'Host process RSS guard in GiB; checked between tasks.'),
@@ -139,10 +143,13 @@ def main():
     sim_config = load_config(config_path, config_type="sim")
 
     for key in ('component_workers', 'max_memory_gb', 'memory_fraction',
-                'max_device_memory_gb', 'timeout_s', 'disk_reserve_gb'):
+                'max_device_memory_gb', 'timeout_s', 'disk_reserve_gb',
+                'planned_rfi_sources', 'planned_ast_sources', 'task_scratch_factor'):
         value = getattr(args, key)
         if value is not None:
             sim_config['dask'][key] = value
+    if args.working_set_mb is not None:
+        sim_config['dask']['working_set_MB'] = args.working_set_mb
     if args.max_chunk_mb is not None:
         sim_config['dask']['max_chunk_MB'] = args.max_chunk_mb
     for key in ('save_arrays', 'save_rfi_amplitudes', 'flag_data'):
