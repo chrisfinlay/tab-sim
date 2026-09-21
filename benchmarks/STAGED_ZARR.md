@@ -36,7 +36,8 @@ PYTEST_PLUGINS=benchmarks.staged_plugin python -m benchmarks.run \
   --timeout 7200 --keep-output --output /large-disk/new-staged-result-directory
 ```
 
-The plugin refuses ordinary timed benchmarks. Records identify `staged-zarr-v2`.
+The plugin refuses timed runs unless `--staged-warm` is explicitly supplied.
+Records identify `staged-zarr-v2`.
 Disk admission allows one complete store plus the existing free-space reserve.
 The experimental staged memory model removes the full-cube CPU retention
 allowance but retains geometry, graph and per-worker working-set allowances.
@@ -61,3 +62,26 @@ and unconsolidated.
   larger than physical host RAM as well as one larger than VRAM.
 - Promote successful cases to repeated timing figures and account for extra
   component reads; a cold experimental success is not a speedup.
+
+## Promote a successful case to repeated timing
+
+```sh
+PYTEST_PLUGINS=benchmarks.staged_plugin python -m benchmarks.run \
+  --cases aa4-out-of-core --modes zarr --staged-warm --memory-model staged \
+  --device cpu --workers 2 --rounds 5 --host-budget-gib 8 \
+  --available-memory-fraction 0.7 --timeout 7200 \
+  --output /large-disk/new-staged-warm-directory
+```
+
+This performs the normal explicit cold run followed by five warm single-operation
+rounds and untimed validation/diagnostics. It uses the production `tabsim.staged`
+writer through the benchmark adapter, retaining **every data variable** produced
+by `construct_observation_ds`, plus all coordinates and attributes. This includes
+`vis_ast`, `vis_rfi`, `vis_obs`, `vis_calibrated`, `flags`, `noise_data`, gains,
+geometry, source parameters, and all present `rfi_*_A` amplitude arrays. Source
+families determine which source variables exist. It is neither the production
+default (which omits amplitudes) nor a selected `vis_obs`-only capacity workload.
+Compare timing only with the same case and all-array schema; successful selected
+capacity runs do not establish capacity or speed for this larger output contract.
+`--keep-output` remains capacity-only; timed products are validated and removed
+between rounds. Existing historical fixed-AB evidence is unchanged by this opt-in.
