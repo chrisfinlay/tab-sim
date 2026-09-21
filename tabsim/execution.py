@@ -75,7 +75,8 @@ def execute_kernel(function, *args, **kwargs):
     from contextlib import nullcontext
 
     requested = jax.config.jax_default_device
-    devices = jax.local_devices(backend=requested) if isinstance(requested, str) else jax.local_devices()
+    backend = requested if isinstance(requested, str) else getattr(requested, 'platform', None)
+    devices = jax.local_devices(backend=backend) if backend else jax.local_devices()
     device = devices[0] if requested is None or isinstance(requested, str) else requested
     gpu = device.platform == 'gpu'
     if gpu and len(devices) != 1:
