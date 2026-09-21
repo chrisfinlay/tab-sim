@@ -11,7 +11,8 @@ from tabsim.dask.coordinates import (
     ENU_to_GEO,
     GEO_to_XYZ_vmap0,
     ITRF_to_XYZ,
-    itrs_to_gcrs_sf,
+    itrs_to_gcrs_blocks,
+    satellite_position_blocks,
     orbit_vmap,
     radec_to_lmn,
     angular_separation,
@@ -46,7 +47,6 @@ from tabsim.dask.extras import get_chunksizes, estimate_working_set
 from tabsim.tle import (
     ants_pos,
     as_record,
-    get_satellite_positions,
     record_tle_lines,
     sat_distance,
 )
@@ -352,12 +352,11 @@ class Observation(Telescope):
         self.dish_d = da.asarray(dish_d)
         self.fov = beam_size(dish_d, freqs.max(), fwhp=False)
 
-        self.ants_uvw = da.asarray(
-            np.array(ITRF_to_UVW(self.ITRF, self.gha, self.dec).compute())
-        )
+        # Preserve all antennas in a block: antenna zero defines the UVW origin.
+        self.ants_uvw = ITRF_to_UVW(self.ITRF.rechunk((-1, 3)), self.gha, self.dec)
 
         if no_w:
-            self.ants_uvw[:, :, -1] = 0.0
+            self.ants_uvw = da.where(np.array([True, True, False]), self.ants_uvw, 0.0)
 
         self.bl_uvw = self.ants_uvw[:, self.a1, :] - self.ants_uvw[:, self.a2, :]
         self.mag_uvw = da.linalg.norm(self.bl_uvw[0], axis=-1)
@@ -368,12 +367,8 @@ class Observation(Telescope):
         # self.ants_xyz = ITRF_to_XYZ(self.ITRF, self.gsa)
         # The following calculation using skyfield takes nutation into consideration and leads to more
         # accurate antenna positions.
-        self.ants_xyz = da.asarray(
-            itrs_to_gcrs_sf(
-                np.asarray(self.ITRF),
-                np.asarray(mjd_to_jd(self.times_mjd_fine.compute())),
-            )
-        ).rechunk((self.time_fine_chunk, self.n_ant, 3))
+        self.ants_xyz = itrs_to_gcrs_blocks(
+            np.asarray(self.ITRF), mjd_to_jd(self.times_mjd_fine))
 
         self.vis_rfi = da.zeros(
             shape=(self.n_time, self.n_bl, self.n_freq),
@@ -819,10 +814,7 @@ Number of stationary RFI :  {n_stat}"""
         norad_ids = da.asarray(da.atleast_1d(norad_ids), chunks=(-1,))
         n_src = len(norad_ids)
 
-        rfi_xyz = da.asarray(
-            get_satellite_positions(orbits, mjd_to_jd(self.times_mjd_fine.compute())),
-            chunks=(n_src, self.time_fine_chunk, 3),
-        )
+        rfi_xyz = satellite_position_blocks(orbits, mjd_to_jd(self.times_mjd_fine))
         # from tabsim.jax.coordinates import kepler_orbit_many
         # from tabsim.tle import
         # rfi_xyz = da.asarray(

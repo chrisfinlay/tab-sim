@@ -276,6 +276,50 @@ def itrs_to_gcrs_sf(pos_itrs: NDArray, times_jd: NDArray) -> NDArray:
     return pos_gcrs
 
 
+def _gcrs_time_block(times_jd, pos_itrs):
+    return itrs_to_gcrs_sf(pos_itrs, times_jd)
+
+
+def itrs_to_gcrs_blocks(pos_itrs, times_jd):
+    """Skyfield's existing UT1/frame convention evaluated one time block at a time.
+
+    The antenna array is small and shared. All antennas stay in each block;
+    explicit metadata prevents Skyfield calls during Dask graph construction.
+    """
+    positions = np.asarray(pos_itrs, dtype=float)
+    times = da.asarray(times_jd)
+    if positions.ndim != 2 or positions.shape[1] != 3 or times.ndim != 1:
+        raise ValueError('Expected antenna positions (antenna,3) and one-dimensional Julian dates')
+    return da.map_blocks(_gcrs_time_block, times, pos_itrs=positions,
+                         new_axis=[1, 2], chunks=(times.chunks[0], (len(positions),), (3,)),
+                         dtype=float, meta=np.empty((0, 0, 0), dtype=float))
+
+
+def _orbit_time_block(times_jd, records):
+    from tabsim.tle import get_satellite_positions
+    return get_satellite_positions(records, times_jd)
+
+
+def satellite_position_blocks(records, times_jd):
+    """Propagate already-resolved TLE/OMM records offline in time blocks.
+
+    No catalogue selection, cache lookup or network resolution takes place in
+    these tasks. Record ordering and the existing propagation convention remain
+    unchanged. Independent consumers may recompute a block; no history is persisted.
+    """
+    from copy import deepcopy
+    from tabsim.tle import as_record
+    frozen = [deepcopy(as_record(record)) for record in records]
+    times = da.asarray(times_jd)
+    if times.ndim != 1:
+        raise ValueError('Expected one-dimensional Julian dates')
+    if not frozen:
+        return da.empty((0, times.size, 3), chunks=(0, times.chunks[0], 3), dtype=float)
+    return da.map_blocks(_orbit_time_block, times, records=frozen,
+                         new_axis=[0, 2], chunks=((len(frozen),), times.chunks[0], (3,)),
+                         dtype=float, meta=np.empty((0, 0, 0), dtype=float))
+
+
 def ITRF_to_XYZ(itrf: Array, gsa: Array) -> Array:
     n_time = gsa.shape[0]
     n_ant = itrf.shape[0]
