@@ -51,7 +51,7 @@ Immediate parent is issue54 `2be16b0`; candidate is issue55 `37db1b5`. At 2,048 
 Reproduce from the issue55 checkout:
 
 ```sh
-python -m benchmarks.geometry_setup_sweep --base /path/to/issue54 --candidate /path/to/issue55 --python /path/to/python --output /scratch/setup
+/path/to/python -m benchmarks.geometry_setup_sweep --base /path/to/issue54 --candidate /path/to/issue55 --output /scratch/setup
 python -m benchmarks.execution_sweep --base /path/to/issue54 --candidate /path/to/issue55 --python /path/to/python --output /scratch/write --device cpu --rounds 5
 ```
 
