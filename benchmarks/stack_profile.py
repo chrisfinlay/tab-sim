@@ -1,5 +1,7 @@
 import argparse,os,sys,json,gzip,collections,re
 from pathlib import Path
+from functools import partial
+import inspect
 p=argparse.ArgumentParser();p.add_argument('--root');p.add_argument('--output');a=p.parse_args()
 os.environ.update(JAX_PLATFORMS='cuda',JAX_ENABLE_X64='true',XLA_PYTHON_CLIENT_MEM_FRACTION='.5')
 sys.path.insert(0,a.root)
@@ -27,7 +29,8 @@ analysis={}
 for ct in (8,16):
     shapes=[jax.ShapeDtypeStruct((512,ct,3,68,32),np.float64),jax.ShapeDtypeStruct((512,ct,3,68),np.float64),
             jax.ShapeDtypeStruct((32,),np.float64),jax.ShapeDtypeStruct((2278,),np.int64),jax.ShapeDtypeStruct((2278,),np.int64)]
-    compiled=jax.jit(rfi_vis).lower(*shapes).compile();mem=compiled.memory_analysis()
+    options = {"visibility_precision": "double"} if "visibility_precision" in inspect.signature(rfi_vis).parameters else {}
+    compiled=jax.jit(partial(rfi_vis, **options)).lower(*shapes).compile();mem=compiled.memory_analysis()
     analysis[str(ct)]={key:getattr(mem,key,None) for key in ['argument_size_in_bytes','output_size_in_bytes','temp_size_in_bytes','alias_size_in_bytes']}
 import hashlib,importlib.metadata,subprocess
 revision=subprocess.check_output(['git','-C',a.root,'rev-parse','HEAD'],text=True).strip()

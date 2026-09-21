@@ -1,6 +1,6 @@
-
 import jax.numpy as jnp
-from jax import jit, random
+from jax import jit, random, config
+from tabsim.precision import visibility_dtype
 from jax.lax import scan
 
 from functools import partial
@@ -8,7 +8,35 @@ from functools import partial
 c = 2.99792458e8
 
 
-def rfi_vis(app_amplitude, c_distances, freqs, a1, a2):
+def _visibility_operand(value, precision):
+    dtype = visibility_dtype(precision)
+    value = jnp.asarray(value)
+    return value.astype(
+        dtype
+        if jnp.iscomplexobj(value)
+        else (jnp.float32 if dtype.itemsize == 8 else jnp.float64)
+    )
+
+
+def _require_x64():
+    if not config.x64_enabled:
+        raise ValueError(
+            "Geometry and phase require JAX x64; set JAX_ENABLE_X64=true "
+            "or jax.config.update('jax_enable_x64', True)"
+        )
+
+
+def _phasor(phase, precision):
+    # Never cast the unwrapped phase: float32 loses fringes on long baselines.
+    # Require x64 also for standalone kernel callers and remote Dask workers.
+    _require_x64()
+    dtype = visibility_dtype(precision)
+    return jnp.exp(1.0j * phase).astype(dtype)
+
+
+def rfi_vis(
+    app_amplitude, c_distances, freqs, a1, a2, *, visibility_precision="single"
+):
     """
     Calculate visibilities from distances to rfi sources.
 
@@ -30,13 +58,31 @@ def rfi_vis(app_amplitude, c_distances, freqs, a1, a2):
     vis: array_like (n_time, n_bl, n_freq)
         The visibilities.
     """
+    _require_x64()
+    app_amplitude = jnp.asarray(app_amplitude)
+    c_distances = jnp.asarray(c_distances, dtype=jnp.float64)
     n_src = app_amplitude.shape[0]
-    vis = _rfi_vis(app_amplitude[0, None], c_distances[0, None], freqs, a1, a2)
+    vis = _rfi_vis(
+        app_amplitude[0, None],
+        c_distances[0, None],
+        freqs,
+        a1,
+        a2,
+        visibility_precision=visibility_precision,
+    )
 
     # This is a scan over the sources, but we can't use scan it unless we jit decorate this function
     def _add_vis(vis, i):
         return (
-            vis + _rfi_vis(app_amplitude[i, None], c_distances[i, None], freqs, a1, a2),
+            vis
+            + _rfi_vis(
+                app_amplitude[i, None],
+                c_distances[i, None],
+                freqs,
+                a1,
+                a2,
+                visibility_precision=visibility_precision,
+            ),
             i,
         )
 
@@ -44,7 +90,7 @@ def rfi_vis(app_amplitude, c_distances, freqs, a1, a2):
     # return _rfi_vis(app_amplitude, c_distances, freqs, a1, a2)
 
 
-def astro_vis(sources, uvw, lmn, freqs):
+def astro_vis(sources, uvw, lmn, freqs, *, visibility_precision="single"):
     """
     Calculate visibilities from a set of point sources using DFT.
 
@@ -64,18 +110,39 @@ def astro_vis(sources, uvw, lmn, freqs):
     vis: array_like (n_time, n_bl, n_freq)
         Visibilities of the given set of sources and baselines.
     """
+    _require_x64()
+    sources = jnp.asarray(sources)
+    lmn = jnp.asarray(lmn, dtype=jnp.float64)
     n_src = sources.shape[0]
-    vis = _astro_vis(sources[0, None], uvw, lmn[0, None], freqs)
+    vis = _astro_vis(
+        sources[0, None],
+        uvw,
+        lmn[0, None],
+        freqs,
+        visibility_precision=visibility_precision,
+    )
 
     # This is a scan over the sources, but we can't use scan it unless we jit decorate this function
     @jit
     def _add_vis(vis, i):
-        return vis + _astro_vis(sources[i, None], uvw, lmn[i, None], freqs), i
+        return (
+            vis
+            + _astro_vis(
+                sources[i, None],
+                uvw,
+                lmn[i, None],
+                freqs,
+                visibility_precision=visibility_precision,
+            ),
+            i,
+        )
 
     return scan(_add_vis, vis, jnp.arange(1, n_src))[0]
 
 
-def astro_vis_gauss(sources, major, minor, pos_angle, uvw, lmn, freqs):
+def astro_vis_gauss(
+    sources, major, minor, pos_angle, uvw, lmn, freqs, *, visibility_precision="single"
+):
     """
     Calculate visibilities from a set of point sources using DFT.
 
@@ -98,7 +165,13 @@ def astro_vis_gauss(sources, major, minor, pos_angle, uvw, lmn, freqs):
     vis: array_like (n_time, n_bl, n_freq)
         Visibilities of the given set of sources and baselines.
     """
+    _require_x64()
+    sources = jnp.asarray(sources)
+    lmn = jnp.asarray(lmn, dtype=jnp.float64)
     n_src = sources.shape[0]
+    major, minor, pos_angle = (
+        jnp.asarray(v, dtype=jnp.float64) for v in (major, minor, pos_angle)
+    )
     vis = _astro_vis_gauss(
         sources[0, None],
         major[0, None],
@@ -107,6 +180,7 @@ def astro_vis_gauss(sources, major, minor, pos_angle, uvw, lmn, freqs):
         uvw,
         lmn[0, None],
         freqs,
+        visibility_precision=visibility_precision,
     )
 
     # This is a scan over the sources, but we can't use scan it unless we jit decorate this function
@@ -121,6 +195,7 @@ def astro_vis_gauss(sources, major, minor, pos_angle, uvw, lmn, freqs):
                 uvw,
                 lmn[i, None],
                 freqs,
+                visibility_precision=visibility_precision,
             ),
             i,
         )
@@ -128,7 +203,7 @@ def astro_vis_gauss(sources, major, minor, pos_angle, uvw, lmn, freqs):
     return scan(_add_vis, vis, jnp.arange(1, n_src))[0]
 
 
-def astro_vis_exp(sources, shapes, uvw, lmn, freqs):
+def astro_vis_exp(sources, shapes, uvw, lmn, freqs, *, visibility_precision="single"):
     """
     Calculate visibilities from a set of point sources using DFT.
 
@@ -151,15 +226,31 @@ def astro_vis_exp(sources, shapes, uvw, lmn, freqs):
     vis: array_like (n_time, n_bl, n_freq)
         Visibilities of the given set of sources and baselines.
     """
+    _require_x64()
+    sources = jnp.asarray(sources)
+    lmn = jnp.asarray(lmn, dtype=jnp.float64)
     n_src = sources.shape[0]
-    vis = _astro_vis_exp(sources[0, None], shapes[0, None], uvw, lmn[0, None], freqs)
+    shapes = jnp.asarray(shapes, dtype=jnp.float64)
+    vis = _astro_vis_exp(
+        sources[0, None],
+        shapes[0, None],
+        uvw,
+        lmn[0, None],
+        freqs,
+        visibility_precision=visibility_precision,
+    )
 
     # This is a scan over the sources, but we can't use scan it unless we jit decorate this function
     def _add_vis(vis, i):
         return (
             vis
             + _astro_vis_exp(
-                sources[i, None], shapes[i, None], uvw, lmn[i, None], freqs
+                sources[i, None],
+                shapes[i, None],
+                uvw,
+                lmn[i, None],
+                freqs,
+                visibility_precision=visibility_precision,
             ),
             i,
         )
@@ -198,7 +289,7 @@ def minus_two_pi_over_lamda(freqs):
     Returns:
         jnp.ndarray: -2pi/lambda for each frequency. (n_freq,)
     """
-    return -2.0 * jnp.pi * freqs / c
+    return -2.0 * jnp.pi * jnp.asarray(freqs, dtype=jnp.float64) / c
 
 
 def amp_to_intensity(amps, a1, a2):
@@ -228,8 +319,8 @@ def phase_from_distances(distances, a1, a2, freqs):
         jnp.ndarray: Phases on baselines.
     """
     # Create array of shape (n_src, n_time, n_bl, n_freq)
-    freqs = freqs[None, None, None, None, :]
-    distances = distances[:, :, :, :, None]
+    freqs = jnp.asarray(freqs, dtype=jnp.float64)[None, None, None, None, :]
+    distances = jnp.asarray(distances, dtype=jnp.float64)[:, :, :, :, None]
 
     phases = minus_two_pi_over_lamda(freqs) * (
         distances[:, :, :, a1, :] - distances[:, :, :, a2, :]
@@ -238,36 +329,46 @@ def phase_from_distances(distances, a1, a2, freqs):
     return phases
 
 
-def _rfi_vis(app_amplitude, c_distances, freqs, a1, a2):
+def _rfi_vis(
+    app_amplitude, c_distances, freqs, a1, a2, *, visibility_precision="single"
+):
     # Create array of shape (n_src, n_time, n_bl, n_freq), then sum over n_src
 
-    app_amplitude = jnp.asarray(app_amplitude)
-    c_distances = jnp.asarray(c_distances)
-    freqs = jnp.asarray(freqs)
+    app_amplitude = _visibility_operand(app_amplitude, visibility_precision)
+    c_distances = jnp.asarray(c_distances, dtype=jnp.float64)
+    freqs = jnp.asarray(freqs, dtype=jnp.float64)
     a1 = jnp.asarray(a1)
     a2 = jnp.asarray(a2)
 
     phase = phase_from_distances(c_distances, a1, a2, freqs)
     intensity = amp_to_intensity(app_amplitude, a1, a2)
 
-    vis = jnp.sum(intensity * jnp.exp(1.0j * phase), axis=0)
+    vis = jnp.sum(intensity * _phasor(phase, visibility_precision), axis=0)
     vis_avg = jnp.mean(vis, axis=1)
 
     return vis_avg
 
 
-def _astro_vis(sources, uvw, lmn, freqs):
+def _astro_vis(sources, uvw, lmn, freqs, *, visibility_precision="single"):
     #     Create array of shape (n_src, n_time, n_bl, n_freq), then sum over n_src
 
-    sources = jnp.asarray(sources[:, :, None, :])  #     (n_src, 1, 1, n_freq)
-    freqs = jnp.asarray(freqs[None, None, None, :])  #      (1, 1, 1, n_freq)
-    uvw = jnp.asarray(uvw[None, :, :, None, :])  #          (1, n_time, n_bl, 1, 3)
-    lmn = jnp.asarray(lmn[:, None, None, None, :])  #       (n_src, 1, 1, 1, 3)
+    sources = _visibility_operand(
+        sources[:, :, None, :], visibility_precision
+    )  #     (n_src, 1, 1, n_freq)
+    freqs = jnp.asarray(
+        freqs[None, None, None, :], dtype=jnp.float64
+    )  #      (1, 1, 1, n_freq)
+    uvw = jnp.asarray(
+        uvw[None, :, :, None, :], dtype=jnp.float64
+    )  #          (1, n_time, n_bl, 1, 3)
+    lmn = jnp.asarray(
+        lmn[:, None, None, None, :], dtype=jnp.float64
+    )  #       (n_src, 1, 1, 1, 3)
     s0 = jnp.array([0, 0, 1])[None, None, None, None, :]  # (1, 1, 1, 1, 3)
 
     phase = minus_two_pi_over_lamda(freqs) * jnp.sum(uvw * (lmn - s0), axis=-1)
 
-    vis = jnp.sum(sources * jnp.exp(-1.0j * phase), axis=0)
+    vis = jnp.sum(sources * _phasor(-phase, visibility_precision), axis=0)
 
     return vis
 
@@ -312,23 +413,41 @@ def gauss_lm(l, m, a, b, c):
     return jnp.exp(-(a * l**2 + 2 * b * l * m + c * m**2))
 
 
-def _astro_vis_gauss(sources, major, minor, pos_angle, uvw, lmn, freqs):
+def _astro_vis_gauss(
+    sources, major, minor, pos_angle, uvw, lmn, freqs, *, visibility_precision="single"
+):
     #     Create array of shape (n_src, n_time, n_bl, n_freq), then sum over n_src
 
-    sources = jnp.asarray(sources[:, :, None, :])  #     (n_src, n_time, 1, n_freq)
-    major = jnp.asarray(major[:, None, None, None])  #     (n_src, 1, 1, 1)
-    minor = jnp.asarray(minor[:, None, None, None])  #     (n_src, 1, 1, 1)
-    pos_angle = jnp.asarray(pos_angle[:, None, None, None])  #     (n_src, 1, 1, 1)
-    freqs = jnp.asarray(freqs[None, None, None, :])  #      (1, 1, 1, n_freq)
-    uvw = jnp.asarray(uvw[None, :, :, None, :])  #          (1, n_time, n_bl, 1, 3)
-    lmn = jnp.asarray(lmn[:, None, None, None, :])  #       (n_src, 1, 1, 1, 3)
+    sources = _visibility_operand(
+        sources[:, :, None, :], visibility_precision
+    )  #     (n_src, n_time, 1, n_freq)
+    major = jnp.asarray(
+        major[:, None, None, None], dtype=jnp.float64
+    )  #     (n_src, 1, 1, 1)
+    minor = jnp.asarray(
+        minor[:, None, None, None], dtype=jnp.float64
+    )  #     (n_src, 1, 1, 1)
+    pos_angle = jnp.asarray(
+        pos_angle[:, None, None, None], dtype=jnp.float64
+    )  #     (n_src, 1, 1, 1)
+    freqs = jnp.asarray(
+        freqs[None, None, None, :], dtype=jnp.float64
+    )  #      (1, 1, 1, n_freq)
+    uvw = jnp.asarray(
+        uvw[None, :, :, None, :], dtype=jnp.float64
+    )  #          (1, n_time, n_bl, 1, 3)
+    lmn = jnp.asarray(
+        lmn[:, None, None, None, :], dtype=jnp.float64
+    )  #       (n_src, 1, 1, 1, 3)
     s0 = jnp.array([0, 0, 1])[None, None, None, None, :]  # (1, 1, 1, 1, 3)
 
     phase = minus_two_pi_over_lamda(freqs) * jnp.sum(uvw * (lmn - s0), axis=-1)
 
-    uv_filter = gauss_uv(uvw, major, minor, pos_angle, freqs)
+    uv_filter = _visibility_operand(
+        gauss_uv(uvw, major, minor, pos_angle, freqs), visibility_precision
+    )
 
-    vis = jnp.sum(uv_filter * sources * jnp.exp(-1.0j * phase), axis=0)
+    vis = jnp.sum(uv_filter * sources * _phasor(-phase, visibility_precision), axis=0)
 
     return vis
 
@@ -339,19 +458,34 @@ def exp_uv(uvw, shapes, freqs):
     return 1.0 / (1.0 + (2 * jnp.pi * shapes * U) ** 2) ** 1.5
 
 
-def _astro_vis_exp(sources, shapes, uvw, lmn, freqs):
+def _astro_vis_exp(sources, shapes, uvw, lmn, freqs, *, visibility_precision="single"):
     #     Create array of shape (n_src, n_time, n_bl, n_freq), then sum over n_src
 
-    sources = jnp.asarray(sources[:, :, None, :])  #     (n_src, n_time, 1, n_freq)
-    shapes = jnp.asarray(shapes[:, None, None, None])  #     (n_src, 1, 1, 1)
-    freqs = jnp.asarray(freqs[None, None, None, :])  #      (1, 1, 1, n_freq)
-    uvw = jnp.asarray(uvw[None, :, :, None, :])  #          (1, n_time, n_bl, 1, 3)
-    lmn = jnp.asarray(lmn[:, None, None, None, :])  #       (n_src, 1, 1, 1, 3)
+    sources = _visibility_operand(
+        sources[:, :, None, :], visibility_precision
+    )  #     (n_src, n_time, 1, n_freq)
+    shapes = jnp.asarray(
+        shapes[:, None, None, None], dtype=jnp.float64
+    )  #     (n_src, 1, 1, 1)
+    freqs = jnp.asarray(
+        freqs[None, None, None, :], dtype=jnp.float64
+    )  #      (1, 1, 1, n_freq)
+    uvw = jnp.asarray(
+        uvw[None, :, :, None, :], dtype=jnp.float64
+    )  #          (1, n_time, n_bl, 1, 3)
+    lmn = jnp.asarray(
+        lmn[:, None, None, None, :], dtype=jnp.float64
+    )  #       (n_src, 1, 1, 1, 3)
     s0 = jnp.array([0, 0, 1])[None, None, None, None, :]  # (1, 1, 1, 1, 3)
 
     phase = minus_two_pi_over_lamda(freqs) * jnp.sum(uvw * (lmn - s0), axis=-1)
 
-    vis = jnp.sum(exp_uv(uvw, shapes, freqs) * sources * jnp.exp(-1.0j * phase), axis=0)
+    vis = jnp.sum(
+        _visibility_operand(exp_uv(uvw, shapes, freqs), visibility_precision)
+        * sources
+        * _phasor(-phase, visibility_precision),
+        axis=0,
+    )
 
     return vis
 
@@ -411,6 +545,7 @@ def add_noise(vis: jnp.ndarray, noise_std: jnp.ndarray, key: jnp.ndarray):
         * jnp.sqrt(2.0)  # JAX complex normal has variance 1/2 per component.
         * noise_std[None, None, :]
     )
+    noise = noise.astype(jnp.result_type(vis.dtype, jnp.complex64))
     return vis + noise, noise
 
 
@@ -558,7 +693,9 @@ def apply_gains(
     """
     vis_ast = jnp.asarray(vis_ast)
     vis_rfi = jnp.asarray(vis_rfi)
-    gains = jnp.asarray(gains)
+    gains = jnp.asarray(
+        gains, dtype=jnp.result_type(vis_ast.dtype, vis_rfi.dtype, jnp.complex64)
+    )
     a1 = jnp.asarray(a1)
     a2 = jnp.asarray(a2)
     vis_obs = gains[:, a1] * (vis_ast + vis_rfi) * jnp.conj(gains[:, a2])

@@ -80,11 +80,15 @@ def _double_precision():
 def test_mapped_kernel_matches_primitive_without_nested_compute(case, scheduler, monkeypatch):
     mapped, primitive, name, kernel, args = case
     values = [arg.compute(scheduler='synchronous') if isinstance(arg, da.Array) else arg for arg in args]
-    expected = np.asarray(getattr(primitive, kernel)(*[jnp.asarray(value) for value in values]))
+    # Preserve this regression's original float64 tolerance. Mixed-precision
+    # accuracy and uneven tails are tested independently in test_visibility_precision.
+    options = ({'visibility_precision': 'double'} if name in
+               ('astro_vis', 'astro_vis_gauss', 'astro_vis_exp', 'rfi_vis') else {})
+    expected = np.asarray(getattr(primitive, kernel)(*[jnp.asarray(value) for value in values], **options))
     def forbidden(*args, **kwargs):
         raise AssertionError('mapped callback invoked a nested Dask compute')
     monkeypatch.setattr(DaskMethodsMixin, 'compute', forbidden)
-    result = getattr(mapped, name)(*args)
+    result = getattr(mapped, name)(*args, **options)
     actual, = dask.compute(result, scheduler=scheduler, num_workers=2)
     assert actual.shape == expected.shape
     assert actual.dtype == expected.dtype

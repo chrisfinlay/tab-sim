@@ -27,12 +27,14 @@ def run(name):
             # Constructor planning must happen before sources; rebuild with same public inputs.
             from tabsim.dask.observation import Observation
             from tabsim.config import get_telescope_definitions
+            import inspect
+            precision_options = {"visibility_precision": "double"} if "visibility_precision" in inspect.signature(Observation).parameters else {}
             definition=get_telescope_definitions(case['telescope'])
             obs=Observation(latitude=definition['latitude'],longitude=definition['longitude'],elevation=definition['elevation'],
               ra=30.,dec=-30.,times_mjd=60000.+np.arange(16)*2/86400.,freqs=150e6+np.arange(32)*1e5,
               SEFD=np.full(32,5000.),ITRF_path=definition['itrf_path'],dish_d=definition['dish_d'],
               int_time=2.,chan_width=1e5,n_int_samples=3,random_seed=20260919,max_chunk_MB=a.chunk,
-              working_set_MB=a.working,planned_rfi_sources=512,planned_ast_sources=8,component_workers=2)
+              working_set_MB=a.working,planned_rfi_sources=512,planned_ast_sources=8,component_workers=2,**precision_options)
         add_sources(obs,case);obs.calculate_vis()
         stages=[]
         ds=obs.write_to_zarr(out/name,progress=lambda event,data:stages.append(data) if event=='stage_complete' else None)

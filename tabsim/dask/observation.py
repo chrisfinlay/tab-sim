@@ -1,4 +1,5 @@
-from jax import Array
+from jax import Array, config as jax_config
+from tabsim.precision import visibility_dtype
 
 import dask.array as da
 import numpy as np
@@ -87,18 +88,20 @@ class Telescope(object):
         tel_name: Optional[str] = None,
         n_ant: Optional[int] = None,
     ):
+        # Geometry is always double precision, including programmatic entry.
+        jax_config.update("jax_enable_x64", True)
         self.tel_name = tel_name
-        self.latitude = da.asarray(latitude)  # type: ignore
-        self.longitude = da.asarray(longitude)  # type: ignore
-        self.elevation = da.asarray(elevation)  # type: ignore
-        self.GEO = da.asarray([latitude, longitude, elevation])  # type: ignore
+        self.latitude = da.asarray(latitude, dtype=np.float64)  # type: ignore
+        self.longitude = da.asarray(longitude, dtype=np.float64)  # type: ignore
+        self.elevation = da.asarray(elevation, dtype=np.float64)  # type: ignore
+        self.GEO = da.asarray([latitude, longitude, elevation], dtype=np.float64)  # type: ignore
         self.ITRF = None
         self.ENU = None
         self.n_ant = n_ant
 
-        if ENU_array or ENU_path:
+        if ENU_array is not None or ENU_path is not None:
             self.createArrayENU(ENU_array, ENU_path)
-        if ITRF_array or ITRF_path:
+        if ITRF_array is not None or ITRF_path is not None:
             self.createArrayITRF(ITRF_array, ITRF_path)
         if self.ITRF is None and self.ENU is None:
             raise ValueError(
@@ -132,7 +135,7 @@ Elevation : {elevation}\n"""
                      array or as a csv like file."""
             print(msg)
             return
-        self.ENU = da.asarray(self.ENU)  # type: ignore
+        self.ENU = da.asarray(self.ENU, dtype=np.float64)  # type: ignore
         self.ENU_path = ENU_path
         self.GEO_ants = ENU_to_GEO(self.GEO, self.ENU)
         self.ITRF = ENU_to_ITRF(self.ENU, self.latitude, self.longitude, self.elevation)
@@ -148,7 +151,7 @@ Elevation : {elevation}\n"""
                      array or as a csv like file."""
             raise ValueError(msg)
 
-        self.ITRF = da.asarray(self.ITRF)  # type: ignore
+        self.ITRF = da.asarray(self.ITRF, dtype=np.float64)  # type: ignore
         self.GEO_ants = da.asarray(itrf_to_geo(self.ITRF.compute()))  # type: ignore
 
 
@@ -156,6 +159,9 @@ class Observation(Telescope):
     """
     Construct an Observation object defining a radio interferometry
     observation.
+
+    Visibility products default to complex64; pass visibility_precision="double"
+    for complex128. Geometry and phase calculations remain float64 in both modes.
 
     Parameters
     ----------
@@ -225,6 +231,7 @@ class Observation(Telescope):
         target_name: str = "unknown",
         max_chunk_MB: float = 100.0,
         *,
+        visibility_precision: str = "single",
         component_workers: int = 2,
         working_set_MB: Optional[float] = None,
         planned_rfi_sources: int = 0,
@@ -236,6 +243,8 @@ class Observation(Telescope):
         timeout_s: Optional[float] = None,
         disk_reserve_gb: float = 1.0,
     ):
+        self.visibility_dtype = visibility_dtype(visibility_precision)
+        self.visibility_precision = visibility_precision
         super().__init__(
             latitude,
             longitude,
@@ -258,6 +267,8 @@ class Observation(Telescope):
             max_device_memory_gb=max_device_memory_gb, timeout_s=timeout_s,
             disk_reserve_gb=disk_reserve_gb)
         n_time = len(times_mjd)
+        times_mjd = da.asarray(times_mjd, dtype=np.float64)
+        freqs = da.asarray(freqs, dtype=np.float64)
         start_mjd = times_mjd[0]
         # times = (times_mjd - times_mjd[0]) * 24 * 3600
         times = da.linspace(0, int_time * n_time, n_time, endpoint=False)
@@ -277,8 +288,8 @@ class Observation(Telescope):
         self.a1 = da.asarray(a1, chunks=(self.bl_chunk,))
         self.a2 = da.asarray(a2, chunks=(self.bl_chunk,))
 
-        self.ra = da.asarray(ra)
-        self.dec = da.asarray(dec)
+        self.ra = da.asarray(ra, dtype=np.float64)
+        self.dec = da.asarray(dec, dtype=np.float64)
 
         import jax
         self._planning = dict(n_ant=self.n_ant, n_rfi=planned_rfi_sources,
@@ -294,8 +305,8 @@ class Observation(Telescope):
         self.time_fine_chunk = self.time_chunk * n_int_samples
         self.freq_chunk = chunksize["freq"]
 
-        self.times = da.asarray(times).rechunk(self.time_chunk)
-        self.times_mjd = da.asarray(times_mjd).rechunk(self.time_chunk)
+        self.times = da.asarray(times, dtype=np.float64).rechunk(self.time_chunk)
+        self.times_mjd = da.asarray(times_mjd, dtype=np.float64).rechunk(self.time_chunk)
         self.int_time = int_time
         self.n_int_samples = n_int_samples
 
@@ -339,9 +350,9 @@ class Observation(Telescope):
         self.gha = (self.gsa - self.ra) % 360
         self.lsa = (self.gsa + longitude) % 360
         self.lha = (((self.gha + longitude) % 360 - 180) % 360) - 180
-        self.altaz = da.asarray(alt_az_of_source(self.lsa.compute(), latitude, ra, dec))
+        self.altaz = da.asarray(alt_az_of_source(self.lsa.compute(), np.float64(latitude), np.float64(ra), np.float64(dec)))
 
-        self.freqs = da.asarray(freqs).rechunk((self.freq_chunk,))
+        self.freqs = da.asarray(freqs, dtype=np.float64).rechunk((self.freq_chunk,))
         self.chan_width = da.diff(freqs)[0] if len(freqs) > 1 else chan_width
         self.n_freq = len(freqs)
         self.lamda = 299792458.0 / self.freqs
@@ -349,7 +360,7 @@ class Observation(Telescope):
         self.SEFD = da.asarray(SEFD) * da.ones(self.n_freq, chunks=(self.freq_chunk,))
         self.noise_std = SEFD_to_noise_std(self.SEFD, self.chan_width, self.int_time)
 
-        self.dish_d = da.asarray(dish_d)
+        self.dish_d = da.asarray(dish_d, dtype=np.float64)
         self.fov = beam_size(dish_d, freqs.max(), fwhp=False)
 
         # Preserve all antennas in a block: antenna zero defines the UVW origin.
@@ -373,17 +384,17 @@ class Observation(Telescope):
         self.vis_rfi = da.zeros(
             shape=(self.n_time, self.n_bl, self.n_freq),
             chunks=(self.time_chunk, self.bl_chunk, self.freq_chunk),
-            dtype=np.complex128,
+            dtype=self.visibility_dtype,
         )
         self.vis_ast = da.zeros(
             shape=(self.n_time, self.n_bl, self.n_freq),
             chunks=(self.time_chunk, self.bl_chunk, self.freq_chunk),
-            dtype=np.complex128,
+            dtype=self.visibility_dtype,
         )
         self.gains_ants = da.ones(
             shape=(self.n_time, self.n_ant, self.n_freq),
             chunks=(self.time_chunk, self.ant_chunk, self.freq_chunk),
-            dtype=np.complex128,
+            dtype=self.visibility_dtype,
         )
         self.random_seed = random_seed
 
@@ -545,7 +556,7 @@ Number of stationary RFI :  {n_stat}"""
         if I.ndim == 2:
             I = da.expand_dims(I, axis=0)
         I = self._check_source_budget('ast', I, ra, dec)
-        ra, dec = [da.broadcast_to(da.atleast_1d(value), (I.shape[0],))
+        ra, dec = [da.broadcast_to(da.atleast_1d(value).astype(np.float64), (I.shape[0],))
                          for value in (ra, dec)]
         I = I * da.ones(
             shape=(I.shape[0], self.n_time, self.n_freq),
@@ -560,7 +571,10 @@ Number of stationary RFI :  {n_stat}"""
             * (airy_beam(theta[:, None, None], self.freqs, self.dish_d)[:, :, 0, :])
             ** 2
         )
-        vis_ast = astro_vis(I_app, self.bl_uvw[self.t_idx], lmn, self.freqs)
+        vis_ast = astro_vis(
+            I_app, self.bl_uvw[self.t_idx], lmn, self.freqs,
+            visibility_precision=self.visibility_precision,
+        )
 
         self.ast_p_I.append(I)
         self.ast_p_lmn.append(lmn)
@@ -604,7 +618,7 @@ Number of stationary RFI :  {n_stat}"""
         if I.ndim == 2:
             I = da.expand_dims(I, axis=0)
         I = self._check_source_budget('ast', I, ra, dec, major, minor, pos_angle)
-        ra, dec, major, minor, pos_angle = [da.broadcast_to(da.atleast_1d(value), (I.shape[0],))
+        ra, dec, major, minor, pos_angle = [da.broadcast_to(da.atleast_1d(value).astype(np.float64), (I.shape[0],))
                          for value in (ra, dec, major, minor, pos_angle)]
         I = I * da.ones(
             shape=(I.shape[0], self.n_time, self.n_freq),
@@ -623,7 +637,8 @@ Number of stationary RFI :  {n_stat}"""
             ** 2
         )
         vis_ast = astro_vis_gauss(
-            I_app, major, minor, pos_angle, self.bl_uvw[self.t_idx], lmn, self.freqs
+            I_app, major, minor, pos_angle, self.bl_uvw[self.t_idx], lmn, self.freqs,
+            visibility_precision=self.visibility_precision,
         )
 
         self.ast_g_major.append(major)
@@ -659,7 +674,7 @@ Number of stationary RFI :  {n_stat}"""
         if I.ndim == 2:
             I = da.expand_dims(I, axis=0)
         I = self._check_source_budget('ast', I, ra, dec, shape)
-        ra, dec, shape = [da.broadcast_to(da.atleast_1d(value), (I.shape[0],))
+        ra, dec, shape = [da.broadcast_to(da.atleast_1d(value).astype(np.float64), (I.shape[0],))
                          for value in (ra, dec, shape)]
         I = I * da.ones(
             shape=(I.shape[0], self.n_time, self.n_freq),
@@ -675,7 +690,10 @@ Number of stationary RFI :  {n_stat}"""
             * (airy_beam(theta[:, None, None], self.freqs, self.dish_d)[:, :, 0, :])
             ** 2
         )
-        vis_ast = astro_vis_exp(I_app, shape, self.bl_uvw[self.t_idx], lmn, self.freqs)
+        vis_ast = astro_vis_exp(
+            I_app, shape, self.bl_uvw[self.t_idx], lmn, self.freqs,
+            visibility_precision=self.visibility_precision,
+        )
 
         self.ast_e_major.append(shape)
         self.ast_e_I.append(I)
@@ -719,7 +737,7 @@ Number of stationary RFI :  {n_stat}"""
         if Pv.ndim == 2:
             Pv = da.expand_dims(Pv, axis=0)
         Pv = self._check_source_budget('rfi', Pv, elevation, inclination, lon_asc_node, periapsis)
-        elevation, inclination, lon_asc_node, periapsis = [da.broadcast_to(da.atleast_1d(value), (Pv.shape[0],))
+        elevation, inclination, lon_asc_node, periapsis = [da.broadcast_to(da.atleast_1d(value).astype(np.float64), (Pv.shape[0],))
                          for value in (elevation, inclination, lon_asc_node, periapsis)]
         Pv = (
             Pv
@@ -764,6 +782,7 @@ Number of stationary RFI :  {n_stat}"""
             self.freqs,
             self.a1,
             self.a2,
+            visibility_precision=self.visibility_precision,
         )
         self.vis_rfi += vis_rfi
 
@@ -874,6 +893,7 @@ Number of stationary RFI :  {n_stat}"""
             self.freqs,
             self.a1,
             self.a2,
+            visibility_precision=self.visibility_precision,
         )
         self.vis_rfi += vis_rfi
 
@@ -914,7 +934,7 @@ Number of stationary RFI :  {n_stat}"""
         if Pv.ndim == 2:
             Pv = da.expand_dims(Pv, axis=0)
         Pv = self._check_source_budget('rfi', Pv, latitude, longitude, elevation)
-        latitude, longitude, elevation = [da.broadcast_to(da.atleast_1d(value), (Pv.shape[0],))
+        latitude, longitude, elevation = [da.broadcast_to(da.atleast_1d(value).astype(np.float64), (Pv.shape[0],))
                          for value in (latitude, longitude, elevation)]
         Pv = (
             Pv
@@ -961,6 +981,7 @@ Number of stationary RFI :  {n_stat}"""
             self.freqs,
             self.a1,
             self.a2,
+            visibility_precision=self.visibility_precision,
         )
 
         self.vis_rfi += vis_rfi
@@ -1026,7 +1047,7 @@ Number of stationary RFI :  {n_stat}"""
             self.n_ant,
             self.n_freq,
             random_seed if random_seed else self.random_seed,
-        ).rechunk((self.time_chunk, self.ant_chunk, self.freq_chunk))
+        ).astype(self.visibility_dtype).rechunk((self.time_chunk, self.ant_chunk, self.freq_chunk))
 
     def calculate_vis(self, flags: bool = True, random_seed=None):
         """
