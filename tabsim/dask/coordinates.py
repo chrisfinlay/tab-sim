@@ -1,3 +1,4 @@
+from tabsim.execution import execute_kernel
 from tabsim.jax import coordinates as coord
 
 from jax import jit
@@ -8,9 +9,8 @@ import xarray as xr
 
 
 # Keep one callable per kernel in each worker. This does not imply that the
-# previous repeated jit() wrapping recompiled every block. No explicit device
-# placement or synchronization policy is added. Removing delayed tokenization
-# also removes its incidental serialization/synchronization of JAX inputs.
+# previous repeated jit() wrapping recompiled every block. execute_kernel
+# applies placement, admission and completed host readback to each block.
 _radec_to_lmn_jit = jit(coord.radec_to_lmn)
 _radec_to_XYZ_jit = jit(coord.radec_to_XYZ)
 _ENU_to_GEO_jit = jit(coord.ENU_to_GEO)
@@ -50,7 +50,7 @@ def radec_to_lmn(ra: Array, dec: Array, phase_centre: Array) -> Array:
     )
 
     def _radec_to_lmn(ds):
-        lmn = _radec_to_lmn_jit(
+        lmn = execute_kernel(_radec_to_lmn_jit,
             ds.ra.data, ds.dec.data, ds.phase_centre.data
         )
         ds_out = xr.Dataset({"lmn": (["src", "lmn_space"], lmn)})
@@ -89,7 +89,7 @@ def radec_to_XYZ(ra: Array, dec: Array) -> Array:
     )
 
     def _radec_to_XYZ(ds):
-        XYZ = _radec_to_XYZ_jit(
+        XYZ = execute_kernel(_radec_to_XYZ_jit,
             ds.ra.data, ds.dec.data
         )
         ds_out = xr.Dataset({"XYZ": (["src", "space"], XYZ)})
@@ -128,7 +128,7 @@ def ENU_to_GEO(geo_ref: Array, ENU: Array) -> Array:
     )
 
     def _ENU_to_GEO(ds):
-        GEO = _ENU_to_GEO_jit(
+        GEO = execute_kernel(_ENU_to_GEO_jit,
             ds.geo_ref.data, ds.ENU.data
         )
         ds_out = xr.Dataset({"GEO": (["ant", "space"], GEO)})
@@ -167,7 +167,7 @@ def GEO_to_XYZ(geo: Array, times: Array) -> Array:
     )
 
     def _GEO_to_XYZ(ds):
-        XYZ = _GEO_to_XYZ_jit(
+        XYZ = execute_kernel(_GEO_to_XYZ_jit,
             ds.geo.data, ds.times.data
         )
         ds_out = xr.Dataset({"XYZ": (["time", "space"], XYZ)})
@@ -207,7 +207,7 @@ def GEO_to_XYZ_vmap0(geo: Array, times: Array) -> Array:
     )
 
     def _GEO_to_XYZ(ds):
-        XYZ = _GEO_to_XYZ_vmap0_jit(
+        XYZ = execute_kernel(_GEO_to_XYZ_vmap0_jit,
             ds.geo.data, ds.times.data
         )
         ds_out = xr.Dataset({"XYZ": (["src", "time", "space"], XYZ)})
@@ -246,7 +246,7 @@ def GEO_to_XYZ_vmap1(geo: Array, times: Array) -> Array:
     )
 
     def _GEO_to_XYZ(ds):
-        XYZ = _GEO_to_XYZ_vmap1_jit(
+        XYZ = execute_kernel(_GEO_to_XYZ_vmap1_jit,
             ds.geo.data, ds.times.data
         )
         ds_out = xr.Dataset({"XYZ": (["time", "ant", "space"], XYZ)})
@@ -303,7 +303,7 @@ def ITRF_to_XYZ(itrf: Array, gsa: Array) -> Array:
     )
 
     def _ITRF_to_XYZ(ds):
-        XYZ = _itrf_to_xyz_jit(
+        XYZ = execute_kernel(_itrf_to_xyz_jit,
             ds.itrf.data, ds.gsa.data
         )
         ds_out = xr.Dataset({"xyz": (["time", "ant", "space"], XYZ)})
@@ -344,7 +344,7 @@ def ENU_to_ITRF(ENU: Array, lat: Array, lon: Array, el: Array) -> Array:
     )
 
     def _ENU_to_ITRF(ds):
-        ITRF = _enu_to_itrf_jit(
+        ITRF = execute_kernel(_enu_to_itrf_jit,
             ds.ENU.data,
             ds.lat.data,
             ds.lon.data,
@@ -394,7 +394,7 @@ def ITRF_to_UVW(
     )
 
     def _ITRF_to_UVW(ds):
-        uvw = _itrf_to_uvw_jit(
+        uvw = execute_kernel(_itrf_to_uvw_jit,
             ds.itrf.data,
             ds.h0.data,
             ds.dec.data,
@@ -440,7 +440,7 @@ def angular_separation(rfi_xyz: Array, ants_xyz: Array, ra: Array, dec: Array) -
     )
 
     def _angular_separation(ds):
-        sep = _angular_separation_jit(
+        sep = execute_kernel(_angular_separation_jit,
             ds.rfi_xyz.data, ds.ants_xyz.data, ds.ra.data, ds.dec.data
         )
         ds_out = xr.Dataset({"sep": (["src", "time", "ant"], sep)})
@@ -491,7 +491,7 @@ def orbit_vmap(
     )
 
     def _orbit_vmap(ds):
-        orbit = _orbit_vmap_jit(
+        orbit = execute_kernel(_orbit_vmap_jit,
             ds.times.data,
             ds.elevation.data,
             ds.inclination.data,
