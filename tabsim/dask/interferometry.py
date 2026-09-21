@@ -1,3 +1,4 @@
+from tabsim.beam import airy_beam as host_airy_beam
 from jax import jit
 
 import numpy as np
@@ -21,7 +22,7 @@ _astro_vis_exp_jit = jit(itf.astro_vis_exp)
 _rfi_vis_jit = jit(itf.rfi_vis)
 _ants_to_bl_jit = jit(itf.ants_to_bl)
 
-# airy_beam mixes JAX and SciPy; Pv_to_Sv and apply_gains were also not
+# Airy blocks stay on NumPy/SciPy; Pv_to_Sv and apply_gains were also not
 # whole-function jitted here. Keep those direct calls on their existing paths.
 
 
@@ -368,7 +369,7 @@ def airy_beam(theta, freqs, dish_d):
     )
 
     def _airy_beam(ds):
-        beam = itf.airy_beam(
+        beam = host_airy_beam(
             ds.theta.data, ds.freqs.data, ds.dish_d.data
         )
         ds_out = xr.Dataset({"beam": (["src", "time", "ant", "freq"], beam)})
@@ -379,7 +380,7 @@ def airy_beam(theta, freqs, dish_d):
     return ds.beam.data
 
 
-airy_beam.__doc__ = itf.airy_beam.__doc__
+airy_beam.__doc__ = host_airy_beam.__doc__
 
 
 def Pv_to_Sv(Pv, d):
