@@ -5,12 +5,18 @@ import threading
 import time
 
 
+# Python 3.13 cProfile uses a process-wide monitoring tool id. Never wait for
+# ownership: nested callbacks must run, and diagnostics must not serialize work.
+_profile_owner = threading.Lock()
+
+
 class MappedDiagnostics:
     """Instrument local threaded/synchronous map callbacks, never timed rounds.
 
     Inclusive compute time includes kernel dispatch/execution/waiting; it is NOT
     pure scheduler overhead. Profiler CPU/wall observations are diagnostic, not
-    completed GPU kernel measurements. Nested scheduler threads are not profiled.
+    completed GPU kernel measurements. Nested/contending callbacks keep wall/CPU
+    timing but skip cProfile; report counters expose incomplete profile coverage.
     """
     def __enter__(self):
         import dask.base
@@ -26,17 +32,32 @@ class MappedDiagnostics:
             @wraps(func)
             def callback(*block_args, **block_kwargs):
                 profiler = cProfile.Profile()
+                owned = _profile_owner.acquire(blocking=False)
+                enabled = False
                 wall, cpu = time.perf_counter(), time.thread_time()
                 try:
-                    profiler.enable()
+                    if owned:
+                        try:
+                            profiler.enable()
+                            enabled = True
+                        except ValueError as error:
+                            # Another tool may own CPython's monitoring slot.
+                            if 'tool' not in str(error) or 'already in use' not in str(error):
+                                raise
                     return func(*block_args, **block_kwargs)
                 finally:
-                    profiler.disable()
+                    try:
+                        if enabled:
+                            profiler.disable()
+                    finally:
+                        if owned:
+                            _profile_owner.release()
                     record = {"callback": f"{func.__module__}.{func.__qualname__}", "wall_s": time.perf_counter() - wall,
                               "thread_cpu_s": time.thread_time() - cpu,
+                              "profiled_calls": int(enabled), "unprofiled_calls": int(not enabled),
                               "nested_compute_calls": 0, "nested_compute_inclusive_s": 0.,
                               "tokenize_calls": 0, "tokenize_inclusive_s": 0.}
-                    for entry in profiler.getstats():
+                    for entry in profiler.getstats() if enabled else ():
                         if entry.code is self.compute_code:
                             record["nested_compute_calls"] += entry.callcount
                             record["nested_compute_inclusive_s"] += entry.totaltime
@@ -64,4 +85,4 @@ class MappedDiagnostics:
                 if key != "callback":
                     values[key] = values.get(key, 0) + value
         return {"callbacks": totals,
-                "scope": "separate instrumented local map callback round; inclusive compute includes kernel/waiting, not pure scheduler time; GPU completion is not fenced per callback"}
+                "scope": "separate instrumented local map callback round; inclusive compute includes kernel/waiting, not pure scheduler time; GPU completion is not fenced per callback; cProfile covers profiled_calls only, nested/contending/unavailable callbacks are counted as unprofiled_calls; wall/thread CPU cover all callbacks"}
