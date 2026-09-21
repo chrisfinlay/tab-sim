@@ -1,0 +1,560 @@
+[
+  {
+    "machine": "mini",
+    "case": "aa1-host-stress",
+    "label": "52",
+    "status": "passed",
+    "source_revision": "4b38348ecbe097d4e4c4adcbd9174184d37d007a",
+    "single_visibility_bytes": 2013265920,
+    "host_plan_bytes": 5003524096,
+    "disk_plan_bytes": 15934160896,
+    "supervisor_peak_rss_bytes": 2889203712,
+    "process_wall_s": 64.81866029201774,
+    "planned_chunks": [
+      256,
+      32
+    ],
+    "cold_simulation_s": 60.38040641695261,
+    "versions": {
+      "tabsim": "0.0.13",
+      "jax": "0.10.2",
+      "jaxlib": "0.10.2",
+      "numpy": "2.5.3",
+      "scipy": "1.18.0",
+      "dask": "2024.10.0",
+      "xarray": "2026.7.0",
+      "zarr": "2.18.7",
+      "dask-ms": "0.2.32",
+      "python-casacore": "3.8.1",
+      "astropy": "8.0.1",
+      "pandas": "3.0.5",
+      "numcodecs": "0.15.1",
+      "pytest": "9.1.1",
+      "psutil": "7.2.2",
+      "pytest-benchmark": "5.3.0",
+      "satchecker-client": "0.2.0",
+      "ri-kernels": "0.2.1"
+    },
+    "device_kind": "cpu",
+    "memory": {
+      "rss_peak_sampled_bytes": 2873950208,
+      "gpu_process_peak_sampled_bytes": null,
+      "sample_interval_s": 0.05,
+      "jax_allocator_stats": null,
+      "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+    },
+    "phases": [
+      {
+        "setup_s": 2.492913583002519,
+        "graph_build_s": 0.649550709000323,
+        "simulation_and_first_write_s": 56.51543899998069,
+        "total_s": 59.65790329198353,
+        "experimental_output_bytes": {
+          "result.zarr": 10229655576
+        },
+        "actual_chunks": {
+          "time": 256,
+          "frequency": 32,
+          "baseline": 120,
+          "integration": 3
+        }
+      }
+    ]
+  },
+  {
+    "machine": "mini",
+    "case": "aa1-host-stress",
+    "label": "parent",
+    "status": "skipped",
+    "source_revision": "6d9026129eb821f0d08b61ecfcbebc69cda73145",
+    "single_visibility_bytes": 2013265920,
+    "host_plan_bytes": 17193220096,
+    "disk_plan_bytes": 15934160896,
+    "supervisor_peak_rss_bytes": 167051264,
+    "process_wall_s": 0.9181410829769447,
+    "planned_chunks": [
+      8192,
+      1
+    ]
+  },
+  {
+    "machine": "mini",
+    "case": "aa4-host-out-of-core",
+    "label": "52",
+    "status": "skipped",
+    "source_revision": "4b38348ecbe097d4e4c4adcbd9174184d37d007a",
+    "single_visibility_bytes": 34292629504,
+    "host_plan_bytes": 5779161088,
+    "disk_plan_bytes": 208036298752,
+    "supervisor_peak_rss_bytes": 166051840,
+    "process_wall_s": 0.6984223329927772,
+    "planned_chunks": [
+      1,
+      8
+    ]
+  },
+  {
+    "machine": "mini",
+    "case": "aa4-host-out-of-core",
+    "label": "parent",
+    "status": "skipped",
+    "source_revision": "6d9026129eb821f0d08b61ecfcbebc69cda73145",
+    "single_visibility_bytes": 34292629504,
+    "host_plan_bytes": 6123225088,
+    "disk_plan_bytes": 208036298752,
+    "supervisor_peak_rss_bytes": 166674432,
+    "process_wall_s": 0.9246522080502473,
+    "planned_chunks": [
+      8,
+      1
+    ]
+  },
+  {
+    "machine": "mini",
+    "case": "aa4-out-of-core",
+    "label": "52",
+    "status": "passed",
+    "source_revision": "4b38348ecbe097d4e4c4adcbd9174184d37d007a",
+    "single_visibility_bytes": 8573157376,
+    "host_plan_bytes": 4873191424,
+    "disk_plan_bytes": 52511506432,
+    "supervisor_peak_rss_bytes": 2731180032,
+    "process_wall_s": 168.47287283296464,
+    "planned_chunks": [
+      1,
+      8
+    ],
+    "cold_simulation_s": 150.68170125002507,
+    "versions": {
+      "tabsim": "0.0.13",
+      "jax": "0.10.2",
+      "jaxlib": "0.10.2",
+      "numpy": "2.5.3",
+      "scipy": "1.18.0",
+      "dask": "2024.10.0",
+      "xarray": "2026.7.0",
+      "zarr": "2.18.7",
+      "dask-ms": "0.2.32",
+      "python-casacore": "3.8.1",
+      "astropy": "8.0.1",
+      "pandas": "3.0.5",
+      "numcodecs": "0.15.1",
+      "pytest": "9.1.1",
+      "psutil": "7.2.2",
+      "pytest-benchmark": "5.3.0",
+      "satchecker-client": "0.2.0",
+      "ri-kernels": "0.2.1"
+    },
+    "device_kind": "cpu",
+    "memory": {
+      "rss_peak_sampled_bytes": 2456682496,
+      "gpu_process_peak_sampled_bytes": null,
+      "sample_interval_s": 0.05,
+      "jax_allocator_stats": null,
+      "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+    },
+    "phases": [
+      {
+        "setup_s": 1.3858565840055235,
+        "graph_build_s": 0.2650754579808563,
+        "simulation_and_first_write_s": 148.29777387500508,
+        "total_s": 149.94870591699146,
+        "experimental_output_bytes": {
+          "result.zarr": 40682638693
+        },
+        "actual_chunks": {
+          "time": 1,
+          "frequency": 8,
+          "baseline": 130816,
+          "integration": 3
+        }
+      }
+    ]
+  },
+  {
+    "machine": "mini",
+    "case": "aa4-out-of-core",
+    "label": "parent",
+    "status": "passed",
+    "source_revision": "6d9026129eb821f0d08b61ecfcbebc69cda73145",
+    "single_visibility_bytes": 8573157376,
+    "host_plan_bytes": 5217255424,
+    "disk_plan_bytes": 52511506432,
+    "supervisor_peak_rss_bytes": 2394112000,
+    "process_wall_s": 171.32396016595885,
+    "planned_chunks": [
+      8,
+      1
+    ],
+    "cold_simulation_s": 154.4319117499981,
+    "versions": {
+      "tabsim": "0.0.13",
+      "jax": "0.10.2",
+      "jaxlib": "0.10.2",
+      "numpy": "2.5.3",
+      "scipy": "1.18.0",
+      "dask": "2024.10.0",
+      "xarray": "2026.7.0",
+      "zarr": "2.18.7",
+      "dask-ms": "0.2.32",
+      "python-casacore": "3.8.1",
+      "astropy": "8.0.1",
+      "pandas": "3.0.5",
+      "numcodecs": "0.15.1",
+      "pytest": "9.1.1",
+      "psutil": "7.2.2",
+      "pytest-benchmark": "5.3.0",
+      "satchecker-client": "0.2.0",
+      "ri-kernels": "0.2.1"
+    },
+    "device_kind": "cpu",
+    "memory": {
+      "rss_peak_sampled_bytes": 2245672960,
+      "gpu_process_peak_sampled_bytes": null,
+      "sample_interval_s": 0.05,
+      "jax_allocator_stats": null,
+      "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+    },
+    "phases": [
+      {
+        "setup_s": 1.6614201669581234,
+        "graph_build_s": 0.26942716602934524,
+        "simulation_and_first_write_s": 151.97353595896857,
+        "total_s": 153.90438329195604,
+        "experimental_output_bytes": {
+          "result.zarr": 41239080580
+        },
+        "actual_chunks": {
+          "time": 8,
+          "frequency": 1,
+          "baseline": 130816,
+          "integration": 3
+        }
+      }
+    ]
+  },
+  {
+    "machine": "daint",
+    "case": "aa1-host-stress",
+    "label": "52",
+    "status": "passed",
+    "source_revision": "2c5907c77bab4fecdfd8fe4afc334ffcc8b0ec90",
+    "single_visibility_bytes": 2013265920,
+    "host_plan_bytes": 5003524096,
+    "disk_plan_bytes": 15934160896,
+    "supervisor_peak_rss_bytes": 5549981696,
+    "process_wall_s": 97.88593079498969,
+    "planned_chunks": [
+      256,
+      32
+    ],
+    "cold_simulation_s": 91.8193044239888,
+    "versions": {
+      "tabsim": "0.0.13",
+      "jax": "0.10.2",
+      "jaxlib": "0.10.2",
+      "numpy": "2.4.6",
+      "scipy": "1.17.1",
+      "dask": "2026.8.0",
+      "xarray": "2026.7.0",
+      "zarr": "2.18.7",
+      "dask-ms": "0.2.32",
+      "python-casacore": null,
+      "astropy": "8.0.1",
+      "pandas": "3.0.6",
+      "numcodecs": "0.15.1",
+      "pytest": "9.1.1",
+      "psutil": "7.2.2",
+      "pytest-benchmark": "5.3.0",
+      "satchecker-client": "0.2.0",
+      "ri-kernels": null
+    },
+    "device_kind": "NVIDIA GH200 120GB",
+    "memory": {
+      "rss_peak_sampled_bytes": 5549981696,
+      "gpu_process_peak_sampled_bytes": 77198262272,
+      "sample_interval_s": 0.05,
+      "jax_allocator_stats": {
+        "num_allocs": 26714,
+        "bytes_in_use": 0,
+        "peak_bytes_in_use": 866452480,
+        "largest_alloc_size": 33554688,
+        "bytes_limit": 76504104960,
+        "bytes_reserved": 0,
+        "peak_bytes_reserved": 0,
+        "largest_free_block_bytes": 0,
+        "pool_bytes": 76504104960,
+        "peak_pool_bytes": 76504104960
+      },
+      "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+    },
+    "phases": [
+      {
+        "setup_s": 5.8796347950119525,
+        "graph_build_s": 1.2148440800374374,
+        "simulation_and_first_write_s": 83.75315861601848,
+        "total_s": 90.84763749106787,
+        "experimental_output_bytes": {
+          "result.zarr": 10229655534
+        },
+        "actual_chunks": {
+          "time": 256,
+          "frequency": 32,
+          "baseline": 120,
+          "integration": 3
+        }
+      }
+    ]
+  },
+  {
+    "machine": "daint",
+    "case": "aa1-host-stress",
+    "label": "parent",
+    "status": "passed",
+    "source_revision": "6d9026129eb821f0d08b61ecfcbebc69cda73145",
+    "single_visibility_bytes": 2013265920,
+    "host_plan_bytes": 17193220096,
+    "disk_plan_bytes": 15934160896,
+    "supervisor_peak_rss_bytes": 5951127552,
+    "process_wall_s": 94.0995345399715,
+    "planned_chunks": [
+      8192,
+      1
+    ],
+    "cold_simulation_s": 88.18124474096112,
+    "versions": {
+      "tabsim": "0.0.13",
+      "jax": "0.10.2",
+      "jaxlib": "0.10.2",
+      "numpy": "2.4.6",
+      "scipy": "1.17.1",
+      "dask": "2026.8.0",
+      "xarray": "2026.7.0",
+      "zarr": "2.18.7",
+      "dask-ms": "0.2.32",
+      "python-casacore": null,
+      "astropy": "8.0.1",
+      "pandas": "3.0.6",
+      "numcodecs": "0.15.1",
+      "pytest": "9.1.1",
+      "psutil": "7.2.2",
+      "pytest-benchmark": "5.3.0",
+      "satchecker-client": "0.2.0",
+      "ri-kernels": null
+    },
+    "device_kind": "NVIDIA GH200 120GB",
+    "memory": {
+      "rss_peak_sampled_bytes": 5953880064,
+      "gpu_process_peak_sampled_bytes": 77198262272,
+      "sample_interval_s": 0.05,
+      "jax_allocator_stats": {
+        "num_allocs": 21536,
+        "bytes_in_use": 0,
+        "peak_bytes_in_use": 1033637376,
+        "largest_alloc_size": 220200960,
+        "bytes_limit": 76504104960,
+        "bytes_reserved": 0,
+        "peak_bytes_reserved": 0,
+        "largest_free_block_bytes": 0,
+        "pool_bytes": 76504104960,
+        "peak_pool_bytes": 76504104960
+      },
+      "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+    },
+    "phases": [
+      {
+        "setup_s": 6.554964542970993,
+        "graph_build_s": 0.17976818105671555,
+        "simulation_and_first_write_s": 80.50565734691918,
+        "total_s": 87.24039007094689,
+        "experimental_output_bytes": {
+          "result.zarr": 10438550226
+        },
+        "actual_chunks": {
+          "time": 8192,
+          "frequency": 1,
+          "baseline": 120,
+          "integration": 3
+        }
+      }
+    ]
+  },
+  {
+    "machine": "daint",
+    "case": "aa4-host-out-of-core",
+    "label": "52",
+    "status": "timeout",
+    "source_revision": "2c5907c77bab4fecdfd8fe4afc334ffcc8b0ec90",
+    "single_visibility_bytes": 34292629504,
+    "host_plan_bytes": 5779161088,
+    "disk_plan_bytes": 208036298752,
+    "supervisor_peak_rss_bytes": 4921360384,
+    "process_wall_s": 357.2778357580537,
+    "planned_chunks": [
+      1,
+      8
+    ]
+  },
+  {
+    "machine": "daint",
+    "case": "aa4-host-out-of-core",
+    "label": "parent",
+    "status": "timeout",
+    "source_revision": "6d9026129eb821f0d08b61ecfcbebc69cda73145",
+    "single_visibility_bytes": 34292629504,
+    "host_plan_bytes": 6123225088,
+    "disk_plan_bytes": 208036298752,
+    "supervisor_peak_rss_bytes": 5163253760,
+    "process_wall_s": 400.235649503069,
+    "planned_chunks": [
+      8,
+      1
+    ]
+  },
+  {
+    "machine": "daint",
+    "case": "aa4-out-of-core",
+    "label": "52",
+    "status": "passed",
+    "source_revision": "2c5907c77bab4fecdfd8fe4afc334ffcc8b0ec90",
+    "single_visibility_bytes": 8573157376,
+    "host_plan_bytes": 4873191424,
+    "disk_plan_bytes": 52511506432,
+    "supervisor_peak_rss_bytes": 5072879616,
+    "process_wall_s": 185.21244877798017,
+    "planned_chunks": [
+      1,
+      8
+    ],
+    "cold_simulation_s": 174.85485557396896,
+    "versions": {
+      "tabsim": "0.0.13",
+      "jax": "0.10.2",
+      "jaxlib": "0.10.2",
+      "numpy": "2.4.6",
+      "scipy": "1.17.1",
+      "dask": "2026.8.0",
+      "xarray": "2026.7.0",
+      "zarr": "2.18.7",
+      "dask-ms": "0.2.32",
+      "python-casacore": null,
+      "astropy": "8.0.1",
+      "pandas": "3.0.6",
+      "numcodecs": "0.15.1",
+      "pytest": "9.1.1",
+      "psutil": "7.2.2",
+      "pytest-benchmark": "5.3.0",
+      "satchecker-client": "0.2.0",
+      "ri-kernels": null
+    },
+    "device_kind": "NVIDIA GH200 120GB",
+    "memory": {
+      "rss_peak_sampled_bytes": 5109645312,
+      "gpu_process_peak_sampled_bytes": 77198262272,
+      "sample_interval_s": 0.05,
+      "jax_allocator_stats": {
+        "num_allocs": 84193,
+        "bytes_in_use": 0,
+        "peak_bytes_in_use": 220313856,
+        "largest_alloc_size": 33554688,
+        "bytes_limit": 76504104960,
+        "bytes_reserved": 0,
+        "peak_bytes_reserved": 0,
+        "largest_free_block_bytes": 0,
+        "pool_bytes": 76504104960,
+        "peak_pool_bytes": 76504104960
+      },
+      "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+    },
+    "phases": [
+      {
+        "setup_s": 3.4021286589559168,
+        "graph_build_s": 0.46913211909122765,
+        "simulation_and_first_write_s": 169.93331382493488,
+        "total_s": 173.80457460298203,
+        "experimental_output_bytes": {
+          "result.zarr": 40682641350
+        },
+        "actual_chunks": {
+          "time": 1,
+          "frequency": 8,
+          "baseline": 130816,
+          "integration": 3
+        }
+      }
+    ]
+  },
+  {
+    "machine": "daint",
+    "case": "aa4-out-of-core",
+    "label": "parent",
+    "status": "passed",
+    "source_revision": "6d9026129eb821f0d08b61ecfcbebc69cda73145",
+    "single_visibility_bytes": 8573157376,
+    "host_plan_bytes": 5217255424,
+    "disk_plan_bytes": 52511506432,
+    "supervisor_peak_rss_bytes": 4741529600,
+    "process_wall_s": 190.64825901493896,
+    "planned_chunks": [
+      8,
+      1
+    ],
+    "cold_simulation_s": 179.52937098301481,
+    "versions": {
+      "tabsim": "0.0.13",
+      "jax": "0.10.2",
+      "jaxlib": "0.10.2",
+      "numpy": "2.4.6",
+      "scipy": "1.17.1",
+      "dask": "2026.8.0",
+      "xarray": "2026.7.0",
+      "zarr": "2.18.7",
+      "dask-ms": "0.2.32",
+      "python-casacore": null,
+      "astropy": "8.0.1",
+      "pandas": "3.0.6",
+      "numcodecs": "0.15.1",
+      "pytest": "9.1.1",
+      "psutil": "7.2.2",
+      "pytest-benchmark": "5.3.0",
+      "satchecker-client": "0.2.0",
+      "ri-kernels": null
+    },
+    "device_kind": "NVIDIA GH200 120GB",
+    "memory": {
+      "rss_peak_sampled_bytes": 5062000640,
+      "gpu_process_peak_sampled_bytes": 77198262272,
+      "sample_interval_s": 0.05,
+      "jax_allocator_stats": {
+        "num_allocs": 85580,
+        "bytes_in_use": 0,
+        "peak_bytes_in_use": 348847104,
+        "largest_alloc_size": 150700288,
+        "bytes_limit": 76504104960,
+        "bytes_reserved": 0,
+        "peak_bytes_reserved": 0,
+        "largest_free_block_bytes": 0,
+        "pool_bytes": 76504104960,
+        "peak_pool_bytes": 76504104960
+      },
+      "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+    },
+    "phases": [
+      {
+        "setup_s": 4.443035483942367,
+        "graph_build_s": 0.5077816409757361,
+        "simulation_and_first_write_s": 173.34290331299417,
+        "total_s": 178.29372043791227,
+        "experimental_output_bytes": {
+          "result.zarr": 41239075788
+        },
+        "actual_chunks": {
+          "time": 8,
+          "frequency": 1,
+          "baseline": 130816,
+          "integration": 3
+        }
+      }
+    ]
+  }
+]
