@@ -107,3 +107,198 @@ def test_missing_report_is_never_recorded_as_pass(tmp_path, monkeypatch):
     rows = json.loads((tmp_path / "run/summary.json").read_text())
     assert rows[0]["status"] == "INVALID REPORT"
     assert rows[0]["report"] is None
+
+
+@pytest.mark.parametrize(
+    "option,value",
+    [
+        ("--samples", "0"),
+        ("--samples", "2"),
+        ("--samples", "-1"),
+        ("--times", "0"),
+        ("--times", "1"),
+    ],
+)
+def test_invalid_integration_or_time_rejected_before_launch(
+    tmp_path, monkeypatch, option, value
+):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Invalid workload must not launch a worker")
+
+    monkeypatch.setattr(driver.subprocess, "Popen", forbidden)
+    output = tmp_path / "run"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "precision",
+            "--base",
+            "base",
+            "--candidate",
+            "candidate",
+            "--python",
+            sys.executable,
+            "--output",
+            str(output),
+            option,
+            value,
+        ],
+    )
+    with pytest.raises(SystemExit) as error:
+        driver.main()
+    assert error.value.code == 2
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("implementation", [None, "jax", "unknown"])
+def test_required_native_report_rejects_fallback_or_missing_evidence(implementation):
+    row = report()
+    if implementation is not None:
+        row["rfi_implementation"] = implementation
+    with pytest.raises(ValueError):
+        driver.validate_report(row, "double", require_native=True)
+    # Ordinary parent reports need not originate from a native-enabled checkout.
+    if implementation in (None, "jax"):
+        driver.validate_report(row, "double")
+
+
+def _fake_precision_worker(monkeypatch, commands, *, candidate_native=True):
+    from pathlib import Path
+
+    class Process:
+        pid = 999999
+        returncode = 0
+
+        def poll(self):
+            return self.returncode
+
+    def launch(command, **kwargs):
+        commands.append(command)
+
+        def option(name):
+            return command[command.index(name) + 1]
+
+        row = report()
+        precision = option("--precision")
+        row.update(
+            precision=precision,
+            rfi_implementation=(
+                "native"
+                if candidate_native and option("--root") == "candidate"
+                else "jax"
+            ),
+        )
+        row["case"].update(
+            visibility_precision=precision,
+            samples=int(option("--samples")),
+            times=int(option("--times")),
+        )
+        output = Path(option("--output"))
+        output.mkdir(parents=True)
+        (output / "result.json").write_text(json.dumps(row))
+        return Process()
+
+    monkeypatch.setattr(driver.subprocess, "Popen", launch)
+
+
+def test_native_requirement_only_reaches_candidate_and_preserves_workload(
+    tmp_path, monkeypatch
+):
+    commands = []
+    _fake_precision_worker(monkeypatch, commands)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "precision",
+            "--base",
+            "base",
+            "--candidate",
+            "candidate",
+            "--python",
+            sys.executable,
+            "--output",
+            str(tmp_path / "run"),
+            "--rounds",
+            "2",
+            "--samples",
+            "9",
+            "--times",
+            "8",
+            "--base-precision",
+            "single",
+            "--candidate-precision",
+            "single",
+            "--require-native",
+        ],
+    )
+    driver.main()
+    roots = [cmd[cmd.index("--root") + 1] for cmd in commands]
+    assert roots == ["base", "candidate", "candidate", "base"]
+    for command, root in zip(commands, roots):
+        assert ("--require-native" in command) == (root == "candidate")
+        assert command[command.index("--samples") + 1] == "9"
+        assert command[command.index("--times") + 1] == "8"
+        assert command[command.index("--precision") + 1] == "single"
+    rows = json.loads((tmp_path / "run/summary.json").read_text())
+    assert all(row["status"] == "PASS" for row in rows)
+
+
+def test_candidate_only_native_fallback_is_invalid_not_pass(tmp_path, monkeypatch):
+    commands = []
+    _fake_precision_worker(monkeypatch, commands, candidate_native=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "precision",
+            "--base",
+            "base",
+            "--candidate",
+            "candidate",
+            "--python",
+            sys.executable,
+            "--output",
+            str(tmp_path / "run"),
+            "--rounds",
+            "1",
+            "--candidate-only",
+            "--require-native",
+        ],
+    )
+    with pytest.raises(ValueError):
+        driver.main()
+    rows = json.loads((tmp_path / "run/summary.json").read_text())
+    assert len(rows) == 1 and rows[0]["status"] == "INVALID REPORT"
+    assert rows[0]["report"] is None
+
+
+@pytest.mark.parametrize(
+    "dimensions",
+    [
+        [
+            "--sources",
+            "1",
+            "--times",
+            "128",
+            "--samples",
+            "1",
+            "--antennas",
+            "1000",
+            "--channels",
+            "128",
+        ],
+        ["--samples", "1000"],
+    ],
+)
+def test_kernel_probe_rejects_large_inputs_or_outputs_before_allocation(
+    tmp_path, monkeypatch, dimensions
+):
+    from benchmarks import rfi_kernel_probe
+
+    output = tmp_path / "result.json"
+    monkeypatch.setattr(sys, "argv", ["probe", "--output", str(output), *dimensions])
+    with pytest.raises(SystemExit) as error:
+        rfi_kernel_probe.main()
+    assert error.value.code == 2
+    assert not output.exists()

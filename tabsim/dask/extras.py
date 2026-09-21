@@ -23,7 +23,7 @@ def get_factors(n: int):
 
 def estimate_working_set(time, freq, n_int, n_bl, *, n_ant, n_rfi=0, n_ast=0,
                          workers=2, backend='cpu', scratch_factor=None, full_n_freq=None):
-    """Estimate x64 task buffers for the scan kernels and staged composition.
+    """Estimate x64 task buffers for scan/native kernels and staged composition.
 
     Source counts are conservative totals, not a claim of source/baseline
     vectorization. Scratch is a configurable allowance, not an XLA allocation
@@ -53,7 +53,11 @@ def estimate_working_set(time, freq, n_int, n_bl, *, n_ant, n_rfi=0, n_ast=0,
     # The gain generator uses 1000 Fourier modes; allow real/complex temporaries.
     gain_modes = 6 * 8 * 1000 * time * n_ant
     inputs = amplitude + 4 * distances + geometry + astro + gains
-    scratch = math.ceil(factor * max(nominal, amplitude, distances))
+    # Dense complex128 amplitude and float64 phase operands must coexist at
+    # the native FFI boundary. Keep this floor even for single precision or a
+    # small user scratch factor; it is not a bound on all compiler temporaries.
+    native_operands = 24 * n_rfi * fine * n_ant * freq
+    scratch = max(math.ceil(factor * max(nominal, amplitude, distances)), native_operands)
     kernel = inputs + 2 * output + scratch
     composition = 6 * output + 2 * gains
     # Host-side beam and device readback buffers coexist on GPU too. Do not
@@ -64,9 +68,9 @@ def estimate_working_set(time, freq, n_int, n_bl, *, n_ant, n_rfi=0, n_ast=0,
                 amplitude_bytes=amplitude, distance_bytes=distances,
                 geometry_tile_bytes=geometry, astronomical_input_bytes=astro,
                 output_bytes=output, gain_bytes=gains, full_band_gain_bytes=full_band_gains, gain_mode_allowance_bytes=gain_modes,
-                scratch_bytes=scratch, scratch_factor=factor, workers=workers,
+                scratch_bytes=scratch, native_operand_bytes=native_operands, scratch_factor=factor, workers=workers,
                 backend=backend, rfi_sources=n_rfi, ast_sources=n_ast,
-                composition_bytes=composition, model='scan-staged-x64-v1')
+                composition_bytes=composition, model='scan-native-staged-x64-v2')
 
 
 def get_chunksizes(n_t, n_f, n_int, n_bl, MB_max, *, n_ant=None, n_rfi=0, n_ast=0,

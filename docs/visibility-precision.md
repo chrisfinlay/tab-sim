@@ -93,3 +93,25 @@ removed after validation; reports and logs remain. The legacy benchmark
 fixtures stay explicitly double precision to preserve historical byte sizes
 and comparisons. New precision cases state their precision and actual byte
 counts.
+
+
+### Native RFI accumulation
+
+When `ri_kernels` is available for the selected JAX backend, RFI visibility
+accumulation uses its public `RFIVisOp`. Single mode computes the centered
+antenna phase and its complex exponential in double precision first, then
+multiplies the amplitudes by complex64 phasors. The native operator receives
+these complex64 amplitudes and zero float32 phases, so it performs visibility
+products and accumulation in single precision without narrowing an unwrapped
+phase. Double mode supplies complex128 amplitudes and float64 phases directly.
+
+Install the `gpu` extra for the CUDA 12 native library. Binary GPU architecture
+support depends on the installed `ri_kernels` build. A backend probe waits for
+completion before enabling the operator; unavailable backend libraries trigger
+a warning and use the JAX fallback. Missing imports also use the fallback.
+Both routes preserve the selected output dtype and require JAX x64 for geometry.
+
+The native call needs dense amplitude/phase buffers per compute tile. Smaller
+visibility outputs do not imply lower peak memory than the JAX source scan.
+The chunk planner includes a conservative double-precision native operand
+allowance; see [chunk planning](chunk-planning.md) for exclusions and controls.
