@@ -1,0 +1,962 @@
+[
+  {
+    "run": "mini-capacity128",
+    "status": "PASS",
+    "case": {
+      "telescope": "SKA-Low-AA4",
+      "antennas": 512,
+      "times": 32,
+      "channels": 128,
+      "samples": 3,
+      "point_sources": 8,
+      "rfi_sources": 2
+    },
+    "selected": [
+      "vis_obs"
+    ],
+    "single_visibility_bytes": 8573157376,
+    "elapsed_s": 108.695959457953,
+    "peak_rss": 1818148864,
+    "peak_gpu_reserved": null,
+    "jax_memory": null,
+    "execution": {
+      "calls": 0,
+      "peak_active": 0,
+      "queue_s": 0.0,
+      "execution_s": 0.0,
+      "host_result_bytes": 0,
+      "devices": [],
+      "gpu_concurrency": 1,
+      "active": 0,
+      "waiting": 0
+    },
+    "chunks": [
+      1,
+      8
+    ],
+    "events": [
+      {
+        "event": "stage_start",
+        "elapsed_s": 2.5600112499669194,
+        "rss": 560152576,
+        "details": {
+          "variable": "vis_ast"
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_start",
+        "elapsed_s": 2.5603174999705516,
+        "rss": 560152576,
+        "details": {
+          "variable": "vis_rfi"
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_complete",
+        "elapsed_s": 30.695003999979235,
+        "rss": 1025720320,
+        "details": {
+          "variable": "vis_rfi",
+          "elapsed_s": 28.13450537499739
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_start",
+        "elapsed_s": 30.69516720797401,
+        "rss": 1025720320,
+        "details": {
+          "variable": "gains_ants"
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_complete",
+        "elapsed_s": 31.21928358299192,
+        "rss": 1033912320,
+        "details": {
+          "variable": "gains_ants",
+          "elapsed_s": 0.5239363339496776
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_start",
+        "elapsed_s": 31.21948608296225,
+        "rss": 1033912320,
+        "details": {
+          "variable": "noise_data"
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_complete",
+        "elapsed_s": 38.78968116699252,
+        "rss": 1067417600,
+        "details": {
+          "variable": "vis_ast",
+          "elapsed_s": 36.2294010000187
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_complete",
+        "elapsed_s": 54.253230582980905,
+        "rss": 1067417600,
+        "details": {
+          "variable": "noise_data",
+          "elapsed_s": 23.03351937496336
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_start",
+        "elapsed_s": 54.273773916997015,
+        "rss": 1067237376,
+        "details": {
+          "variable": "vis_obs"
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_complete",
+        "elapsed_s": 100.92599183297716,
+        "rss": 1103429632,
+        "details": {
+          "variable": "vis_obs",
+          "elapsed_s": 46.65197375003481
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "single_store_complete",
+        "elapsed_s": 108.61143587494735,
+        "rss": 1152270336,
+        "details": {},
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      }
+    ],
+    "validated": true,
+    "supervisor": {
+      "status": "PASS",
+      "peak_rss": 1675296768,
+      "process_s": 112.42005404201336,
+      "returncode": 0
+    }
+  },
+  {
+    "run": "mini-capacity272",
+    "status": "PASS",
+    "case": {
+      "telescope": "SKA-Low-AA4",
+      "antennas": 512,
+      "times": 32,
+      "channels": 272,
+      "samples": 3,
+      "point_sources": 8,
+      "rfi_sources": 2
+    },
+    "selected": [
+      "vis_obs"
+    ],
+    "single_visibility_bytes": 18217959424,
+    "elapsed_s": 275.98414220899576,
+    "peak_rss": 1873641472,
+    "peak_gpu_reserved": null,
+    "jax_memory": null,
+    "execution": {
+      "calls": 0,
+      "peak_active": 0,
+      "queue_s": 0.0,
+      "execution_s": 0.0,
+      "host_result_bytes": 0,
+      "devices": [],
+      "gpu_concurrency": 1,
+      "active": 0,
+      "waiting": 0
+    },
+    "chunks": [
+      1,
+      8
+    ],
+    "events": [
+      {
+        "event": "stage_start",
+        "elapsed_s": 3.2417270420119166,
+        "rss": 597360640,
+        "details": {
+          "variable": "vis_ast"
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_start",
+        "elapsed_s": 3.2419769589905627,
+        "rss": 597377024,
+        "details": {
+          "variable": "vis_rfi"
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_complete",
+        "elapsed_s": 63.24699029198382,
+        "rss": 1160331264,
+        "details": {
+          "variable": "vis_rfi",
+          "elapsed_s": 60.00487066601636
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_start",
+        "elapsed_s": 63.247212500020396,
+        "rss": 1160331264,
+        "details": {
+          "variable": "gains_ants"
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_complete",
+        "elapsed_s": 63.91917245899094,
+        "rss": 1160331264,
+        "details": {
+          "variable": "gains_ants",
+          "elapsed_s": 0.6717617909889668
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_start",
+        "elapsed_s": 63.919388166978024,
+        "rss": 1160331264,
+        "details": {
+          "variable": "noise_data"
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_complete",
+        "elapsed_s": 78.92801716696704,
+        "rss": 1202225152,
+        "details": {
+          "variable": "vis_ast",
+          "elapsed_s": 75.68606874998659
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_complete",
+        "elapsed_s": 118.57845216698479,
+        "rss": 1202225152,
+        "details": {
+          "variable": "noise_data",
+          "elapsed_s": 54.658819790987764
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_start",
+        "elapsed_s": 118.60847908398136,
+        "rss": 1202044928,
+        "details": {
+          "variable": "vis_obs"
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "stage_complete",
+        "elapsed_s": 258.5331583339721,
+        "rss": 1254490112,
+        "details": {
+          "variable": "vis_obs",
+          "elapsed_s": 139.92441204097122
+        },
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      },
+      {
+        "event": "single_store_complete",
+        "elapsed_s": 275.9109100839705,
+        "rss": 1303330816,
+        "details": {},
+        "execution": {
+          "calls": 0,
+          "peak_active": 0,
+          "queue_s": 0.0,
+          "execution_s": 0.0,
+          "host_result_bytes": 0,
+          "devices": [],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": null
+      }
+    ],
+    "validated": true,
+    "supervisor": {
+      "status": "PASS",
+      "peak_rss": 1754267648,
+      "process_s": 283.00107633299194,
+      "returncode": 0
+    }
+  },
+  {
+    "run": "capacity54-4723514",
+    "status": "PASS",
+    "case": {
+      "telescope": "SKA-Low-AA4",
+      "antennas": 512,
+      "times": 32,
+      "channels": 2048,
+      "samples": 3,
+      "point_sources": 8,
+      "rfi_sources": 2
+    },
+    "selected": [
+      "vis_obs"
+    ],
+    "single_visibility_bytes": 137170518016,
+    "elapsed_s": 1451.899136477994,
+    "peak_rss": 6469648384,
+    "peak_gpu_reserved": 51694796800,
+    "jax_memory": {
+      "num_allocs": 426856,
+      "bytes_in_use": 16128,
+      "peak_bytes_in_use": 89168384,
+      "largest_alloc_size": 33554688,
+      "bytes_limit": 51002736640,
+      "bytes_reserved": 0,
+      "peak_bytes_reserved": 0,
+      "largest_free_block_bytes": 0,
+      "pool_bytes": 51002736640,
+      "peak_pool_bytes": 51002736640
+    },
+    "execution": {
+      "calls": 32865,
+      "peak_active": 1,
+      "queue_s": 4.359341966628563,
+      "execution_s": 96.26192726541194,
+      "host_result_bytes": 413124137664,
+      "devices": [
+        "gpu:0"
+      ],
+      "gpu_concurrency": 1,
+      "active": 0,
+      "waiting": 0
+    },
+    "chunks": [
+      1,
+      8
+    ],
+    "events": [
+      {
+        "event": "stage_start",
+        "elapsed_s": 34.882824947009794,
+        "rss": 3728474112,
+        "details": {
+          "variable": "vis_ast"
+        },
+        "execution": {
+          "calls": 32,
+          "peak_active": 1,
+          "queue_s": 9.689389844425023e-05,
+          "execution_s": 0.3654208940861281,
+          "host_result_bytes": 1179648,
+          "devices": [
+            "gpu:0"
+          ],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": {
+          "num_allocs": 556,
+          "bytes_in_use": 16128,
+          "peak_bytes_in_use": 67224064,
+          "largest_alloc_size": 33554688,
+          "bytes_limit": 51002736640,
+          "bytes_reserved": 0,
+          "peak_bytes_reserved": 0,
+          "largest_free_block_bytes": 0,
+          "pool_bytes": 51002736640,
+          "peak_pool_bytes": 51002736640
+        }
+      },
+      {
+        "event": "stage_start",
+        "elapsed_s": 34.888861646992154,
+        "rss": 3728474112,
+        "details": {
+          "variable": "vis_rfi"
+        },
+        "execution": {
+          "calls": 32,
+          "peak_active": 1,
+          "queue_s": 9.689389844425023e-05,
+          "execution_s": 0.3654208940861281,
+          "host_result_bytes": 1179648,
+          "devices": [
+            "gpu:0"
+          ],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": {
+          "num_allocs": 556,
+          "bytes_in_use": 16128,
+          "peak_bytes_in_use": 67224064,
+          "largest_alloc_size": 33554688,
+          "bytes_limit": 51002736640,
+          "bytes_reserved": 0,
+          "peak_bytes_reserved": 0,
+          "largest_free_block_bytes": 0,
+          "pool_bytes": 51002736640,
+          "peak_pool_bytes": 51002736640
+        }
+      },
+      {
+        "event": "stage_complete",
+        "elapsed_s": 351.38594318399555,
+        "rss": 5337251840,
+        "details": {
+          "variable": "vis_ast",
+          "elapsed_s": 316.4957739660167
+        },
+        "execution": {
+          "calls": 23238,
+          "peak_active": 1,
+          "queue_s": 4.325454441132024,
+          "execution_s": 54.082168564229505,
+          "host_result_bytes": 251925336768,
+          "devices": [
+            "gpu:0"
+          ],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": {
+          "num_allocs": 179243,
+          "bytes_in_use": 16128,
+          "peak_bytes_in_use": 67224064,
+          "largest_alloc_size": 33554688,
+          "bytes_limit": 51002736640,
+          "bytes_reserved": 0,
+          "peak_bytes_reserved": 0,
+          "largest_free_block_bytes": 0,
+          "pool_bytes": 51002736640,
+          "peak_pool_bytes": 51002736640
+        }
+      },
+      {
+        "event": "stage_start",
+        "elapsed_s": 351.39445308200084,
+        "rss": 5375000576,
+        "details": {
+          "variable": "gains_ants"
+        },
+        "execution": {
+          "calls": 23238,
+          "peak_active": 1,
+          "queue_s": 4.325454441132024,
+          "execution_s": 54.082168564229505,
+          "host_result_bytes": 251925336768,
+          "devices": [
+            "gpu:0"
+          ],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": {
+          "num_allocs": 179243,
+          "bytes_in_use": 16128,
+          "peak_bytes_in_use": 67224064,
+          "largest_alloc_size": 33554688,
+          "bytes_limit": 51002736640,
+          "bytes_reserved": 0,
+          "peak_bytes_reserved": 0,
+          "largest_free_block_bytes": 0,
+          "pool_bytes": 51002736640,
+          "peak_pool_bytes": 51002736640
+        }
+      },
+      {
+        "event": "stage_complete",
+        "elapsed_s": 401.7645950750157,
+        "rss": 5320409088,
+        "details": {
+          "variable": "vis_rfi",
+          "elapsed_s": 366.8721726810036
+        },
+        "execution": {
+          "calls": 24673,
+          "peak_active": 1,
+          "queue_s": 4.329599225777201,
+          "execution_s": 57.98335850177682,
+          "host_result_bytes": 275953619648,
+          "devices": [
+            "gpu:0"
+          ],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": {
+          "num_allocs": 189288,
+          "bytes_in_use": 16128,
+          "peak_bytes_in_use": 67224064,
+          "largest_alloc_size": 33554688,
+          "bytes_limit": 51002736640,
+          "bytes_reserved": 0,
+          "peak_bytes_reserved": 0,
+          "largest_free_block_bytes": 0,
+          "pool_bytes": 51002736640,
+          "peak_pool_bytes": 51002736640
+        }
+      },
+      {
+        "event": "stage_start",
+        "elapsed_s": 401.7727141689975,
+        "rss": 5320409088,
+        "details": {
+          "variable": "noise_data"
+        },
+        "execution": {
+          "calls": 24673,
+          "peak_active": 1,
+          "queue_s": 4.329599225777201,
+          "execution_s": 57.98335850177682,
+          "host_result_bytes": 275953619648,
+          "devices": [
+            "gpu:0"
+          ],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": {
+          "num_allocs": 189288,
+          "bytes_in_use": 16128,
+          "peak_bytes_in_use": 67224064,
+          "largest_alloc_size": 33554688,
+          "bytes_limit": 51002736640,
+          "bytes_reserved": 0,
+          "peak_bytes_reserved": 0,
+          "largest_free_block_bytes": 0,
+          "pool_bytes": 51002736640,
+          "peak_pool_bytes": 51002736640
+        }
+      },
+      {
+        "event": "stage_complete",
+        "elapsed_s": 414.4570839359949,
+        "rss": 5320409088,
+        "details": {
+          "variable": "gains_ants",
+          "elapsed_s": 63.053803973976756
+        },
+        "execution": {
+          "calls": 24673,
+          "peak_active": 1,
+          "queue_s": 4.329599225777201,
+          "execution_s": 57.98335850177682,
+          "host_result_bytes": 275953619648,
+          "devices": [
+            "gpu:0"
+          ],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": {
+          "num_allocs": 189288,
+          "bytes_in_use": 16128,
+          "peak_bytes_in_use": 67224064,
+          "largest_alloc_size": 33554688,
+          "bytes_limit": 51002736640,
+          "bytes_reserved": 0,
+          "peak_bytes_reserved": 0,
+          "largest_free_block_bytes": 0,
+          "pool_bytes": 51002736640,
+          "peak_pool_bytes": 51002736640
+        }
+      },
+      {
+        "event": "stage_complete",
+        "elapsed_s": 767.331047840009,
+        "rss": 5320409088,
+        "details": {
+          "variable": "noise_data",
+          "elapsed_s": 365.55052890098887
+        },
+        "execution": {
+          "calls": 24673,
+          "peak_active": 1,
+          "queue_s": 4.329599225777201,
+          "execution_s": 57.98335850177682,
+          "host_result_bytes": 275953619648,
+          "devices": [
+            "gpu:0"
+          ],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": {
+          "num_allocs": 189288,
+          "bytes_in_use": 16128,
+          "peak_bytes_in_use": 67224064,
+          "largest_alloc_size": 33554688,
+          "bytes_limit": 51002736640,
+          "bytes_reserved": 0,
+          "peak_bytes_reserved": 0,
+          "largest_free_block_bytes": 0,
+          "pool_bytes": 51002736640,
+          "peak_pool_bytes": 51002736640
+        }
+      },
+      {
+        "event": "stage_start",
+        "elapsed_s": 767.7013299550163,
+        "rss": 5320409088,
+        "details": {
+          "variable": "vis_obs"
+        },
+        "execution": {
+          "calls": 24673,
+          "peak_active": 1,
+          "queue_s": 4.329599225777201,
+          "execution_s": 57.98335850177682,
+          "host_result_bytes": 275953619648,
+          "devices": [
+            "gpu:0"
+          ],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": {
+          "num_allocs": 189288,
+          "bytes_in_use": 16128,
+          "peak_bytes_in_use": 67224064,
+          "largest_alloc_size": 33554688,
+          "bytes_limit": 51002736640,
+          "bytes_reserved": 0,
+          "peak_bytes_reserved": 0,
+          "largest_free_block_bytes": 0,
+          "pool_bytes": 51002736640,
+          "peak_pool_bytes": 51002736640
+        }
+      },
+      {
+        "event": "stage_complete",
+        "elapsed_s": 1385.794911399018,
+        "rss": 5511643136,
+        "details": {
+          "variable": "vis_obs",
+          "elapsed_s": 618.0852047849912
+        },
+        "execution": {
+          "calls": 32865,
+          "peak_active": 1,
+          "queue_s": 4.359341966628563,
+          "execution_s": 96.26192726541194,
+          "host_result_bytes": 413124137664,
+          "devices": [
+            "gpu:0"
+          ],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": {
+          "num_allocs": 426856,
+          "bytes_in_use": 16128,
+          "peak_bytes_in_use": 89168384,
+          "largest_alloc_size": 33554688,
+          "bytes_limit": 51002736640,
+          "bytes_reserved": 0,
+          "peak_bytes_reserved": 0,
+          "largest_free_block_bytes": 0,
+          "pool_bytes": 51002736640,
+          "peak_pool_bytes": 51002736640
+        }
+      },
+      {
+        "event": "single_store_complete",
+        "elapsed_s": 1451.4089862630062,
+        "rss": 5414846464,
+        "details": {},
+        "execution": {
+          "calls": 32865,
+          "peak_active": 1,
+          "queue_s": 4.359341966628563,
+          "execution_s": 96.26192726541194,
+          "host_result_bytes": 413124137664,
+          "devices": [
+            "gpu:0"
+          ],
+          "gpu_concurrency": 1,
+          "active": 0,
+          "waiting": 0
+        },
+        "jax_memory": {
+          "num_allocs": 426856,
+          "bytes_in_use": 16128,
+          "peak_bytes_in_use": 89168384,
+          "largest_alloc_size": 33554688,
+          "bytes_limit": 51002736640,
+          "bytes_reserved": 0,
+          "peak_bytes_reserved": 0,
+          "largest_free_block_bytes": 0,
+          "pool_bytes": 51002736640,
+          "peak_pool_bytes": 51002736640
+        }
+      }
+    ],
+    "validated": true,
+    "supervisor": {
+      "status": "PASS",
+      "peak_rss": 6318063616,
+      "process_s": 1478.0776576649805,
+      "returncode": 0
+    }
+  }
+]
