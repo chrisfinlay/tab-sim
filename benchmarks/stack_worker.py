@@ -14,8 +14,9 @@ offline();out=Path(a.output);out.mkdir(parents=True,exist_ok=False)
 def run(name):
     started=time.perf_counter()
     with dask.config.set(scheduler='synchronous',num_workers=2):
-        obs=build_observation(case,a.chunk)
-        if a.working is not None:
+        if a.working is None:
+            obs=build_observation(case,a.chunk)
+        else:
             # Constructor planning must happen before sources; rebuild with same public inputs.
             from tabsim.dask.observation import Observation
             from tabsim.config import get_telescope_definitions
@@ -54,7 +55,7 @@ except subprocess.CalledProcessError:
 result['provenance']=dict(revision=revision, device=a.device,
     versions={name:importlib.metadata.version(name) for name in ('jax','jaxlib','numpy','scipy','dask','xarray','zarr')},
     source_sha256={name:hashlib.sha256((Path(a.root)/name).read_bytes()).hexdigest()
-       for name in ('tabsim/dask/extras.py','tabsim/jax/interferometry.py','tabsim/dask/interferometry.py')})
+       for name in ('tabsim/dask/extras.py','tabsim/jax/interferometry.py','tabsim/dask/interferometry.py','tabsim/beam.py') if (Path(a.root)/name).exists()})
 from tabsim.jax.interferometry import airy_beam
 micro={}
 for name,shape,nfreq in [('point',(512,1,1),32),('rfi',(512,3,68),8)]:
