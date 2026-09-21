@@ -128,6 +128,8 @@ def main():
         ('disk-reserve-gb', float, 'Free disk reserve in GiB (default 1).'),
     ):
         parser.add_argument('--' + flag, type=kind, default=None, help=help_text)
+    parser.add_argument('--output-profile', choices=('full', 'minimal'), default=None,
+                        help='Optional full or minimal retained-output preset; incompatible with --save-arrays.')
     parser.add_argument('--save-arrays', nargs='*', default=None,
                         help='Exact data variable names to retain; no names keeps metadata/coordinates only.')
     parser.add_argument('--save-rfi-amplitudes', action=argparse.BooleanOptionalAction, default=None)
@@ -164,7 +166,7 @@ def main():
         sim_config['dask']['working_set_MB'] = args.working_set_mb
     if args.max_chunk_mb is not None:
         sim_config['dask']['max_chunk_MB'] = args.max_chunk_mb
-    for key in ('save_arrays', 'save_rfi_amplitudes', 'flag_data'):
+    for key in ('output_profile', 'save_arrays', 'save_rfi_amplitudes', 'flag_data'):
         value = getattr(args, key)
         if value is not None:
             sim_config['output'][key] = value

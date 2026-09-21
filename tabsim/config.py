@@ -950,10 +950,9 @@ def print_signal_specs(
     vis_rfi: Array, vis_ast: Array, noise_data: Array, flags: Array
 ) -> None:
 
-    rfi_amp = da.mean(da.abs(vis_rfi)).compute()
-    ast_amp = da.mean(da.abs(vis_ast)).compute()
-    noise = da.std(noise_data.real).compute()
-    flag_rate = 100 * da.mean(flags).compute()
+    rfi_amp, ast_amp, noise, flag_rate = dask.compute(
+        da.mean(da.abs(vis_rfi)), da.mean(da.abs(vis_ast)),
+        da.std(noise_data.real), 100 * da.mean(flags))
 
     print()
     print(f"Mean RFI Amp.  : {rfi_amp:.2f} Jy")
@@ -992,7 +991,7 @@ def save_data(obs: Observation, sim_config: dict, zarr_path: str, ms_path: str) 
         raise ValueError('Choose Zarr, Measurement Set or accumulate_ms output')
     obs.calculate_vis(flags=output['flag_data'])
     selected = select_arrays(obs.dataset, output.get('save_arrays'),
-                             output.get('save_rfi_amplitudes', False))
+                             output.get('save_rfi_amplitudes', False), output.get('output_profile'))
     required = set(selected) if output['zarr'] else set()
     if output['ms']:
         required.update(MS_REQUIRED_ARRAYS)
