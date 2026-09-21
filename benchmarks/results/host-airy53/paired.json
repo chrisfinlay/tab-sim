@@ -93,6 +93,10 @@
     "candidate": {
       "events": 0,
       "bytes": 0
+    },
+    "trace_events": {
+      "parent": 8023,
+      "candidate": 28
     }
   }
 }

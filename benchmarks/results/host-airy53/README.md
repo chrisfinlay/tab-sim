@@ -69,4 +69,4 @@ suite: 82 passed. Direct numerical tests pass on NumPy 1.26 and NumPy 2;
 boresight, near zero, six nulls and signed sidelobes at three frequencies,
 homogeneous/mixed dtypes, typed diameters and x64 behavior are covered. Subagent
 review found two dtype-promotion issues; both were fixed and re-reviewed.
-Large-fixture capacity passes are separate from the five-repeat speed table.
+Large-fixture [capacity results](capacity.md) are separate from the five-repeat speed table.
