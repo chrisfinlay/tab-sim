@@ -74,8 +74,9 @@ def execute_kernel(function, *args, **kwargs):
     import numpy as np
     from contextlib import nullcontext
 
-    devices = jax.local_devices()
-    device = jax.config.jax_default_device or devices[0]
+    requested = jax.config.jax_default_device
+    devices = jax.local_devices(backend=requested) if isinstance(requested, str) else jax.local_devices()
+    device = devices[0] if requested is None or isinstance(requested, str) else requested
     gpu = device.platform == 'gpu'
     if gpu and len(devices) != 1:
         raise RuntimeError('Expose exactly one GPU per worker with CUDA_VISIBLE_DEVICES '

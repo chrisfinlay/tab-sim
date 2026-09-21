@@ -10,6 +10,7 @@ import time
 import jax
 import numpy as np
 import pytest
+import skyfield.api  # Import-time urllib feature probe precedes the network fixture.
 
 from tabsim import execution as ex
 
@@ -115,3 +116,16 @@ def test_explicit_device_and_host_result():
 def test_cli_import_does_not_initialize_jax():
     subprocess.run([sys.executable, '-c',
         'import sys; import tabsim.scripts.sim_vis; assert "jax" not in sys.modules'], check=True)
+
+
+@pytest.mark.parametrize('as_string', [False, True])
+def test_default_device_override(as_string):
+    device = jax.local_devices()[0]
+    seen = []
+    def kernel(value):
+        seen.extend(value.devices())
+        return value + 1
+    with jax.default_device(device.platform if as_string else device):
+        result = ex.execute_kernel(kernel, np.array([1.]))
+    assert seen == [device]
+    np.testing.assert_array_equal(result, [2.])
