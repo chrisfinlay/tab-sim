@@ -64,7 +64,7 @@ import platform, socket
 result['provenance']=dict(environment={k:os.getenv(k) for k in ('JAX_PLATFORMS','JAX_ENABLE_X64','CUDA_VISIBLE_DEVICES','XLA_PYTHON_CLIENT_MEM_FRACTION','XLA_PYTHON_CLIENT_PREALLOCATE','OMP_NUM_THREADS')}, python=platform.python_version(), host=socket.gethostname(), device_kind=jax.devices()[0].device_kind, harness_sha256=hashlib.sha256(Path(__file__).read_bytes() + Path(sys.modules['benchmarks.harness'].__file__).read_bytes()).hexdigest(), revision=revision, device=a.device,
     versions={name:importlib.metadata.version(name) for name in ('jax','jaxlib','numpy','scipy','dask','xarray','zarr','astropy','pandas','numcodecs')},
     source_sha256={name:hashlib.sha256((Path(a.root)/name).read_bytes()).hexdigest()
-       for name in ('tabsim/dask/extras.py','tabsim/jax/interferometry.py','tabsim/dask/interferometry.py','tabsim/beam.py','tabsim/execution.py') if (Path(a.root)/name).exists()})
+       for name in ('tabsim/dask/extras.py','tabsim/jax/interferometry.py','tabsim/dask/interferometry.py','tabsim/beam.py','tabsim/execution.py','tabsim/dask/coordinates.py','tabsim/dask/observation.py','tabsim/staged.py','tabsim/config.py') if (Path(a.root)/name).exists()})
 from tabsim.jax.interferometry import airy_beam
 micro={}
 for name,shape,nfreq in [('point',(512,1,1),32),('rfi',(512,3,68),8)]:
