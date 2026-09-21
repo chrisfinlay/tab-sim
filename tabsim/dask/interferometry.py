@@ -1,3 +1,5 @@
+from functools import partial
+from tabsim.precision import visibility_dtype
 from tabsim.execution import execute_kernel
 from tabsim.beam import airy_beam as host_airy_beam
 from jax import jit
@@ -16,17 +18,26 @@ from typing import Optional
 # Keep one callable per kernel in each worker. This does not imply that the
 # previous repeated jit() wrapping recompiled every block. execute_kernel
 # applies placement, admission and completed host readback to each block.
-_astro_vis_jit = jit(itf.astro_vis)
-_astro_vis_gauss_jit = jit(itf.astro_vis_gauss)
-_astro_vis_exp_jit = jit(itf.astro_vis_exp)
-_rfi_vis_jit = jit(itf.rfi_vis)
+_astro_vis_jit = jit(itf.astro_vis, static_argnames=("visibility_precision",))
+_astro_vis_gauss_jit = jit(
+    itf.astro_vis_gauss, static_argnames=("visibility_precision",)
+)
+_astro_vis_exp_jit = jit(itf.astro_vis_exp, static_argnames=("visibility_precision",))
+_rfi_vis_jit = jit(itf.rfi_vis, static_argnames=("visibility_precision",))
 _ants_to_bl_jit = jit(itf.ants_to_bl)
 
 # Airy blocks stay on NumPy/SciPy; Pv_to_Sv and apply_gains were also not
 # whole-function jitted here. Keep those direct calls on their existing paths.
 
 
-def astro_vis(sources: Array, uvw: Array, lmn: Array, freqs: Array) -> Array:
+def astro_vis(
+    sources: Array,
+    uvw: Array,
+    lmn: Array,
+    freqs: Array,
+    *,
+    visibility_precision="single",
+) -> Array:
     """Calculate visibilities from sources, uvw, lmn, and freqs.
 
     Parameters:
@@ -44,6 +55,8 @@ def astro_vis(sources: Array, uvw: Array, lmn: Array, freqs: Array) -> Array:
     --------
     vis: Array (n_time, n_bl, n_freq)
     """
+    dtype = visibility_dtype(visibility_precision)
+    kernel = partial(_astro_vis_jit, visibility_precision=visibility_precision)
     n_time, n_bl = uvw.shape[:2]
     n_freq = freqs.shape[0]
 
@@ -74,16 +87,14 @@ def astro_vis(sources: Array, uvw: Array, lmn: Array, freqs: Array) -> Array:
                 da.zeros(  # type: ignore
                     shape=(n_time, n_bl, n_freq),
                     chunks=(time_chunk, bl_chunk, freq_chunk),
-                    dtype=complex,
+                    dtype=dtype,
                 ),
             )
         }
     )
 
     def _astro_vis(ds):
-        vis = execute_kernel(_astro_vis_jit,
-            ds.I.data, ds.uvw.data, ds.lmn.data, ds.freqs.data
-        )
+        vis = execute_kernel(kernel, ds.I.data, ds.uvw.data, ds.lmn.data, ds.freqs.data)
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
         return ds_out
 
@@ -100,6 +111,8 @@ def astro_vis_gauss(
     uvw: Array,
     lmn: Array,
     freqs: Array,
+    *,
+    visibility_precision="single",
 ) -> Array:
     """Calculate visibilities from sources, uvw, lmn, and freqs.
 
@@ -121,6 +134,8 @@ def astro_vis_gauss(
     --------
     vis: Array (n_time, n_bl, n_freq)
     """
+    dtype = visibility_dtype(visibility_precision)
+    kernel = partial(_astro_vis_gauss_jit, visibility_precision=visibility_precision)
     n_time, n_bl = uvw.shape[:2]
     n_freq = freqs.shape[0]
 
@@ -145,14 +160,15 @@ def astro_vis_gauss(
                 da.zeros(  # type: ignore
                     shape=(n_time, n_bl, n_freq),
                     chunks=(time_chunk, bl_chunk, freq_chunk),
-                    dtype=complex,
+                    dtype=dtype,
                 ),
             )
         }
     )
 
     def _astro_vis_gauss(ds):
-        vis = execute_kernel(_astro_vis_gauss_jit,
+        vis = execute_kernel(
+            kernel,
             ds.I.data,
             ds.major.data,
             ds.minor.data,
@@ -170,7 +186,13 @@ def astro_vis_gauss(
 
 
 def astro_vis_exp(
-    sources: Array, shapes: Array, uvw: Array, lmn: Array, freqs: Array
+    sources: Array,
+    shapes: Array,
+    uvw: Array,
+    lmn: Array,
+    freqs: Array,
+    *,
+    visibility_precision="single",
 ) -> Array:
     """Calculate visibilities from sources, uvw, lmn, and freqs.
 
@@ -192,6 +214,8 @@ def astro_vis_exp(
     --------
     vis: Array (n_time, n_bl, n_freq)
     """
+    dtype = visibility_dtype(visibility_precision)
+    kernel = partial(_astro_vis_exp_jit, visibility_precision=visibility_precision)
     n_time, n_bl = uvw.shape[:2]
     n_freq = freqs.shape[0]
 
@@ -214,15 +238,15 @@ def astro_vis_exp(
                 da.zeros(  # type: ignore
                     shape=(n_time, n_bl, n_freq),
                     chunks=(time_chunk, bl_chunk, freq_chunk),
-                    dtype=complex,
+                    dtype=dtype,
                 ),
             )
         }
     )
 
     def _astro_vis_exp(ds):
-        vis = execute_kernel(_astro_vis_exp_jit,
-            ds.I.data, ds.sigmas.data, ds.uvw.data, ds.lmn.data, ds.freqs.data
+        vis = execute_kernel(
+            kernel, ds.I.data, ds.sigmas.data, ds.uvw.data, ds.lmn.data, ds.freqs.data
         )
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
         return ds_out
@@ -238,6 +262,8 @@ def rfi_vis(
     freqs: Array,
     a1: Array,
     a2: Array,
+    *,
+    visibility_precision="single",
 ) -> Array:
     """Calculate visibilities from sources, uvw, lmn, and freqs.
 
@@ -258,6 +284,8 @@ def rfi_vis(
     --------
     vis: Array (n_time, n_bl, n_freq)
     """
+    dtype = visibility_dtype(visibility_precision)
+    kernel = partial(_rfi_vis_jit, visibility_precision=visibility_precision)
     n_time = app_amplitude.shape[1]
     n_freq = freqs.shape[0]
     n_bl = a1.shape[0]
@@ -282,14 +310,15 @@ def rfi_vis(
                 da.zeros(  # type: ignore
                     shape=(n_time, n_bl, n_freq),
                     chunks=(time_chunk, bl_chunk, freq_chunk),
-                    dtype=complex,
+                    dtype=dtype,
                 ),
             )
         }
     )
 
     def _rfi_vis(ds):
-        vis = execute_kernel(_rfi_vis_jit,
+        vis = execute_kernel(
+            kernel,
             ds.app_amplitude.data,
             ds.c_distances.data,
             ds.freqs.data,
@@ -320,16 +349,16 @@ def ants_to_bl(G: Array, a1: Array, a2: Array) -> Array:
             "G_bl": (
                 ["time", "bl", "freq"],
                 da.zeros(  # type: ignore
-                    (n_time, n_bl, n_freq), chunks=(time_chunk, bl_chunk, freq_chunk)
+                    (n_time, n_bl, n_freq),
+                    chunks=(time_chunk, bl_chunk, freq_chunk),
+                    dtype=G.dtype,
                 ),
             )
         }
     )
 
     def _ants_to_bl(ds):
-        G_bl = execute_kernel(_ants_to_bl_jit,
-            ds.G.data, ds.a1.data, ds.a2.data
-        )
+        G_bl = execute_kernel(_ants_to_bl_jit, ds.G.data, ds.a1.data, ds.a2.data)
         ds_out = xr.Dataset({"G_bl": (["time", "bl", "freq"], G_bl)})
         return ds_out
 
@@ -369,9 +398,7 @@ def airy_beam(theta, freqs, dish_d):
     )
 
     def _airy_beam(ds):
-        beam = host_airy_beam(
-            ds.theta.data, ds.freqs.data, ds.dish_d.data
-        )
+        beam = host_airy_beam(ds.theta.data, ds.freqs.data, ds.dish_d.data)
         ds_out = xr.Dataset({"beam": (["src", "time", "ant", "freq"], beam)})
         return ds_out
 
@@ -407,7 +434,7 @@ def Pv_to_Sv(Pv, d):
     )
 
     def _Pv_to_Sv(ds):
-        Sv = execute_kernel(itf.Pv_to_Sv,ds.Pv.data, ds.d.data)
+        Sv = execute_kernel(itf.Pv_to_Sv, ds.Pv.data, ds.d.data)
         ds_out = xr.Dataset({"Sv": (["src", "time", "ant", "freq"], Sv)})
         return ds_out
 
@@ -444,14 +471,23 @@ def add_noise(vis: Array, noise_std: float, key: int):
     # Align a lazy channel scale without computing it or fragmenting noise chunks.
     scale = da.asarray(noise_std)
     scale = scale.map_blocks(_validate_noise_std, dtype=scale.dtype, meta=scale._meta)
-    if scale.ndim > vis.ndim or np.broadcast_shapes(scale.shape, vis.shape) != vis.shape:
+    if (
+        scale.ndim > vis.ndim
+        or np.broadcast_shapes(scale.shape, vis.shape) != vis.shape
+    ):
         raise ValueError("noise_std must broadcast to the visibility shape")
     # Rechunk only existing scale dimensions; never create a full-cube broadcast
     # task, whose strided view could be materialized during distributed transfer.
     offset = vis.ndim - scale.ndim
-    scale = scale.rechunk(tuple((1,) if size == 1 else vis.chunks[offset + axis]
-                                for axis, size in enumerate(scale.shape)))
-    noise = (real + 1.0j * imag) * scale
+    scale = scale.rechunk(
+        tuple(
+            (1,) if size == 1 else vis.chunks[offset + axis]
+            for axis, size in enumerate(scale.shape)
+        )
+    )
+    noise = ((real + 1.0j * imag) * scale).astype(
+        np.result_type(vis.dtype, np.complex64)
+    )
     return vis + noise, noise
 
 
@@ -603,15 +639,20 @@ def apply_gains(
                 da.zeros(  # type: ignore
                     (n_time, n_bl, n_freq),
                     chunks=(time_chunk, bl_chunk, freq_chunk),
-                    dtype=vis_ast.dtype,
+                    dtype=np.result_type(vis_ast.dtype, vis_rfi.dtype, np.complex64),
                 ),
             )
         }
     )
 
     def _apply_gains(ds):
-        vis_obs = execute_kernel(itf.apply_gains,
-            ds.vis_ast.data, ds.vis_rfi.data, ds.gains.data, ds.a1.data, ds.a2.data
+        vis_obs = execute_kernel(
+            itf.apply_gains,
+            ds.vis_ast.data,
+            ds.vis_rfi.data,
+            ds.gains.data,
+            ds.a1.data,
+            ds.a2.data,
         )
         ds_out = xr.Dataset({"vis_obs": (["time", "bl", "freq"], vis_obs)})
         return ds_out

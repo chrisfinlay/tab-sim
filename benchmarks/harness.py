@@ -2,6 +2,7 @@
 import contextlib
 import hashlib
 import importlib.metadata
+import inspect
 import json
 import logging
 import os
@@ -145,17 +146,25 @@ class Diagnostics:
 
 
 def build_observation(case, chunk_mb):
+    # Historical fixtures explicitly retain double precision for comparability.
+    # precision_worker opts into single; the production Observation default is single.
     from tabsim.config import get_telescope_definitions
     from tabsim.dask.observation import Observation
     definition = get_telescope_definitions(case["telescope"])
     t, f = case["times"], case["channels"]
+    precision = case.get("visibility_precision", "double")
+    precision_options = ({"visibility_precision": precision}
+                         if "visibility_precision" in inspect.signature(Observation).parameters else {})
+    if not precision_options and precision != "double":
+        raise ValueError("Selected checkout does not support single precision")
     obs = Observation(latitude=definition["latitude"], longitude=definition["longitude"],
         elevation=definition["elevation"], ra=30.0, dec=-30.0,
         times_mjd=60000.0 + np.arange(t) * 2.0 / 86400.0,
         freqs=150e6 + np.arange(f) * 1e5, SEFD=np.full(f, 5000.0),
         ITRF_path=definition["itrf_path"], dish_d=definition["dish_d"],
         int_time=2.0, chan_width=1e5, n_int_samples=case["samples"],
-        random_seed=20260919, tel_name=case["telescope"], max_chunk_MB=chunk_mb)
+        random_seed=20260919, tel_name=case["telescope"], max_chunk_MB=chunk_mb,
+        **precision_options)
     assert obs.n_ant == case["antennas"]
     assert obs.n_int_samples == case["samples"]
     return obs

@@ -7,6 +7,8 @@ if TYPE_CHECKING:
 
 import os
 import shutil
+from copy import deepcopy
+from daskms.descriptors.ms import MSDescriptorBuilder
 
 import dask
 import dask.array as da
@@ -166,6 +168,7 @@ def get_optional_data(obs: Observation):
 
 def get_observation_attributes(obs: Observation):
     attrs = {
+        "visibility_precision": "double" if np.dtype(getattr(obs, "visibility_dtype", obs.vis_ast.dtype)) == np.dtype(np.complex128) else "single",
         "tel_name": obs.tel_name,
         "tel_latitude": obs.latitude,
         "tel_longitude": obs.longitude,
@@ -422,6 +425,11 @@ def add_to_ms(
     n_row = n_time * n_bl
 
     xds_ms = xds_from_ms(ms_path)[0]
+    if not np.can_cast(ds.vis_rfi.dtype, xds_ms[data_col].dtype, casting='safe'):
+        xds_ms.close()
+        raise ValueError(f'Cannot add {ds.vis_rfi.dtype} visibilities to existing '
+                         f'{data_col} column with dtype {xds_ms[data_col].dtype}; '
+                         'choose single precision explicitly or use a double-precision MS')
 
     dims = ["row", "chan", "corr"]
     chunks = {k: v for k, v in xds_ms.chunks.items() if k in dims}
@@ -456,6 +464,45 @@ MS_REQUIRED_ARRAYS = frozenset((
 ))
 
 
+
+class _VisibilityMSDescriptorBuilder(MSDescriptorBuilder):
+    """Preserve imaging-column precision through dask-ms's descriptor API.
+
+    Standard dask-ms descriptors otherwise force DATA/MODEL/CORRECTED to
+    single precision even for complex128 inputs. Extra columns infer their
+    dtype normally. Double columns require downstream reader support.
+    """
+    def __init__(self, column_dtypes):
+        super().__init__()
+        self.column_dtypes = column_dtypes
+
+    def default_descriptor(self):
+        descriptor = deepcopy(super().default_descriptor())
+        for name in self.DATA_COLS:
+            dtype = self.column_dtypes.get(name)
+            if dtype is not None:
+                if dtype not in (np.dtype(np.complex64), np.dtype(np.complex128)):
+                    raise ValueError(f'{name} must contain complex64 or complex128 visibilities')
+                descriptor[name]['valueType'] = 'DCOMPLEX' if dtype == np.dtype(np.complex128) else 'COMPLEX'
+        return descriptor
+
+
+def _check_existing_visibility_columns(path, column_dtypes):
+    """Updating an existing column cannot change its storage precision."""
+    if not os.path.exists(path):
+        return
+    from casacore.tables import table
+    with table(str(path), readonly=True, ack=False) as existing:
+        for name, dtype in column_dtypes.items():
+            if name not in existing.colnames():
+                continue
+            value_type = existing.getcoldesc(name)['valueType'].lower()
+            target = {'complex': np.dtype(np.complex64), 'dcomplex': np.dtype(np.complex128)}.get(value_type)
+            if target is None or not np.can_cast(dtype, target, casting='safe'):
+                raise ValueError(f'Existing {name} column cannot safely store {dtype}; '
+                                 'create a new MS with matching precision')
+
+
 def write_ms(
     ds: Dataset,
     ms_path: str,
@@ -463,7 +510,12 @@ def write_ms(
     vis_corr: dask.Array = None,
     flags: dask.Array = None,
 ):
-    """Write a dataset to a Measurement Set."""
+    """Write a dataset, preserving complex64/complex128 visibility columns.
+
+    Double-precision imaging columns use casacore DCOMPLEX via the public
+    dask-ms descriptor API. Casacore/dask-ms support these columns; downstream
+    software restricted to standard single-precision columns may not.
+    """
     ms_path = str(ms_path)
     missing = MS_REQUIRED_ARRAYS - set(ds.variables)
     if missing:
@@ -511,7 +563,7 @@ def construct_ms_data_table(
     no_rfi = vis_model + noise_data
 
     if vis_corr is None:
-        vis_corr = da.zeros((n_row, n_freq, n_corr), dtype=np.complex64)
+        vis_corr = da.zeros((n_row, n_freq, n_corr), dtype=vis_obs.dtype)
     else:
         vis_corr = da.asarray(vis_corr).reshape(n_row, n_freq, n_corr)
 
@@ -552,7 +604,7 @@ def construct_ms_data_table(
         "CORRECTED_DATA": (("row", "chan", "corr"), vis_corr),
         "MODEL_DATA": (
             ("row", "chan", "corr"),
-            da.zeros((n_row, n_freq, n_corr), dtype=np.complex64),
+            da.zeros((n_row, n_freq, n_corr), dtype=vis_obs.dtype),
         ),
         "SIGMA": (("row", "corr"), noise_std),
         "WEIGHT": (("row", "corr"), weight),
@@ -568,12 +620,12 @@ def construct_ms_data_table(
     if extras:
         data_vars = {
             **data_vars,
-            "CAL_DATA": (("row", "chan", "corr"), vis_cal.astype(np.complex64)),
-            "RFI_MODEL_DATA": (("row", "chan", "corr"), vis_rfi.astype(np.complex64)),
-            "AST_MODEL_DATA": (("row", "chan", "corr"), vis_model.astype(np.complex64)),
-            "NOISE_DATA": (("row", "chan", "corr"), noise_data.astype(np.complex64)),
-            "RFI_DATA": (("row", "chan", "corr"), rfi_resid.astype(np.complex64)),
-            "AST_DATA": (("row", "chan", "corr"), no_rfi.astype(np.complex64)),
+            "CAL_DATA": (("row", "chan", "corr"), vis_cal),
+            "RFI_MODEL_DATA": (("row", "chan", "corr"), vis_rfi),
+            "AST_MODEL_DATA": (("row", "chan", "corr"), vis_model),
+            "NOISE_DATA": (("row", "chan", "corr"), noise_data),
+            "RFI_DATA": (("row", "chan", "corr"), rfi_resid),
+            "AST_DATA": (("row", "chan", "corr"), no_rfi),
             "3S_FLAGS": (("row", "chan", "corr"), flags),
         }
 
@@ -588,10 +640,15 @@ def construct_ms_data_table(
         "AST_DATA": {"UNIT": "Jy"},
     }
 
+    column_dtypes = {name: np.dtype(value[1].dtype) for name, value in data_vars.items()
+                     if np.issubdtype(value[1].dtype, np.complexfloating)}
+    _check_existing_visibility_columns(ms_path, column_dtypes)
     return xds_to_table(
         [Dataset(data_vars).chunk(chunks)],
         ms_path,
         columns="ALL",
+        descriptor=_VisibilityMSDescriptorBuilder(column_dtypes),
+        table_keywords={"TABSIM_VISIBILITY_PRECISION": "double" if vis_obs.dtype == np.dtype(np.complex128) else "single"},
         column_keywords=col_kw,
     )
 

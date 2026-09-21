@@ -97,3 +97,12 @@ record for dates in roughly 2001–2018. ``--allow-missing-checksum`` accepts th
 marks the records unverified for good; the same flag is then needed to replay them.
 
 See :doc:`config` for the full set of ``rfi_sources.tle_satellite`` settings.
+
+Visibility precision
+--------------------
+
+Visibilities default to complex64. Set ``observation.visibility_precision: double``
+in YAML, ``--visibility-precision double`` on ``sim-vis``, or
+``Observation(..., visibility_precision="double")`` for complex128. Geometry
+and phase remain float64. See `Visibility precision <visibility-precision.md>`_
+for numerical, storage and benchmark details.

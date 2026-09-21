@@ -139,6 +139,8 @@ def main():
                         help='CUDA visible GPU index or UUID; applied before importing JAX.')
     parser.add_argument('--gpu-concurrency', type=int, default=None,
                         help='Active GPU blocks per process, held through host readback (default 1).')
+    parser.add_argument("--visibility-precision", choices=("single", "double"), default=None,
+                        help="Visibility calculation/storage precision (default single); geometry and phase stay double.")
     args = parser.parse_args()
     if args.gpu_id is not None:
         os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
@@ -170,6 +172,8 @@ def main():
         value = getattr(args, key)
         if value is not None:
             sim_config['output'][key] = value
+    if args.visibility_precision is not None:
+        sim_config["observation"]["visibility_precision"] = args.visibility_precision
     if args.signal_stats is not None:
         sim_config['diagnostics']['signal_stats'] = args.signal_stats
 

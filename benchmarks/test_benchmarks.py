@@ -59,7 +59,11 @@ def test_workload(benchmark, request, tmp_path):
             jax.block_until_ready(device)
             info["host_to_device_s"] = time.perf_counter() - start
             info["input_shapes"] = [list(x.shape) for x in host]
-            kernel = jax.jit(itf.astro_vis if mode == "astro-kernel" else itf.rfi_vis)
+            from functools import partial
+            import inspect
+            function = itf.astro_vis if mode == "astro-kernel" else itf.rfi_vis
+            options = {"visibility_precision": "double"} if "visibility_precision" in inspect.signature(function).parameters else {}
+            kernel = jax.jit(partial(function, **options))
             start = time.perf_counter()
             lowered = kernel.lower(*device)
             info["trace_and_lower_s"] = time.perf_counter() - start

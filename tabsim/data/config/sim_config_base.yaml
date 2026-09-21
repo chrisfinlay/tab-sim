@@ -110,6 +110,7 @@ gains:
 # Observation parameters
 #########################
 observation:
+  visibility_precision: single # single (complex64) or double (complex128); geometry/phase always float64
   start_time_jd: null         # Required - Centroid of the starting time in Julian date
   start_time_isot: null       # Required - Centroid of the starting time in ISOT format e.g. 2024-02-21T12:47:32.123
   start_time_lha: null        # Required - Centroid of the starting time in local hour angle in degrees
