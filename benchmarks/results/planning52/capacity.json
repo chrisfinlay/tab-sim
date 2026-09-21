@@ -81,7 +81,8 @@
     "planned_chunks": [
       8192,
       1
-    ]
+    ],
+    "progress": []
   },
   {
     "reason": "Memory preflight: disk plan 208036298752 exceeds available budget 94862949785.6 bytes",
@@ -100,7 +101,8 @@
     "planned_chunks": [
       1,
       8
-    ]
+    ],
+    "progress": []
   },
   {
     "reason": "Memory preflight: disk plan 208036298752 exceeds available budget 94862966169.6 bytes",
@@ -119,7 +121,8 @@
     "planned_chunks": [
       8,
       1
-    ]
+    ],
+    "progress": []
   },
   {
     "reason": null,
@@ -420,6 +423,90 @@
     "planned_chunks": [
       1,
       8
+    ],
+    "progress": [
+      {
+        "stage": "setup_start",
+        "elapsed_s": 7.0830771080218256,
+        "rss_bytes": 717225984,
+        "details": {}
+      },
+      {
+        "stage": "stage_start",
+        "elapsed_s": 16.707723889965564,
+        "rss_bytes": 3730767872,
+        "details": {
+          "variable": "vis_ast"
+        }
+      },
+      {
+        "stage": "stage_start",
+        "elapsed_s": 16.71457603701856,
+        "rss_bytes": 3730767872,
+        "details": {
+          "variable": "vis_rfi"
+        }
+      },
+      {
+        "stage": "stage_complete",
+        "elapsed_s": 94.03335559892002,
+        "rss_bytes": 3860463616,
+        "details": {
+          "variable": "vis_ast",
+          "elapsed_s": 77.31852216203697
+        }
+      },
+      {
+        "stage": "stage_start",
+        "elapsed_s": 94.03440126392525,
+        "rss_bytes": 3860463616,
+        "details": {
+          "variable": "gains_ants"
+        }
+      },
+      {
+        "stage": "stage_complete",
+        "elapsed_s": 106.86462410795502,
+        "rss_bytes": 3860463616,
+        "details": {
+          "variable": "vis_rfi",
+          "elapsed_s": 90.14338804699946
+        }
+      },
+      {
+        "stage": "stage_start",
+        "elapsed_s": 106.86569066799711,
+        "rss_bytes": 3860463616,
+        "details": {
+          "variable": "noise_data"
+        }
+      },
+      {
+        "stage": "stage_complete",
+        "elapsed_s": 108.8313835549634,
+        "rss_bytes": 3821404160,
+        "details": {
+          "variable": "gains_ants",
+          "elapsed_s": 14.79005344293546
+        }
+      },
+      {
+        "stage": "stage_complete",
+        "elapsed_s": 196.50181796192192,
+        "rss_bytes": 3880910848,
+        "details": {
+          "variable": "noise_data",
+          "elapsed_s": 89.62878018699121
+        }
+      },
+      {
+        "stage": "stage_start",
+        "elapsed_s": 196.66760267794598,
+        "rss_bytes": 3880910848,
+        "details": {
+          "variable": "vis_obs"
+        }
+      }
     ]
   },
   {
@@ -439,6 +526,90 @@
     "planned_chunks": [
       8,
       1
+    ],
+    "progress": [
+      {
+        "stage": "setup_start",
+        "elapsed_s": 3.244210132979788,
+        "rss_bytes": 830472192,
+        "details": {}
+      },
+      {
+        "stage": "stage_start",
+        "elapsed_s": 13.146140101016499,
+        "rss_bytes": 3854565376,
+        "details": {
+          "variable": "vis_rfi"
+        }
+      },
+      {
+        "stage": "stage_start",
+        "elapsed_s": 13.153013464994729,
+        "rss_bytes": 3854565376,
+        "details": {
+          "variable": "vis_ast"
+        }
+      },
+      {
+        "stage": "stage_complete",
+        "elapsed_s": 88.90337928500958,
+        "rss_bytes": 4117823488,
+        "details": {
+          "variable": "vis_ast",
+          "elapsed_s": 75.74360666098073
+        }
+      },
+      {
+        "stage": "stage_start",
+        "elapsed_s": 88.90435621608049,
+        "rss_bytes": 4117823488,
+        "details": {
+          "variable": "gains_ants"
+        }
+      },
+      {
+        "stage": "stage_complete",
+        "elapsed_s": 102.89474097406492,
+        "rss_bytes": 4226154496,
+        "details": {
+          "variable": "vis_rfi",
+          "elapsed_s": 89.74116362293717
+        }
+      },
+      {
+        "stage": "stage_start",
+        "elapsed_s": 102.8958847799804,
+        "rss_bytes": 4226154496,
+        "details": {
+          "variable": "noise_data"
+        }
+      },
+      {
+        "stage": "stage_complete",
+        "elapsed_s": 103.55224696302321,
+        "rss_bytes": 4161273856,
+        "details": {
+          "variable": "gains_ants",
+          "elapsed_s": 14.641724818968214
+        }
+      },
+      {
+        "stage": "stage_complete",
+        "elapsed_s": 187.8813697680598,
+        "rss_bytes": 4161273856,
+        "details": {
+          "variable": "noise_data",
+          "elapsed_s": 84.9781268540537
+        }
+      },
+      {
+        "stage": "stage_start",
+        "elapsed_s": 188.04811793006957,
+        "rss_bytes": 4161273856,
+        "details": {
+          "variable": "vis_obs"
+        }
+      }
     ]
   },
   {
