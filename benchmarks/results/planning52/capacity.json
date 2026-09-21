@@ -1,5 +1,8 @@
 [
   {
+    "reason": null,
+    "enforced_host_limit_bytes": 8066809855.999999,
+    "disk_reserve_bytes": 4999705190.400001,
     "machine": "mini",
     "case": "aa1-host-stress",
     "label": "52",
@@ -62,6 +65,9 @@
     ]
   },
   {
+    "reason": "Memory preflight: host plan 17193220096 exceeds budget 8023503667.2 bytes",
+    "enforced_host_limit_bytes": 8067486515.2,
+    "disk_reserve_bytes": 4999705190.400001,
     "machine": "mini",
     "case": "aa1-host-stress",
     "label": "parent",
@@ -78,6 +84,9 @@
     ]
   },
   {
+    "reason": "Memory preflight: disk plan 208036298752 exceeds available budget 94862949785.6 bytes",
+    "enforced_host_limit_bytes": 7726450278.4,
+    "disk_reserve_bytes": 4999705190.400001,
     "machine": "mini",
     "case": "aa4-host-out-of-core",
     "label": "52",
@@ -94,6 +103,9 @@
     ]
   },
   {
+    "reason": "Memory preflight: disk plan 208036298752 exceeds available budget 94862966169.6 bytes",
+    "enforced_host_limit_bytes": 7714499788.799999,
+    "disk_reserve_bytes": 4999705190.400001,
     "machine": "mini",
     "case": "aa4-host-out-of-core",
     "label": "parent",
@@ -110,6 +122,9 @@
     ]
   },
   {
+    "reason": null,
+    "enforced_host_limit_bytes": 7791352217.599999,
+    "disk_reserve_bytes": 4999705190.400001,
     "machine": "mini",
     "case": "aa4-out-of-core",
     "label": "52",
@@ -172,6 +187,9 @@
     ]
   },
   {
+    "reason": null,
+    "enforced_host_limit_bytes": 5912739840.0,
+    "disk_reserve_bytes": 4999705190.400001,
     "machine": "mini",
     "case": "aa4-out-of-core",
     "label": "parent",
@@ -234,6 +252,9 @@
     ]
   },
   {
+    "reason": null,
+    "enforced_host_limit_bytes": 34359738368.0,
+    "disk_reserve_bytes": 300000000029491.2,
     "machine": "daint",
     "case": "aa1-host-stress",
     "label": "52",
@@ -307,6 +328,9 @@
     ]
   },
   {
+    "reason": null,
+    "enforced_host_limit_bytes": 34359738368.0,
+    "disk_reserve_bytes": 300000000029491.2,
     "machine": "daint",
     "case": "aa1-host-stress",
     "label": "parent",
@@ -380,6 +404,9 @@
     ]
   },
   {
+    "reason": null,
+    "enforced_host_limit_bytes": 34359738368.0,
+    "disk_reserve_bytes": 300000000029491.2,
     "machine": "daint",
     "case": "aa4-host-out-of-core",
     "label": "52",
@@ -396,6 +423,9 @@
     ]
   },
   {
+    "reason": null,
+    "enforced_host_limit_bytes": 34359738368.0,
+    "disk_reserve_bytes": 300000000029491.2,
     "machine": "daint",
     "case": "aa4-host-out-of-core",
     "label": "parent",
@@ -412,6 +442,9 @@
     ]
   },
   {
+    "reason": null,
+    "enforced_host_limit_bytes": 34359738368.0,
+    "disk_reserve_bytes": 300000000029491.2,
     "machine": "daint",
     "case": "aa4-out-of-core",
     "label": "52",
@@ -485,6 +518,9 @@
     ]
   },
   {
+    "reason": null,
+    "enforced_host_limit_bytes": 34359738368.0,
+    "disk_reserve_bytes": 300000000029491.2,
     "machine": "daint",
     "case": "aa4-out-of-core",
     "label": "parent",
