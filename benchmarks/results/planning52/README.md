@@ -68,6 +68,12 @@ runtime/cache/eager-history allocations. See [the model](../../../docs/chunk-pla
 
 ## Reproduction
 
+Measured environments used JAX/jaxlib 0.10.2, xarray 2026.7.0 and Zarr 2.18.7.
+Mini used NumPy 2.5.3 / SciPy 1.18.0 / Dask 2024.10.0; the GTX host used
+NumPy 2.4.6 / SciPy 1.17.1 / Dask 2026.8.0. Comparisons are paired within each
+environment. This dependency difference is another reason not to interpret
+cross-machine timings as a controlled hardware comparison.
+
 Use identical dependencies for each pair and committed source checkouts:
 
 ```sh
@@ -83,6 +89,6 @@ and compiled RFI memory. Recorded measurements compare the immediate parent
 (merged PR 64), not the pre-noise-fix original baseline; no cumulative speedup
 against that older, different output implementation is claimed.
 
-Large-fixture capacity results are maintained separately and are not inferred
-from these small timing cases. Five-repeat promotion requires sufficient runtime
-and scratch; a cold capacity pass alone is not included in the speed table.
+Large-fixture capacity results are in [capacity.md](capacity.md) and are not
+inferred from these small timing cases. A cold capacity pass alone is not
+included in the speed table.
