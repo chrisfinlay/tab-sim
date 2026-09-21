@@ -1,0 +1,1065 @@
+{
+  "status": "failed",
+  "source_revision": "54395d6ebbb42425cee44c6c3ef507feafb33c08",
+  "planning": {
+    "chunk_plan_error": null,
+    "single_visibility_bytes": 8573157376,
+    "host_plan_bytes": 4873191424,
+    "legacy_host_plan_bytes": 86671097856,
+    "disk_plan_bytes": 52511506432,
+    "kernel_plan_bytes": 103280541696,
+    "planned_time_chunk": 1,
+    "planned_frequency_chunk": 8,
+    "full_baseline_geometry_bytes": 301400064,
+    "gain_mode_tile_bytes": 4096000,
+    "graph_allowance_bytes": 301989888,
+    "cpu_retention_allowance_bytes": 0,
+    "memory_model": "staged-zarr-v2"
+  },
+  "host_total_bytes": 17179869184,
+  "supervisor_peak_rss_bytes": 1682653184,
+  "process_wall_s": 1007.5874603749835,
+  "stats": {
+    "min": 150.11109329096507,
+    "max": 153.19656758295605,
+    "mean": 151.94729116617236,
+    "stddev": 1.1419363065181047,
+    "rounds": 5,
+    "median": 152.22749670798657,
+    "iqr": 1.1932493232452543,
+    "q1": 151.3923197909753,
+    "q3": 152.58556911422056,
+    "iqr_outliers": 0,
+    "stddev_outliers": 2,
+    "outliers": "2;0",
+    "ld15iqr": 150.11109329096507,
+    "hd15iqr": 153.19656758295605,
+    "ops": 0.0065812295324592625,
+    "total": 759.7364558308618,
+    "data": [
+      151.81939529097872,
+      152.22749670798657,
+      150.11109329096507,
+      153.19656758295605,
+      152.3819029579754
+    ],
+    "iterations": 1
+  },
+  "outcome_note": "All five timed writes and their bounded sample comparisons completed; subsequent untimed diagnostic pass failed with cProfile tool already in use on Python 3.13. Do not treat the overall harness run as PASS.",
+  "details": {
+    "revision": "54395d6ebbb42425cee44c6c3ef507feafb33c08",
+    "dirty": false,
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fixture_sha256": "8b1cc6ca05ad88d17d64038935781b068488bd10ffdb694e0c95dc6e5f932eb0",
+    "harness_sha256": "9690b20c284c9857cbbb38a6b6aa03fb3ff972cfaa9381e70efe7788c4f7c236",
+    "python": "3.13.15",
+    "versions": {
+      "tabsim": "0.0.13",
+      "jax": "0.10.2",
+      "jaxlib": "0.10.2",
+      "numpy": "2.5.3",
+      "scipy": "1.18.0",
+      "dask": "2024.10.0",
+      "xarray": "2026.7.0",
+      "zarr": "2.18.7",
+      "dask-ms": "0.2.32",
+      "python-casacore": "3.8.1",
+      "astropy": "8.0.1",
+      "pandas": "3.0.5",
+      "numcodecs": "0.15.1",
+      "pytest": "9.1.1",
+      "psutil": "7.2.2",
+      "pytest-benchmark": "5.3.0",
+      "satchecker-client": "0.2.0",
+      "ri-kernels": "0.2.1"
+    },
+    "device_kind": "cpu",
+    "x64": true,
+    "kernel_source_sha256": "dc8133f5bc7bfa335d11808530ac9b8ec2d43e8071e8360c2130091138180518",
+    "environment": {
+      "JAX_PLATFORMS": "cpu",
+      "CUDA_VISIBLE_DEVICES": null,
+      "XLA_PYTHON_CLIENT_PREALLOCATE": null,
+      "XLA_PYTHON_CLIENT_MEM_FRACTION": null,
+      "OMP_NUM_THREADS": null
+    },
+    "case": {
+      "telescope": "SKA-Low-AA4",
+      "antennas": 512,
+      "times": 32,
+      "channels": 128,
+      "samples": 3,
+      "point_sources": 8,
+      "rfi_sources": 2,
+      "stress": true
+    },
+    "output_bytes": 40682883988,
+    "cold_phases": {
+      "setup_s": 0.9781189580098726,
+      "graph_build_s": 0.26022354199085385,
+      "simulation_and_first_write_s": 151.1129550410551,
+      "zarr_to_ms_s": null,
+      "total_s": 152.35129754105583,
+      "experimental_stages": [
+        {
+          "variable": "vis_rfi",
+          "elapsed_s": 28.11944612499792
+        },
+        {
+          "variable": "gains_ants",
+          "elapsed_s": 0.5381894999882206
+        },
+        {
+          "variable": "vis_ast",
+          "elapsed_s": 36.385900416004006
+        },
+        {
+          "variable": "noise_data",
+          "elapsed_s": 22.5396685419837
+        },
+        {
+          "variable": "vis_obs",
+          "elapsed_s": 46.58179625001503
+        },
+        {
+          "variable": "vis_calibrated",
+          "elapsed_s": 26.592440042004455
+        },
+        {
+          "variable": "flags",
+          "elapsed_s": 22.10210716695292
+        },
+        {
+          "variable": "antenna1",
+          "elapsed_s": 0.002077916986308992
+        },
+        {
+          "variable": "antenna2",
+          "elapsed_s": 0.0019603330292738974
+        },
+        {
+          "variable": "ants_itrf",
+          "elapsed_s": 0.001625125005375594
+        },
+        {
+          "variable": "ants_xyz",
+          "elapsed_s": 0.20029429101850837
+        },
+        {
+          "variable": "ants_uvw",
+          "elapsed_s": 0.02254862495465204
+        },
+        {
+          "variable": "bl_uvw",
+          "elapsed_s": 0.9497346670250408
+        },
+        {
+          "variable": "SEFD",
+          "elapsed_s": 0.006097375007811934
+        },
+        {
+          "variable": "noise_std",
+          "elapsed_s": 0.00676499999826774
+        },
+        {
+          "variable": "time_idx",
+          "elapsed_s": 0.0076043750159442425
+        },
+        {
+          "variable": "ast_p_I",
+          "elapsed_s": 0.01983904099324718
+        },
+        {
+          "variable": "ast_p_lmn",
+          "elapsed_s": 0.002467583050020039
+        },
+        {
+          "variable": "ast_p_radec",
+          "elapsed_s": 0.0020572500070557
+        },
+        {
+          "variable": "rfi_stat_A",
+          "elapsed_s": 2.542923792032525
+        },
+        {
+          "variable": "rfi_stat_xyz",
+          "elapsed_s": 0.01831620797747746
+        },
+        {
+          "variable": "rfi_stat_ang_sep",
+          "elapsed_s": 0.2262742500170134
+        },
+        {
+          "variable": "rfi_stat_geo",
+          "elapsed_s": 0.009815750003326684
+        }
+      ],
+      "experimental_output_bytes": {
+        "result.zarr": 40682883085
+      },
+      "experiment": "staged-zarr-v2",
+      "actual_chunks": {
+        "time": 1,
+        "frequency": 8,
+        "baseline": 130816,
+        "integration": 3
+      }
+    },
+    "warm_phases": [
+      {
+        "setup_s": 0.044874624989461154,
+        "graph_build_s": 0.2130268330220133,
+        "simulation_and_first_write_s": 151.54176054202253,
+        "zarr_to_ms_s": null,
+        "total_s": 151.799662000034,
+        "experimental_stages": [
+          {
+            "variable": "vis_rfi",
+            "elapsed_s": 28.18484337499831
+          },
+          {
+            "variable": "gains_ants",
+            "elapsed_s": 0.5222160409903154
+          },
+          {
+            "variable": "vis_ast",
+            "elapsed_s": 36.45551699999487
+          },
+          {
+            "variable": "noise_data",
+            "elapsed_s": 22.678380292025395
+          },
+          {
+            "variable": "vis_obs",
+            "elapsed_s": 46.31332170800306
+          },
+          {
+            "variable": "vis_calibrated",
+            "elapsed_s": 26.816985916986596
+          },
+          {
+            "variable": "flags",
+            "elapsed_s": 22.32072108401917
+          },
+          {
+            "variable": "antenna1",
+            "elapsed_s": 0.002154499990865588
+          },
+          {
+            "variable": "antenna2",
+            "elapsed_s": 0.002094374969601631
+          },
+          {
+            "variable": "ants_itrf",
+            "elapsed_s": 0.0016930829733610153
+          },
+          {
+            "variable": "ants_xyz",
+            "elapsed_s": 0.20091249997494742
+          },
+          {
+            "variable": "ants_uvw",
+            "elapsed_s": 0.02186550002079457
+          },
+          {
+            "variable": "bl_uvw",
+            "elapsed_s": 0.9915955409524031
+          },
+          {
+            "variable": "SEFD",
+            "elapsed_s": 0.00633470801403746
+          },
+          {
+            "variable": "noise_std",
+            "elapsed_s": 0.006777709000743926
+          },
+          {
+            "variable": "time_idx",
+            "elapsed_s": 0.00745195901254192
+          },
+          {
+            "variable": "ast_p_I",
+            "elapsed_s": 0.020430416974704713
+          },
+          {
+            "variable": "ast_p_lmn",
+            "elapsed_s": 0.002452832995913923
+          },
+          {
+            "variable": "ast_p_radec",
+            "elapsed_s": 0.002016749989707023
+          },
+          {
+            "variable": "rfi_stat_A",
+            "elapsed_s": 2.586905374948401
+          },
+          {
+            "variable": "rfi_stat_xyz",
+            "elapsed_s": 0.019512875005602837
+          },
+          {
+            "variable": "rfi_stat_ang_sep",
+            "elapsed_s": 0.23553116602124646
+          },
+          {
+            "variable": "rfi_stat_geo",
+            "elapsed_s": 0.0024878339609131217
+          }
+        ],
+        "experimental_output_bytes": {
+          "result.zarr": 40682883085
+        },
+        "experiment": "staged-zarr-v2",
+        "actual_chunks": {
+          "time": 1,
+          "frequency": 8,
+          "baseline": 130816,
+          "integration": 3
+        }
+      },
+      {
+        "setup_s": 0.05343991698464379,
+        "graph_build_s": 0.2136975000030361,
+        "simulation_and_first_write_s": 151.93994583300082,
+        "zarr_to_ms_s": null,
+        "total_s": 152.2070832499885,
+        "experimental_stages": [
+          {
+            "variable": "vis_rfi",
+            "elapsed_s": 28.42715866700746
+          },
+          {
+            "variable": "gains_ants",
+            "elapsed_s": 0.5733304590103216
+          },
+          {
+            "variable": "vis_ast",
+            "elapsed_s": 37.05405358300777
+          },
+          {
+            "variable": "noise_data",
+            "elapsed_s": 22.962024834007025
+          },
+          {
+            "variable": "vis_obs",
+            "elapsed_s": 46.341876499995124
+          },
+          {
+            "variable": "vis_calibrated",
+            "elapsed_s": 26.770147208997514
+          },
+          {
+            "variable": "flags",
+            "elapsed_s": 22.24028599995654
+          },
+          {
+            "variable": "antenna1",
+            "elapsed_s": 0.0021545840427279472
+          },
+          {
+            "variable": "antenna2",
+            "elapsed_s": 0.002038083039224148
+          },
+          {
+            "variable": "ants_itrf",
+            "elapsed_s": 0.0015427499893121421
+          },
+          {
+            "variable": "ants_xyz",
+            "elapsed_s": 0.20129275001818314
+          },
+          {
+            "variable": "ants_uvw",
+            "elapsed_s": 0.022269542037975043
+          },
+          {
+            "variable": "bl_uvw",
+            "elapsed_s": 0.9667432500282302
+          },
+          {
+            "variable": "SEFD",
+            "elapsed_s": 0.006232457992155105
+          },
+          {
+            "variable": "noise_std",
+            "elapsed_s": 0.006977666984312236
+          },
+          {
+            "variable": "time_idx",
+            "elapsed_s": 0.007715250016190112
+          },
+          {
+            "variable": "ast_p_I",
+            "elapsed_s": 0.02068770898040384
+          },
+          {
+            "variable": "ast_p_lmn",
+            "elapsed_s": 0.0024867079919204116
+          },
+          {
+            "variable": "ast_p_radec",
+            "elapsed_s": 0.002045542001724243
+          },
+          {
+            "variable": "rfi_stat_A",
+            "elapsed_s": 2.5571199160185643
+          },
+          {
+            "variable": "rfi_stat_xyz",
+            "elapsed_s": 0.01945120794698596
+          },
+          {
+            "variable": "rfi_stat_ang_sep",
+            "elapsed_s": 0.2378518749610521
+          },
+          {
+            "variable": "rfi_stat_geo",
+            "elapsed_s": 0.0026404999662190676
+          }
+        ],
+        "experimental_output_bytes": {
+          "result.zarr": 40682883085
+        },
+        "experiment": "staged-zarr-v2",
+        "actual_chunks": {
+          "time": 1,
+          "frequency": 8,
+          "baseline": 130816,
+          "integration": 3
+        }
+      },
+      {
+        "setup_s": 0.04122166702290997,
+        "graph_build_s": 0.21409183298237622,
+        "simulation_and_first_write_s": 149.83561933302553,
+        "zarr_to_ms_s": null,
+        "total_s": 150.09093283303082,
+        "experimental_stages": [
+          {
+            "variable": "vis_rfi",
+            "elapsed_s": 28.144901041989215
+          },
+          {
+            "variable": "gains_ants",
+            "elapsed_s": 0.519523459021002
+          },
+          {
+            "variable": "vis_ast",
+            "elapsed_s": 36.736315415997524
+          },
+          {
+            "variable": "noise_data",
+            "elapsed_s": 22.51214574999176
+          },
+          {
+            "variable": "vis_obs",
+            "elapsed_s": 45.67369004100328
+          },
+          {
+            "variable": "vis_calibrated",
+            "elapsed_s": 26.384245458000805
+          },
+          {
+            "variable": "flags",
+            "elapsed_s": 21.968669958005194
+          },
+          {
+            "variable": "antenna1",
+            "elapsed_s": 0.002078707970213145
+          },
+          {
+            "variable": "antenna2",
+            "elapsed_s": 0.0020427079871296883
+          },
+          {
+            "variable": "ants_itrf",
+            "elapsed_s": 0.0015460419817827642
+          },
+          {
+            "variable": "ants_xyz",
+            "elapsed_s": 0.20727241603890434
+          },
+          {
+            "variable": "ants_uvw",
+            "elapsed_s": 0.02220770897110924
+          },
+          {
+            "variable": "bl_uvw",
+            "elapsed_s": 0.9399172089761123
+          },
+          {
+            "variable": "SEFD",
+            "elapsed_s": 0.006306082999799401
+          },
+          {
+            "variable": "noise_std",
+            "elapsed_s": 0.006729334010742605
+          },
+          {
+            "variable": "time_idx",
+            "elapsed_s": 0.007331374974455684
+          },
+          {
+            "variable": "ast_p_I",
+            "elapsed_s": 0.019855083955917507
+          },
+          {
+            "variable": "ast_p_lmn",
+            "elapsed_s": 0.0023622919688932598
+          },
+          {
+            "variable": "ast_p_radec",
+            "elapsed_s": 0.0022507080575451255
+          },
+          {
+            "variable": "rfi_stat_A",
+            "elapsed_s": 2.5780912499758415
+          },
+          {
+            "variable": "rfi_stat_xyz",
+            "elapsed_s": 0.019531500001903623
+          },
+          {
+            "variable": "rfi_stat_ang_sep",
+            "elapsed_s": 0.2333402080112137
+          },
+          {
+            "variable": "rfi_stat_geo",
+            "elapsed_s": 0.010853375017177314
+          }
+        ],
+        "experimental_output_bytes": {
+          "result.zarr": 40682883085
+        },
+        "experiment": "staged-zarr-v2",
+        "actual_chunks": {
+          "time": 1,
+          "frequency": 8,
+          "baseline": 130816,
+          "integration": 3
+        }
+      },
+      {
+        "setup_s": 0.040916208003181964,
+        "graph_build_s": 0.2128883749828674,
+        "simulation_and_first_write_s": 152.92152370803524,
+        "zarr_to_ms_s": null,
+        "total_s": 153.1753282910213,
+        "experimental_stages": [
+          {
+            "variable": "vis_rfi",
+            "elapsed_s": 28.42099795799004
+          },
+          {
+            "variable": "gains_ants",
+            "elapsed_s": 0.5490249579888768
+          },
+          {
+            "variable": "vis_ast",
+            "elapsed_s": 37.01136316603515
+          },
+          {
+            "variable": "noise_data",
+            "elapsed_s": 22.886268708040006
+          },
+          {
+            "variable": "vis_obs",
+            "elapsed_s": 46.34893566602841
+          },
+          {
+            "variable": "vis_calibrated",
+            "elapsed_s": 27.48318920802558
+          },
+          {
+            "variable": "flags",
+            "elapsed_s": 22.42196608398808
+          },
+          {
+            "variable": "antenna1",
+            "elapsed_s": 0.0027000000118277967
+          },
+          {
+            "variable": "antenna2",
+            "elapsed_s": 0.002177499991375953
+          },
+          {
+            "variable": "ants_itrf",
+            "elapsed_s": 0.001627374964300543
+          },
+          {
+            "variable": "ants_xyz",
+            "elapsed_s": 0.21304362500086427
+          },
+          {
+            "variable": "ants_uvw",
+            "elapsed_s": 0.02310312498593703
+          },
+          {
+            "variable": "bl_uvw",
+            "elapsed_s": 1.0623341250466183
+          },
+          {
+            "variable": "SEFD",
+            "elapsed_s": 0.006343834043946117
+          },
+          {
+            "variable": "noise_std",
+            "elapsed_s": 0.006979833007790148
+          },
+          {
+            "variable": "time_idx",
+            "elapsed_s": 0.007368041027802974
+          },
+          {
+            "variable": "ast_p_I",
+            "elapsed_s": 0.021977042022626847
+          },
+          {
+            "variable": "ast_p_lmn",
+            "elapsed_s": 0.0026945830322802067
+          },
+          {
+            "variable": "ast_p_radec",
+            "elapsed_s": 0.00210266700014472
+          },
+          {
+            "variable": "rfi_stat_A",
+            "elapsed_s": 2.615421916998457
+          },
+          {
+            "variable": "rfi_stat_xyz",
+            "elapsed_s": 0.020904958015307784
+          },
+          {
+            "variable": "rfi_stat_ang_sep",
+            "elapsed_s": 0.23446983395842835
+          },
+          {
+            "variable": "rfi_stat_geo",
+            "elapsed_s": 0.002513208019081503
+          }
+        ],
+        "experimental_output_bytes": {
+          "result.zarr": 40682883085
+        },
+        "experiment": "staged-zarr-v2",
+        "actual_chunks": {
+          "time": 1,
+          "frequency": 8,
+          "baseline": 130816,
+          "integration": 3
+        }
+      },
+      {
+        "setup_s": 0.04239570797653869,
+        "graph_build_s": 0.2146915000048466,
+        "simulation_and_first_write_s": 152.10400979203405,
+        "zarr_to_ms_s": null,
+        "total_s": 152.36109700001543,
+        "experimental_stages": [
+          {
+            "variable": "vis_rfi",
+            "elapsed_s": 28.42911012499826
+          },
+          {
+            "variable": "gains_ants",
+            "elapsed_s": 0.5427969999727793
+          },
+          {
+            "variable": "vis_ast",
+            "elapsed_s": 37.082091916992795
+          },
+          {
+            "variable": "noise_data",
+            "elapsed_s": 22.980477624980267
+          },
+          {
+            "variable": "vis_obs",
+            "elapsed_s": 46.398090832983144
+          },
+          {
+            "variable": "vis_calibrated",
+            "elapsed_s": 26.60818575002486
+          },
+          {
+            "variable": "flags",
+            "elapsed_s": 22.409263709036168
+          },
+          {
+            "variable": "antenna1",
+            "elapsed_s": 0.00231983297271654
+          },
+          {
+            "variable": "antenna2",
+            "elapsed_s": 0.0020570000051520765
+          },
+          {
+            "variable": "ants_itrf",
+            "elapsed_s": 0.0016712499782443047
+          },
+          {
+            "variable": "ants_xyz",
+            "elapsed_s": 0.20845562499016523
+          },
+          {
+            "variable": "ants_uvw",
+            "elapsed_s": 0.0223068330087699
+          },
+          {
+            "variable": "bl_uvw",
+            "elapsed_s": 1.0063646250055172
+          },
+          {
+            "variable": "SEFD",
+            "elapsed_s": 0.006139291974250227
+          },
+          {
+            "variable": "noise_std",
+            "elapsed_s": 0.006713667011354119
+          },
+          {
+            "variable": "time_idx",
+            "elapsed_s": 0.007314209011383355
+          },
+          {
+            "variable": "ast_p_I",
+            "elapsed_s": 0.0205985420034267
+          },
+          {
+            "variable": "ast_p_lmn",
+            "elapsed_s": 0.002425165963359177
+          },
+          {
+            "variable": "ast_p_radec",
+            "elapsed_s": 0.0022644170094281435
+          },
+          {
+            "variable": "rfi_stat_A",
+            "elapsed_s": 2.5822326660272665
+          },
+          {
+            "variable": "rfi_stat_xyz",
+            "elapsed_s": 0.018799624987877905
+          },
+          {
+            "variable": "rfi_stat_ang_sep",
+            "elapsed_s": 0.2373107080347836
+          },
+          {
+            "variable": "rfi_stat_geo",
+            "elapsed_s": 0.012237416987773031
+          }
+        ],
+        "experimental_output_bytes": {
+          "result.zarr": 40682883085
+        },
+        "experiment": "staged-zarr-v2",
+        "actual_chunks": {
+          "time": 1,
+          "frequency": 8,
+          "baseline": 130816,
+          "integration": 3
+        }
+      }
+    ],
+    "output_sample": {
+      "vis_ast": {
+        "shape": [
+          32,
+          130816,
+          128
+        ],
+        "real": [
+          2.7301704294485356,
+          2.5358448722345153,
+          2.3539942026202674,
+          1.2495106148409059,
+          1.591228959120233,
+          -0.6479264154488452,
+          3.7595232820876987,
+          3.607895843462155,
+          3.466769804228983,
+          2.7583843362879303,
+          2.5650255886853124,
+          2.3840654971454236,
+          0.8849021961842667,
+          1.8034892460206158,
+          -0.520281656002189,
+          3.7629815962753366,
+          3.6115195714398136,
+          3.470554819933572,
+          2.784656889245358,
+          2.5922094639717352,
+          2.412090850253821,
+          0.5609423591769308,
+          1.8477441046790557,
+          -0.35877414086278137,
+          3.7662001487227843,
+          3.614892190682295,
+          3.474077680098247
+        ],
+        "imag": [
+          -0.09188578867724784,
+          -0.09106277744308833,
+          -0.09011826335485551,
+          -0.02783734751039102,
+          -0.1709236136773306,
+          -1.554923243674412,
+          0.3501366219729714,
+          0.35146028126207274,
+          0.3524629925812236,
+          -0.09268162247754552,
+          -0.09186664547207601,
+          -0.09092992269792244,
+          0.07423605601110506,
+          0.18165952875011732,
+          -2.2218677050497333,
+          0.3504280987237231,
+          0.35177791048680584,
+          0.35280743352473704,
+          -0.09345120337430546,
+          -0.09264431890333136,
+          -0.09171541724873844,
+          0.13163049884869482,
+          0.5210374506720927,
+          -2.6719879615124253,
+          0.35069438712097045,
+          0.35206850038161697,
+          0.35312294402466293
+        ]
+      },
+      "vis_rfi": {
+        "shape": [
+          32,
+          130816,
+          128
+        ],
+        "real": [
+          6.039706982222881e-07,
+          -1.3324247571228135e-06,
+          2.9662636185961643e-07,
+          -4.13022728298956e-07,
+          8.108681978969248e-08,
+          1.4175588613981517e-07,
+          -3.36962197811735e-07,
+          -1.3739449140971864e-06,
+          -4.885257422035746e-07,
+          2.1703565161230198e-07,
+          -1.0790048807877805e-06,
+          6.112548110346543e-07,
+          -3.611953622728539e-07,
+          -4.705462435737362e-07,
+          2.7404096672910425e-07,
+          -4.914533607709318e-07,
+          -1.3556139885731113e-06,
+          -3.615741801215473e-07,
+          -1.4351109118713883e-07,
+          -6.742635002319333e-07,
+          8.179698194900602e-07,
+          -3.127682898999767e-07,
+          2.044599431595743e-07,
+          2.9421455315755674e-07,
+          -6.059559978638622e-07,
+          -1.2891699477992624e-06,
+          -2.1774387869214866e-07
+        ],
+        "imag": [
+          -8.329327954097082e-07,
+          3.2348642231735814e-07,
+          7.459823565193737e-07,
+          1.140119674880255e-07,
+          -5.088510727441195e-07,
+          -2.293098125588432e-07,
+          -9.714911761330885e-07,
+          -6.847033283265418e-08,
+          6.448369602241999e-07,
+          -9.596899061346991e-07,
+          8.381544124261112e-07,
+          5.729656498210945e-07,
+          -1.963058974811041e-07,
+          2.1024088370169486e-07,
+          6.895560752006849e-08,
+          -8.51517224052536e-07,
+          2.0193959601745387e-07,
+          7.626577795938207e-07,
+          -9.305987917228293e-07,
+          1.1805418084327087e-06,
+          2.947638973996305e-07,
+          2.4061743865353157e-07,
+          -4.722692852324013e-07,
+          -1.2150748643335539e-08,
+          -7.195229793866851e-07,
+          4.442915653686817e-07,
+          8.481799579506565e-07
+        ]
+      },
+      "vis_obs": {
+        "shape": [
+          32,
+          130816,
+          128
+        ],
+        "real": [
+          -2.5612291971346193,
+          8.45476769193707,
+          3.8878156380181093,
+          14.021172610662834,
+          -7.339528525300454,
+          2.260688168186227,
+          0.626989314841887,
+          3.2535804724379065,
+          0.9355682376072014,
+          3.394928811145194,
+          -5.61313101632908,
+          18.320468268066882,
+          -13.946083488121207,
+          13.77069814211851,
+          9.310247157786188,
+          9.970354908358681,
+          4.691922698433692,
+          -2.595475367750085,
+          4.019195675706079,
+          0.507403920703333,
+          -0.5800243281883191,
+          -10.609192606573647,
+          13.57104883568572,
+          7.620597850615608,
+          -10.570532079644371,
+          5.807147371241011,
+          -6.660513505703566
+        ],
+        "imag": [
+          3.7426869377925804,
+          -1.4776451776056114,
+          -0.5960353001610965,
+          -1.3672404061774388,
+          -6.041411374555039,
+          -9.819768194473934,
+          -4.90316565608701,
+          8.78026823826847,
+          5.812285484904134,
+          -7.831012802793724,
+          -6.2469399755741435,
+          8.13609369818282,
+          3.8013478139428267,
+          -5.933282527668157,
+          2.2248564310693593,
+          0.9951384869888038,
+          12.998458374170353,
+          14.038522049534203,
+          -6.125173585659642,
+          23.31080667347257,
+          -2.24265858996269,
+          14.984482857308931,
+          -1.3137206834337782,
+          -5.465382299258975,
+          -2.032559039452362,
+          3.467551720965991,
+          0.02607291876177875
+        ]
+      },
+      "vis_calibrated": {
+        "shape": [
+          32,
+          130816,
+          128
+        ],
+        "real": [
+          1.3284950382904963,
+          -1.3748487818889312,
+          3.8657893089120208,
+          5.48475388776129,
+          -2.9705672804937833,
+          -4.5534554833627965,
+          -4.522077930549756,
+          9.306156081642738,
+          3.954510016837818,
+          -4.004855167030497,
+          7.741081578464241,
+          18.58057212101613,
+          -3.3094074312062536,
+          14.811982302327946,
+          8.573579514017798,
+          3.792441072021485,
+          13.720834789327535,
+          5.482014846686873,
+          -2.2817477002607895,
+          -22.18823299729899,
+          -0.6542590684803339,
+          8.111706558121824,
+          12.171823870478221,
+          2.350858193103299,
+          -4.957860004555502,
+          5.7106745153539675,
+          -5.568301075257338
+        ],
+        "imag": [
+          4.33714979938459,
+          8.471557659362356,
+          -0.7249600501647658,
+          -12.976390916163478,
+          -9.03223840390852,
+          -8.987749344878493,
+          -1.996944496471154,
+          1.0461847165505358,
+          4.3612741214674475,
+          -7.539254322498739,
+          -3.2555329886667272,
+          7.522349258432119,
+          14.071190964965512,
+          2.3529810800479862,
+          -4.254638033864004,
+          -9.275086011457608,
+          1.6601925950946772,
+          13.182147846328482,
+          -6.963232780979328,
+          -7.1600738585963875,
+          -2.222100362669835,
+          16.471234752006612,
+          6.150195605513217,
+          -9.077216100034956,
+          9.555120709666914,
+          -3.6256586778155966,
+          3.654876572099263
+        ]
+      },
+      "flags": {
+        "shape": [
+          32,
+          130816,
+          128
+        ],
+        "real": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "imag": null
+      }
+    }
+  }
+}

@@ -34,3 +34,11 @@ PYTEST_PLUGINS=benchmarks.staged_plugin python -m benchmarks.run \
 ```
 
 On the CPU host use `--device cpu --host-budget-gib 8`. Retain the disk guard; larger all-output products need larger scratch capacity. These results inform fixture admission each PR round, but cold passes remain separate from repeated timing figures.
+
+## Repeated CPU timing after capacity success
+
+The 7.984 GiB AA4 fixture was exercised on the full stack (`54395d6b`) with the explicit `--staged-warm` option. The cold write and all five warm writes completed, and every round's bounded output sample agreed with the first run. Warm simulation-plus-write times were **151.819, 152.227, 150.111, 153.197 and 152.382 seconds**: median **152.227 s**, MAD **0.408 s**, range **150.111–153.197 s**. The retained all-array store was approximately **40.683 GB**; the external whole-process peak RSS was **1.567 GiB**, including the cold run and subsequent diagnostic attempt. These are absolute combined-stack measurements, not parent/candidate speed ratios.
+
+The overall benchmark status is nevertheless **FAILED**: after those validated rounds, the separate untimed callback diagnostic pass encountered Python 3.13's `cProfile` monitoring-slot conflict (`tool 2 is already in use`). The measurements are preserved in [the warm report](stack54-56-warm.json), with the failed status intact. They are not represented as a fully green large benchmark run.
+
+The diagnostic fix uses nonblocking profiler ownership; nested/concurrent callbacks still execute and retain wall/thread-CPU timing, while `profiled_calls` and `unprofiled_calls` disclose incomplete cProfile coverage. Independent review found no remaining issues. Python 3.13 ownership regressions and a complete smaller AA4 five-round benchmark, including its diagnostic pass, passed at `8ea9c8f6` ([smoke report](stack54-56-diagnostics-smoke.json)). The large timed writes were not rerun after this instrumentation-only fix. A future clean full-size run can supersede this qualified result without hiding the diagnostic failure.
