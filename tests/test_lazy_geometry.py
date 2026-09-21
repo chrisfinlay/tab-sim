@@ -107,7 +107,7 @@ def test_uvw_and_baselines_preserve_origin_and_no_w(no_w):
                           [5109020., 20010., -3199990.],
                           [5109030., 20030., -3199950.]])
     obs = Observation(latitude=-30., longitude=20., elevation=100.,
-        ra=30., dec=-30., ITRF_array=positions, times_mjd=60000.+np.arange(8)*2/86400,
+        ra=30., dec=-30., ITRF_array=positions.tolist(), times_mjd=60000.+np.arange(8)*2/86400,
         freqs=np.array([150e6,151e6]), SEFD=np.ones(2)*5000, int_time=2,
         n_int_samples=3, max_chunk_MB=.001, no_w=no_w)
     expected = np.array(itrf_to_uvw(positions, np.asarray(obs.gha), -30.))
@@ -125,3 +125,14 @@ def test_orbit_records_are_frozen_for_replay():
     graph = dc.satellite_position_blocks([record], times)
     record['TLE_LINE2'] = 'mutated after graph construction'
     np.testing.assert_allclose(graph.compute(), expected, rtol=1e-13, atol=1e-7)
+
+
+
+def test_multiple_orbits_preserve_order_in_bounded_slice():
+    from orbit_helpers import GPS_NORAD_ID, GPS_LINE1, GPS_LINE2
+    records = [tle_record(GPS_NORAD_ID, GPS_LINE1, GPS_LINE2), tle_record()]
+    dates = ISS_EPOCH_JD + np.arange(11)/86400
+    graph = dc.satellite_position_blocks(records, da.from_array(dates, chunks=3))
+    expected = tle.get_satellite_positions(records, dates[3:5])
+    np.testing.assert_allclose(graph[:, 3:5].compute(), expected, rtol=1e-13, atol=1e-7)
+    assert not np.allclose(expected[0], expected[1])
