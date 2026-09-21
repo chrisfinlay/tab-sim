@@ -222,3 +222,61 @@ def test_registered_dask_callbacks_are_preserved(obs, tmp_path):
     with Callback(posttask=lambda key, *args: tasks.append(key)):
         obs.write_to_zarr(tmp_path / 'result.zarr', save_arrays=['vis_obs'])
     assert len(tasks) > 10
+
+
+def test_minimal_profile_keeps_metadata_and_skips_ancillary_graphs(obs, tmp_path):
+    import dask
+    from tabsim.staged import minimal_arrays, MINIMAL_METADATA
+    expected = obs.dataset.vis_obs.compute()
+    def forbidden():
+        raise AssertionError('Omitted ancillary graph was executed')
+    for name in ('rfi_stat_A', 'unused_fine_geometry'):
+        obs.dataset[name] = xr.DataArray(da.from_delayed(dask.delayed(forbidden)(),
+            shape=(2,), dtype=float), dims='unused')
+    assert select_arrays(obs.dataset, output_profile='full') == set(obs.dataset.data_vars)
+    actual = obs.write_to_zarr(tmp_path/'minimal.zarr', output_profile='minimal')
+    assert set(actual.data_vars) == MINIMAL_METADATA | {'vis_obs'}
+    assert set(actual.data_vars) == minimal_arrays(actual)
+    np.testing.assert_allclose(actual.vis_obs, expected, rtol=1e-12, atol=1e-12)
+
+
+def test_profile_and_exact_selection_are_unambiguous(obs, tmp_path):
+    from tabsim.staged import minimal_arrays
+    assert {'vis_calibrated', 'antenna1'} <= minimal_arrays(obs.dataset, ['vis_calibrated'])
+    with pytest.raises(ValueError, match='not both'):
+        obs.write_to_zarr(tmp_path/'bad.zarr', output_profile='minimal', save_arrays=['vis_obs'])
+    assert not (tmp_path/'bad.zarr').exists()
+    with pytest.raises(ValueError, match='output_profile'):
+        select_arrays(obs.dataset, output_profile='unknown')
+    assert select_arrays(obs.dataset, ['vis_obs']) == {'vis_obs'}
+
+
+def test_minimal_profile_ms_stages_required_arrays_then_prunes(obs, tmp_path, monkeypatch):
+    from tabsim.staged import MINIMAL_METADATA
+    from tabsim.write import MS_REQUIRED_ARRAYS
+    calls = []
+    def consume(dataset, *args):
+        assert set(MS_REQUIRED_ARRAYS) <= set(dataset.data_vars)
+        assert np.isfinite(dataset.vis_obs.isel(time=0).compute()).all()
+        calls.append(1)
+    monkeypatch.setattr(config, 'write_to_ms', consume)
+    cfg = dict(output=dict(zarr=True, ms=True, overwrite=False, flag_data=False,
+                           output_profile='minimal'), diagnostics=dict(signal_stats=False))
+    config.save_data(obs, cfg, str(tmp_path/'minimal.zarr'), str(tmp_path/'result.ms'))
+    assert calls == [1]
+    assert set(obs.dataset.data_vars) == MINIMAL_METADATA | {'vis_obs'}
+
+
+def test_scalar_diagnostics_share_one_graph_execution(capsys):
+    import dask
+    calls = []
+    @dask.delayed
+    def shared():
+        calls.append(1)
+        return np.full((4,), 3.+0j)
+    data = da.from_delayed(shared(), shape=(4,), dtype=complex)
+    with dask.config.set(scheduler='synchronous'):
+        config.print_signal_specs(data, data, data, data.real > 0)
+    assert calls == [1]
+    output = capsys.readouterr().out
+    assert '3.00 Jy' in output and '0.00 Jy' in output and '100.0 %' in output

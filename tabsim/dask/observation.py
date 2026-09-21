@@ -1081,12 +1081,15 @@ Number of stationary RFI :  {n_stat}"""
                                     for name in names if name in self.dataset}
 
     def write_to_zarr(self, path: str = "Observation", overwrite: bool = False, *,
-                      save_arrays=None, save_rfi_amplitudes=False, progress=None,
+                      save_arrays=None, save_rfi_amplitudes=False, output_profile=None, progress=None,
                       **execution_options):
         """Stage components and compose bounded chunks in one local Zarr store.
 
         By default retain all arrays except rfi_*_A. An explicit save_arrays list
         selects exact data variables; coordinates/attributes are always retained.
+        output_profile='minimal' selects observed visibility plus essential metadata;
+        'full' retains all arrays including RFI amplitudes. Profiles cannot be
+        combined with an exact save_arrays list. Defaults are unchanged.
         Constructor execution options may be overridden here. Memory and timeout
         guards are checked between tasks, not hard caps on in-flight kernels.
         Set max_chunk_MB in the constructor, before constructing source/noise graphs.
@@ -1106,7 +1109,7 @@ Number of stationary RFI :  {n_stat}"""
                                   or Path(path).resolve() in self._staged_path.parents
                                   or self._staged_path in Path(path).resolve().parents):
             raise ValueError('Cannot overwrite the store currently backing this observation')
-        selected = select_arrays(self.dataset, save_arrays, save_rfi_amplitudes)
+        selected = select_arrays(self.dataset, save_arrays, save_rfi_amplitudes, output_profile)
         options = dict(self.execution_options, **execution_options)
         self._validate_working_set(workers=options['component_workers'])
         write_staged_observation(self, path, flags=self._calculate_flags,

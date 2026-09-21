@@ -132,6 +132,7 @@ observation:
 # Output parameters
 ####################
 output:
+  output_profile: null      # Optional full/minimal preset; cannot combine with save_arrays
   save_arrays: null           # Exact retained data variable names; null keeps all except rfi_*_A
   save_rfi_amplitudes: False  # Include rfi_*_A in default selection (explicit save_arrays overrides)
   zarr: True                  # Optional - Whether to save the output to a zarr file. This contains almost all inputs ot the simulation

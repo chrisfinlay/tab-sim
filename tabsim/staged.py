@@ -285,8 +285,40 @@ class ResourceGuard:
             raise OSError('Staged writer reached disk space reserve')
 
 
-def select_arrays(dataset, save_arrays=None, save_rfi_amplitudes=False):
+MINIMAL_METADATA = frozenset(('antenna1', 'antenna2', 'ants_itrf', 'bl_uvw',
+                              'time_idx', 'noise_std', 'SEFD'))
+VISIBILITY_PRODUCTS = frozenset(('vis_obs', 'vis_calibrated', 'vis_ast', 'vis_rfi',
+                                'noise_data', 'flags'))
+
+
+def minimal_arrays(dataset, products=('vis_obs',)):
+    """Requested visibility products plus baseline/geometry/noise metadata.
+
+    Coordinates and attributes are retained by the writer automatically. This
+    is a standalone Zarr selection, not the full Measurement Set input schema.
+    """
+    if isinstance(products, str):
+        raise ValueError('products must be a collection of visibility names')
+    products = set(products)
+    if not products or products - VISIBILITY_PRODUCTS:
+        raise ValueError('Choose one or more visibility products for minimal output')
+    selected = products | MINIMAL_METADATA
+    missing = selected - set(dataset.data_vars)
+    if missing:
+        raise ValueError(f'Minimal output requires missing arrays: {sorted(missing)}')
+    return selected
+
+
+def select_arrays(dataset, save_arrays=None, save_rfi_amplitudes=False, output_profile=None):
     """Select exact data variable names. Explicit selection overrides the default."""
+    if output_profile not in (None, 'full', 'minimal'):
+        raise ValueError('output_profile must be full, minimal, or None')
+    if output_profile is not None:
+        if save_arrays is not None:
+            raise ValueError('Choose output_profile or exact save_arrays, not both')
+        if output_profile == 'minimal':
+            return minimal_arrays(dataset)
+        return set(dataset.data_vars)
     if isinstance(save_arrays, str):
         raise ValueError('save_arrays must be a list of names, not a string')
     selected = set(dataset.data_vars if save_arrays is None else save_arrays)

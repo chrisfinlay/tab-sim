@@ -1,0 +1,190 @@
+{
+  "status": "passed",
+  "source_revision": "8ea9c8f64b34d953e8f6b4cfbe4ae4b66cb81629",
+  "stats": {
+    "min": 1.2718068339745514,
+    "max": 1.308965125004761,
+    "mean": 1.2922342335805297,
+    "stddev": 0.017051828877188986,
+    "rounds": 5,
+    "median": 1.3003822089522146,
+    "iqr": 0.030224135276512243,
+    "q1": 1.2749908022233285,
+    "q3": 1.3052149374998407,
+    "iqr_outliers": 0,
+    "stddev_outliers": 1,
+    "outliers": "1;0",
+    "ld15iqr": 1.2718068339745514,
+    "hd15iqr": 1.308965125004761,
+    "ops": 0.7738535120132165,
+    "total": 6.4611711679026484,
+    "data": [
+      1.308965125004761,
+      1.2760521249729209,
+      1.3039648749982007,
+      1.3003822089522146,
+      1.2718068339745514
+    ],
+    "iterations": 1
+  },
+  "supervisor_peak_rss_bytes": 959873024,
+  "process_wall_s": 13.849654874997213,
+  "details": {
+    "revision": "8ea9c8f64b34d953e8f6b4cfbe4ae4b66cb81629",
+    "dirty": false,
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fixture_sha256": "8b1cc6ca05ad88d17d64038935781b068488bd10ffdb694e0c95dc6e5f932eb0",
+    "harness_sha256": "09ab37a695a60b50e1bd3fa8aa87800afd86c0c4f73ece7b0ea4db294605ebdc",
+    "python": "3.13.15",
+    "versions": {
+      "tabsim": "0.0.13",
+      "jax": "0.10.2",
+      "jaxlib": "0.10.2",
+      "numpy": "2.5.3",
+      "scipy": "1.18.0",
+      "dask": "2024.10.0",
+      "xarray": "2026.7.0",
+      "zarr": "2.18.7",
+      "dask-ms": "0.2.32",
+      "python-casacore": "3.8.1",
+      "astropy": "8.0.1",
+      "pandas": "3.0.5",
+      "numcodecs": "0.15.1",
+      "pytest": "9.1.1",
+      "psutil": "7.2.2",
+      "pytest-benchmark": "5.3.0",
+      "satchecker-client": "0.2.0",
+      "ri-kernels": "0.2.1"
+    },
+    "device_kind": "cpu",
+    "x64": true,
+    "kernel_source_sha256": "dc8133f5bc7bfa335d11808530ac9b8ec2d43e8071e8360c2130091138180518",
+    "environment": {
+      "JAX_PLATFORMS": "cpu",
+      "CUDA_VISIBLE_DEVICES": null,
+      "XLA_PYTHON_CLIENT_PREALLOCATE": null,
+      "XLA_PYTHON_CLIENT_MEM_FRACTION": null,
+      "OMP_NUM_THREADS": null
+    },
+    "case": {
+      "telescope": "SKA-Low-AA4",
+      "antennas": 512,
+      "times": 4,
+      "channels": 8,
+      "samples": 3,
+      "point_sources": 8,
+      "rfi_sources": 2
+    },
+    "memory": {
+      "rss_peak_sampled_bytes": 945094656,
+      "gpu_process_peak_sampled_bytes": null,
+      "sample_interval_s": 0.05,
+      "jax_allocator_stats": null,
+      "scope": "whole benchmark process; allocator peaks include cold/warm/diagnostic work"
+    },
+    "mapped_callback_diagnostics": {
+      "callbacks": {
+        "tabsim.dask.coordinates.ITRF_to_UVW.<locals>._ITRF_to_UVW": {
+          "calls": 17,
+          "wall_s": 0.008563251118175685,
+          "thread_cpu_s": 0.008020794000001202,
+          "profiled_calls": 14,
+          "unprofiled_calls": 3,
+          "nested_compute_calls": 0,
+          "nested_compute_inclusive_s": 0.0,
+          "tokenize_calls": 0,
+          "tokenize_inclusive_s": 0.0
+        },
+        "tabsim.dask.coordinates.GEO_to_XYZ_vmap0.<locals>._GEO_to_XYZ": {
+          "calls": 16,
+          "wall_s": 0.010761419078335166,
+          "thread_cpu_s": 0.006926335000000107,
+          "profiled_calls": 16,
+          "unprofiled_calls": 0,
+          "nested_compute_calls": 0,
+          "nested_compute_inclusive_s": 0.0,
+          "tokenize_calls": 1,
+          "tokenize_inclusive_s": 2.0833000000000002e-05
+        },
+        "tabsim.dask.interferometry.Pv_to_Sv.<locals>._Pv_to_Sv": {
+          "calls": 8,
+          "wall_s": 0.005714042054023594,
+          "thread_cpu_s": 0.005611833999999705,
+          "profiled_calls": 8,
+          "unprofiled_calls": 0,
+          "nested_compute_calls": 0,
+          "nested_compute_inclusive_s": 0.0,
+          "tokenize_calls": 0,
+          "tokenize_inclusive_s": 0.0
+        },
+        "tabsim.dask.coordinates.angular_separation.<locals>._angular_separation": {
+          "calls": 12,
+          "wall_s": 0.0073473729426041245,
+          "thread_cpu_s": 0.006790835000000821,
+          "profiled_calls": 10,
+          "unprofiled_calls": 2,
+          "nested_compute_calls": 0,
+          "nested_compute_inclusive_s": 0.0,
+          "tokenize_calls": 0,
+          "tokenize_inclusive_s": 0.0
+        },
+        "tabsim.dask.interferometry.airy_beam.<locals>._airy_beam": {
+          "calls": 9,
+          "wall_s": 0.032272414944600314,
+          "thread_cpu_s": 0.03202895799999917,
+          "profiled_calls": 7,
+          "unprofiled_calls": 2,
+          "nested_compute_calls": 0,
+          "nested_compute_inclusive_s": 0.0,
+          "tokenize_calls": 0,
+          "tokenize_inclusive_s": 0.0
+        },
+        "tabsim.dask.interferometry.rfi_vis.<locals>._rfi_vis": {
+          "calls": 4,
+          "wall_s": 0.05925183300860226,
+          "thread_cpu_s": 0.002769541999999993,
+          "profiled_calls": 2,
+          "unprofiled_calls": 2,
+          "nested_compute_calls": 0,
+          "nested_compute_inclusive_s": 0.0,
+          "tokenize_calls": 0,
+          "tokenize_inclusive_s": 0.0
+        },
+        "tabsim.dask.coordinates.radec_to_lmn.<locals>._radec_to_lmn": {
+          "calls": 2,
+          "wall_s": 0.0016148749855346978,
+          "thread_cpu_s": 0.0016133329999991897,
+          "profiled_calls": 2,
+          "unprofiled_calls": 0,
+          "nested_compute_calls": 0,
+          "nested_compute_inclusive_s": 0.0,
+          "tokenize_calls": 0,
+          "tokenize_inclusive_s": 0.0
+        },
+        "tabsim.dask.interferometry.astro_vis.<locals>._astro_vis": {
+          "calls": 4,
+          "wall_s": 0.12833566701738164,
+          "thread_cpu_s": 0.0031889580000000056,
+          "profiled_calls": 4,
+          "unprofiled_calls": 0,
+          "nested_compute_calls": 0,
+          "nested_compute_inclusive_s": 0.0,
+          "tokenize_calls": 0,
+          "tokenize_inclusive_s": 0.0
+        },
+        "tabsim.dask.interferometry.apply_gains.<locals>._apply_gains": {
+          "calls": 8,
+          "wall_s": 0.06942891713697463,
+          "thread_cpu_s": 0.0309426669999997,
+          "profiled_calls": 8,
+          "unprofiled_calls": 0,
+          "nested_compute_calls": 0,
+          "nested_compute_inclusive_s": 0.0,
+          "tokenize_calls": 0,
+          "tokenize_inclusive_s": 0.0
+        }
+      },
+      "scope": "separate instrumented local map callback round; inclusive compute includes kernel/waiting, not pure scheduler time; GPU completion is not fenced per callback; cProfile covers profiled_calls only, nested/contending/unavailable callbacks are counted as unprofiled_calls; wall/thread CPU cover all callbacks"
+    }
+  }
+}
