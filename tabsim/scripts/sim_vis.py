@@ -3,13 +3,17 @@ import os
 import sys
 from pathlib import Path
 
-from tabsim.config import load_config, run_sim_config
 
 from typing import Union
 
-from jax import config
+def load_config(*args, **kwargs):
+    from tabsim.config import load_config as load
+    return load(*args, **kwargs)
 
-config.update("jax_enable_x64", True)
+
+def run_sim_config(*args, **kwargs):
+    from tabsim.config import run_sim_config as run
+    return run(*args, **kwargs)
 
 
 def get_abs_path(rel_path: Union[str, None], work_dir: str) -> Union[str, None]:
@@ -129,7 +133,15 @@ def main():
     parser.add_argument('--save-rfi-amplitudes', action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument('--flag-data', action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument('--signal-stats', action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument('--gpu-id', default=None,
+                        help='CUDA visible GPU index or UUID; applied before importing JAX.')
+    parser.add_argument('--gpu-concurrency', type=int, default=None,
+                        help='Active GPU blocks per process, held through host readback (default 1).')
     args = parser.parse_args()
+    if args.gpu_id is not None:
+        os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
+    from jax import config
+    config.update('jax_enable_x64', True)
     rfi_amp = args.rfi_amp
     config_path = Path(args.config_path)
 
@@ -142,7 +154,7 @@ def main():
 
     sim_config = load_config(config_path, config_type="sim")
 
-    for key in ('component_workers', 'max_memory_gb', 'memory_fraction',
+    for key in ('gpu_concurrency', 'component_workers', 'max_memory_gb', 'memory_fraction',
                 'max_device_memory_gb', 'timeout_s', 'disk_reserve_gb',
                 'planned_rfi_sources', 'planned_ast_sources', 'task_scratch_factor'):
         value = getattr(args, key)

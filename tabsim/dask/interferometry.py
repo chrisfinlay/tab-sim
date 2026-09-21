@@ -1,3 +1,4 @@
+from tabsim.execution import execute_kernel
 from tabsim.beam import airy_beam as host_airy_beam
 from jax import jit
 
@@ -13,9 +14,8 @@ from typing import Optional
 
 
 # Keep one callable per kernel in each worker. This does not imply that the
-# previous repeated jit() wrapping recompiled every block. No explicit device
-# placement or synchronization policy is added. Removing delayed tokenization
-# also removes its incidental serialization/synchronization of JAX inputs.
+# previous repeated jit() wrapping recompiled every block. execute_kernel
+# applies placement, admission and completed host readback to each block.
 _astro_vis_jit = jit(itf.astro_vis)
 _astro_vis_gauss_jit = jit(itf.astro_vis_gauss)
 _astro_vis_exp_jit = jit(itf.astro_vis_exp)
@@ -81,7 +81,7 @@ def astro_vis(sources: Array, uvw: Array, lmn: Array, freqs: Array) -> Array:
     )
 
     def _astro_vis(ds):
-        vis = _astro_vis_jit(
+        vis = execute_kernel(_astro_vis_jit,
             ds.I.data, ds.uvw.data, ds.lmn.data, ds.freqs.data
         )
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
@@ -152,7 +152,7 @@ def astro_vis_gauss(
     )
 
     def _astro_vis_gauss(ds):
-        vis = _astro_vis_gauss_jit(
+        vis = execute_kernel(_astro_vis_gauss_jit,
             ds.I.data,
             ds.major.data,
             ds.minor.data,
@@ -221,7 +221,7 @@ def astro_vis_exp(
     )
 
     def _astro_vis_exp(ds):
-        vis = _astro_vis_exp_jit(
+        vis = execute_kernel(_astro_vis_exp_jit,
             ds.I.data, ds.sigmas.data, ds.uvw.data, ds.lmn.data, ds.freqs.data
         )
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
@@ -289,7 +289,7 @@ def rfi_vis(
     )
 
     def _rfi_vis(ds):
-        vis = _rfi_vis_jit(
+        vis = execute_kernel(_rfi_vis_jit,
             ds.app_amplitude.data,
             ds.c_distances.data,
             ds.freqs.data,
@@ -327,7 +327,7 @@ def ants_to_bl(G: Array, a1: Array, a2: Array) -> Array:
     )
 
     def _ants_to_bl(ds):
-        G_bl = _ants_to_bl_jit(
+        G_bl = execute_kernel(_ants_to_bl_jit,
             ds.G.data, ds.a1.data, ds.a2.data
         )
         ds_out = xr.Dataset({"G_bl": (["time", "bl", "freq"], G_bl)})
@@ -407,7 +407,7 @@ def Pv_to_Sv(Pv, d):
     )
 
     def _Pv_to_Sv(ds):
-        Sv = itf.Pv_to_Sv(ds.Pv.data, ds.d.data)
+        Sv = execute_kernel(itf.Pv_to_Sv,ds.Pv.data, ds.d.data)
         ds_out = xr.Dataset({"Sv": (["src", "time", "ant", "freq"], Sv)})
         return ds_out
 
@@ -610,7 +610,7 @@ def apply_gains(
     )
 
     def _apply_gains(ds):
-        vis_obs = itf.apply_gains(
+        vis_obs = execute_kernel(itf.apply_gains,
             ds.vis_ast.data, ds.vis_rfi.data, ds.gains.data, ds.a1.data, ds.a2.data
         )
         ds_out = xr.Dataset({"vis_obs": (["time", "bl", "freq"], vis_obs)})

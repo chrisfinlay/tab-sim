@@ -1255,6 +1255,9 @@ def _run_sim_config(
     elif sim_config is None:
         raise ValueError("sim_config or config_path must be defined.")
 
+    from tabsim.execution import configure_execution
+    configure_execution(gpu_concurrency=sim_config.get('dask', {}).get('gpu_concurrency', 1))
+
     # The packaged tables are defaults, not overrides: a configured
     # norad_spec_model, stationary geo_path or spec_path is what the run was asked
     # to use.
