@@ -56,7 +56,7 @@ def require_native():
         pytest.skip("Native library unavailable for the selected backend")
 
 
-def compare(actual, expected, args, precision):
+def compare(actual, expected, args, precision, double_tolerance=2e-9):
     assert (
         actual.dtype
         == expected.dtype
@@ -65,7 +65,7 @@ def compare(actual, expected, args, precision):
     assert actual.shape == (args[0].shape[1], len(args[3]), args[0].shape[-1])
     # Normalize against incoherent input-flux bound; cancellations may have zero vis.
     flux = np.sum(np.max(np.abs(args[0]), axis=(1, 2, 3, 4)) ** 2)
-    tolerance = 5e-6 if precision == "single" else 2e-9
+    tolerance = 5e-6 if precision == "single" else double_tolerance
     assert np.max(np.abs(actual - expected)) / flux < tolerance
     assert np.isfinite(actual).all()
 

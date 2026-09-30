@@ -26,18 +26,48 @@ def x64():
     jax.config.update('jax_enable_x64',previous)
 
 
-def test_boresight_near_zero_sidelobes_and_nulls():
-    freqs=np.array([50e6,150e6,1.4e9]);diameter=35.
+FREQS=np.array([50e6,150e6,1.4e9])
+
+
+def contract_angles(diameter):
     # Include exact null arguments for the middle frequency and their neighbourhood.
     nulls=np.rad2deg(np.arcsin(jn_zeros(1,6)*2.99792458e8/(np.pi*150e6*diameter)))
-    angles=np.r_[0.,1e-14,1e-9,-1e-9,.001,1.,15.,45.,89.,90.,120.,180.,
+    return np.r_[0.,1e-14,1e-9,-1e-9,.001,1.,15.,45.,89.,90.,120.,180.,
                  nulls,nulls-1e-10,nulls+1e-10].reshape(-1,1,1)
+
+
+def test_boresight_near_zero_sidelobes_and_nulls():
+    freqs=FREQS;diameter=35.
+    angles=contract_angles(diameter)
     actual=airy_beam(angles,freqs,diameter)
     np.testing.assert_allclose(actual,legacy(angles,freqs,diameter),rtol=2e-12,atol=2e-14)
     np.testing.assert_allclose(actual[0],1.,rtol=0,atol=3e-15)
     assert np.any(actual<0)
     assert actual.shape==angles.shape+(3,)
     assert isinstance(actual,np.ndarray) and actual.dtype==np.float64
+
+
+@pytest.mark.parametrize('diameter',[13.5,35.])
+def test_device_beam_matches_host(diameter):
+    """Jitted device J1 and Airy beam match SciPy and the host beam without transfers."""
+    from scipy.special import j1 as reference_j1
+    from tabsim.jax import beam
+    eps=sys.float_info.epsilon
+    x=np.r_[np.linspace(-1e3,1e3,20001),5-1e-12,5+1e-12,-5-1e-12,-5+1e-12,eps,-eps,0.]
+    angles=contract_angles(diameter)
+    inputs=jax.device_put((x,angles,FREQS,np.float64(diameter)))
+    with jax.transfer_guard('disallow'):
+        j1=jax.jit(beam.j1)(inputs[0])
+        actual=jax.jit(beam.airy_beam)(*inputs[1:])
+    j1,actual=np.asarray(j1),np.asarray(actual)
+    expected=airy_beam(angles,FREQS,diameter)
+    atol=1e-15 if jax.default_backend()=='gpu' else 5e-16
+    np.testing.assert_allclose(j1,reference_j1(x),rtol=0,atol=atol)
+    assert actual.dtype==np.float64 and actual.shape==expected.shape
+    np.testing.assert_allclose(actual,expected,rtol=2e-12,atol=2e-14)
+    np.testing.assert_allclose(actual[0],1.,rtol=0,atol=3e-15)
+    signed=np.abs(expected)>1e-13
+    np.testing.assert_array_equal(np.sign(actual[signed]),np.sign(expected[signed]))
 
 
 @pytest.mark.parametrize('dtype',[np.float32,np.float64])
