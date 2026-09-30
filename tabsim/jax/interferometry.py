@@ -105,6 +105,7 @@ def rfi_amplitude(Pv, distances, ang_sep, freqs, dish_d):
     amplitude: array_like (..., n_ant, n_freq)
         Float64 apparent amplitude in sqrt(Jy).
     """
+    _require_x64()
     Pv = jnp.asarray(Pv)
     d = jnp.asarray(distances)
     # Same expression order as Pv_to_Sv, for any leading dimensions.

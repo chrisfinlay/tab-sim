@@ -40,7 +40,9 @@ float64 port of the Cephes `j1` bundled with SciPy (`xsf/cephes/j1.h`), and
 boresight substitution. `jax.scipy.special.bessel_jn` is not used: it loses accuracy
 above x of about 40, and RFI arguments reach about 200.
 `tabsim.jax.interferometry.rfi_vis_beam` fuses `Pv_to_Sv`, the beam and `rfi_vis` in
-one jitted block, so the fine-time amplitude never reaches the host. The saved
-`rfi_*_A` amplitudes come lazily from `rfi_amplitude`. `J1` matches
-`scipy.special.j1` within `5e-16` (1e-15 on GPU) on [-1000, 1000], and the beam keeps
-the host tolerances above. Astronomical sources keep the host beam.
+one jitted block, so computing `vis_rfi` never transfers the fine-time amplitude to
+the host. Saved `rfi_*_A` amplitudes and the fringe diagnostics are computed lazily
+by `rfi_amplitude`, which transfers bounded tiles through `execute_kernel`. Both
+entry points require JAX x64. `J1` matches `scipy.special.j1` within `5e-16` on
+[-1000, 1000] on every backend, keeps signed zeros, and the beam keeps the host
+tolerances above. Astronomical sources keep the host beam.

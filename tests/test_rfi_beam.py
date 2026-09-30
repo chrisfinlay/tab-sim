@@ -37,9 +37,9 @@ def x64_offline():
             jax.config.update('jax_enable_x64', previous)
 
 
-def observation(rfi=True):
+def observation(rfi=True, precision='double'):
     case = dict(telescope='SKA-Low-AA0.5', antennas=4, times=4, channels=4, samples=5,
-                point_sources=1, rfi_sources=int(rfi))
+                point_sources=1, rfi_sources=int(rfi), visibility_precision=precision)
     obs = build_observation(case, .001)
     if rfi:
         # Equal Kepler and TLE counts: write.py gives both families the sat_src dimension.
@@ -93,9 +93,10 @@ def test_rfi_vis_beam_matches_legacy_composition(precision):
                                rtol=1e-12, atol=1e-14 * np.abs(amp).max())
 
 
-def test_observation_rfi_matches_legacy_composition():
+@pytest.mark.parametrize('precision', ['single', 'double'])
+def test_observation_rfi_matches_legacy_composition(precision):
     """All three RFI families match the legacy composition; other components stay bit-identical."""
-    obs, plain = observation(), observation(rfi=False)
+    obs, plain = observation(precision=precision), observation(rfi=False, precision=precision)
     assert min(len(obs.vis_rfi.chunks[0]), len(obs.vis_rfi.chunks[2])) >= 2
     assert obs.vis_rfi.chunks == plain.vis_ast.chunks
     ds, reference = obs.dataset.compute(), plain.dataset.compute()
@@ -103,8 +104,10 @@ def test_observation_rfi_matches_legacy_composition():
         np.testing.assert_array_equal(ds[name], reference[name])
     for family, name in DATASET_NAME.items():
         amp = legacy_amplitude(obs, family)[0]
+        assert ds[name].dtype == np.float64
         np.testing.assert_allclose(ds[name], amp, rtol=1e-12, atol=1e-14 * np.abs(amp).max())
     expected, args = legacy_vis(obs)
+    assert ds.vis_rfi.dtype == (np.complex64 if precision == 'single' else np.complex128)
     compare(ds.vis_rfi.values, expected, args, obs.visibility_precision, double_tolerance=1e-11)
 
 
@@ -121,14 +124,19 @@ def test_rfi_path_is_bounded_and_on_device(tmp_path, monkeypatch, capsys):
     for module in (tabsim.beam, scipy.special):
         monkeypatch.setattr(module, 'jv', forbidden)
     tile = 16 * obs.time_fine_chunk * obs.ant_chunk * obs.freq_chunk * 2  # two sources per family
-    sizes = []
+    # write.py rechunks saved amplitudes to storage chunks; bound those separately.
+    stored = max(8 * np.prod(obs.dataset[name].data.chunksize) for name in DATASET_NAME.values())
+    sizes = {True: [0], False: [0]}
+    def record(key, result, *_):
+        name = key[0] if isinstance(key, tuple) else key
+        sizes['rechunk' in name].append(getattr(result, 'nbytes', 0))
     execution_stats(reset=True)
-    with Callback(posttask=lambda key, result, *_: sizes.append(getattr(result, 'nbytes', 0))):
-        obs.write_to_zarr(tmp_path / 'rfi.zarr', save_arrays=['vis_rfi'])
+    with Callback(posttask=record):
+        obs.write_to_zarr(tmp_path / 'rfi.zarr', save_arrays=['vis_rfi', *DATASET_NAME.values()])
         monkeypatch.setattr(da.Array, '__array__', forbidden)
         config.print_fringe_freq_sat(obs)
         config.print_fringe_freq_tle_sat(obs)
-    assert 0 < max(sizes) <= tile
+    assert 0 < max(sizes[False]) <= tile and max(sizes[True]) <= stored
     assert re.search(r'Maximum RFI Amplitude\s*: (\S+)', capsys.readouterr().out).group(1) == expected_max
     if jax.default_backend() == 'gpu':
         assert execution_stats()['calls'] > 0
