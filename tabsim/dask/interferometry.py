@@ -24,10 +24,13 @@ _astro_vis_gauss_jit = jit(
 )
 _astro_vis_exp_jit = jit(itf.astro_vis_exp, static_argnames=("visibility_precision",))
 _rfi_vis_jit = jit(itf.rfi_vis, static_argnames=("visibility_precision",))
+_rfi_vis_beam_jit = jit(itf.rfi_vis_beam, static_argnames=("visibility_precision",))
+_rfi_amplitude_jit = jit(itf.rfi_amplitude)
 _ants_to_bl_jit = jit(itf.ants_to_bl)
 
-# Airy blocks stay on NumPy/SciPy; Pv_to_Sv and apply_gains were also not
-# whole-function jitted here. Keep those direct calls on their existing paths.
+# The airy_beam wrapper stays on NumPy/SciPy for the astronomical paths; RFI
+# beams run on the device inside rfi_vis_beam and rfi_amplitude. Pv_to_Sv and
+# apply_gains were not whole-function jitted here; keep those paths as they are.
 
 
 def astro_vis(
@@ -331,6 +334,162 @@ def rfi_vis(
     ds = xr.map_blocks(_rfi_vis, input, template=output)
 
     return ds.vis.data
+
+
+def rfi_vis_beam(
+    Pv: Array,
+    distances: Array,
+    w: Array,
+    ang_sep: Array,
+    freqs: Array,
+    dish_d: float,
+    a1: Array,
+    a2: Array,
+    *,
+    visibility_precision="single",
+) -> Array:
+    """Calculate RFI visibilities from emission power, beam included, per block.
+
+    Parameters:
+    -----------
+    Pv: Array (n_src, n_time, n_int, n_freq)
+        Specific emission power in W/Hz.
+    distances: Array (n_src, n_time, n_int, n_ant)
+        Distances between the rfi sources and the antennas in metres.
+    w: Array (n_time, n_int, n_ant)
+        Antenna w coordinates in metres.
+    ang_sep: Array (n_src, n_time, n_int, n_ant)
+        Angular separation from the pointing direction in degrees.
+    freqs: Array (n_freq,)
+        Frequencies in Hz.
+    dish_d: float
+        Dish diameter in metres.
+    a1: Array (n_bl,)
+        Antenna 1 indexes, between 0 and n_ant-1.
+    a2: Array (n_bl,)
+        Antenna 2 indexes, between 0 and n_ant-1.
+
+    Returns:
+    --------
+    vis: Array (n_time, n_bl, n_freq)
+    """
+    dtype = visibility_dtype(visibility_precision)
+    kernel = partial(_rfi_vis_beam_jit, visibility_precision=visibility_precision)
+    n_time = distances.shape[1]
+    n_freq = freqs.shape[0]
+    n_bl = a1.shape[0]
+
+    time_chunk = distances.chunksize[1]
+    freq_chunk = freqs.chunksize[0]
+    bl_chunk = a1.chunksize[0]
+
+    input = xr.Dataset(
+        {
+            "Pv": (["src", "time", "int", "freq"], Pv),
+            "distances": (["src", "time", "int", "ant"], distances),
+            "w": (["time", "int", "ant"], w),
+            "ang_sep": (["src", "time", "int", "ant"], ang_sep),
+            "freqs": (["freq"], freqs),
+            "dish_d": (["space_0"], da.from_array([dish_d])),  # type: ignore
+            "a1": (["bl"], a1),
+            "a2": (["bl"], a2),
+        }
+    )
+    output = xr.Dataset(
+        {
+            "vis": (
+                ["time", "bl", "freq"],
+                da.zeros(  # type: ignore
+                    shape=(n_time, n_bl, n_freq),
+                    chunks=(time_chunk, bl_chunk, freq_chunk),
+                    dtype=dtype,
+                ),
+            )
+        }
+    )
+
+    def _rfi_vis_beam(ds):
+        vis = execute_kernel(
+            kernel,
+            ds.Pv.data,
+            ds.distances.data,
+            ds.w.data,
+            ds.ang_sep.data,
+            ds.freqs.data,
+            ds.dish_d.data,
+            ds.a1.data,
+            ds.a2.data,
+        )
+        return xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
+
+    ds = xr.map_blocks(_rfi_vis_beam, input, template=output)
+
+    return ds.vis.data
+
+
+def rfi_amplitude(
+    Pv: Array, distances: Array, ang_sep: Array, freqs: Array, dish_d: float
+) -> Array:
+    """Apparent RFI amplitude per block, sqrt(|Sv|) times the Airy voltage beam.
+
+    Parameters:
+    -----------
+    Pv: Array (n_src, n_time, n_freq)
+        Specific emission power in W/Hz.
+    distances: Array (n_src, n_time, n_ant)
+        Distances between the rfi sources and the antennas in metres.
+    ang_sep: Array (n_src, n_time, n_ant)
+        Angular separation from the pointing direction in degrees.
+    freqs: Array (n_freq,)
+        Frequencies in Hz.
+    dish_d: float
+        Dish diameter in metres.
+
+    Returns:
+    --------
+    amplitude: Array (n_src, n_time, n_ant, n_freq)
+    """
+    n_src, n_time, n_ant = distances.shape
+    n_freq = freqs.shape[0]
+
+    src_chunk, time_chunk, ant_chunk = distances.chunksize
+    freq_chunk = freqs.chunksize[0]
+
+    input = xr.Dataset(
+        {
+            "Pv": (["src", "time", "freq"], Pv),
+            "distances": (["src", "time", "ant"], distances),
+            "ang_sep": (["src", "time", "ant"], ang_sep),
+            "freqs": (["freq"], freqs),
+            "dish_d": (["space_0"], da.from_array([dish_d])),  # type: ignore
+        }
+    )
+    output = xr.Dataset(
+        {
+            "amplitude": (
+                ["src", "time", "ant", "freq"],
+                da.zeros(  # type: ignore
+                    (n_src, n_time, n_ant, n_freq),
+                    chunks=(src_chunk, time_chunk, ant_chunk, freq_chunk),
+                ),
+            )
+        }
+    )
+
+    def _rfi_amplitude(ds):
+        amplitude = execute_kernel(
+            _rfi_amplitude_jit,
+            ds.Pv.data,
+            ds.distances.data,
+            ds.ang_sep.data,
+            ds.freqs.data,
+            ds.dish_d.data,
+        )
+        return xr.Dataset({"amplitude": (["src", "time", "ant", "freq"], amplitude)})
+
+    ds = xr.map_blocks(_rfi_amplitude, input, template=output)
+
+    return ds.amplitude.data
 
 
 def ants_to_bl(G: Array, a1: Array, a2: Array) -> Array:
