@@ -31,3 +31,16 @@ Host precision follows NumPy input promotion (including explicitly typed float64
 diameters) independently of JAX's global x64 flag. In particular, float64 host
 inputs are no longer silently truncated when JAX x64 is disabled. Python scalar
 diameters remain weakly typed under NumPy 2. Mixed floating dtypes are tested.
+
+## Device beam for RFI
+
+RFI visibilities evaluate the beam on the device instead. `tabsim.jax.beam.j1` is a
+float64 port of the Cephes `j1` bundled with SciPy (`xsf/cephes/j1.h`), and
+`tabsim.jax.beam.airy_beam` repeats the host expression, operation order and
+boresight substitution. `jax.scipy.special.bessel_jn` is not used: it loses accuracy
+above x of about 40, and RFI arguments reach about 200.
+`tabsim.jax.interferometry.rfi_vis_beam` fuses `Pv_to_Sv`, the beam and `rfi_vis` in
+one jitted block, so the fine-time amplitude never reaches the host. The saved
+`rfi_*_A` amplitudes come lazily from `rfi_amplitude`. `J1` matches
+`scipy.special.j1` within `5e-16` (1e-15 on GPU) on [-1000, 1000], and the beam keeps
+the host tolerances above. Astronomical sources keep the host beam.
