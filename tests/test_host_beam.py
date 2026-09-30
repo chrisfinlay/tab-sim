@@ -53,7 +53,8 @@ def test_device_beam_matches_host(diameter):
     from scipy.special import j1 as reference_j1
     from tabsim.jax import beam
     eps=sys.float_info.epsilon
-    x=np.r_[np.linspace(-1e3,1e3,20001),5-1e-12,5+1e-12,-5-1e-12,-5+1e-12,eps,-eps,0.]
+    x=np.r_[np.linspace(-1e3,1e3,20001),5-1e-12,5+1e-12,-5-1e-12,-5+1e-12,eps,-eps,0.,-0.,np.nan,np.inf,-np.inf,
+            2.**-26,5.,10.,*(np.nextafter(e,[0.,np.inf]) for e in (2.**-26,5.,10.))]
     angles=contract_angles(diameter)
     inputs=jax.device_put((x,angles,FREQS,np.float64(diameter)))
     with jax.transfer_guard('disallow'):
@@ -61,8 +62,8 @@ def test_device_beam_matches_host(diameter):
         actual=jax.jit(beam.airy_beam)(*inputs[1:])
     j1,actual=np.asarray(j1),np.asarray(actual)
     expected=airy_beam(angles,FREQS,diameter)
-    atol=1e-15 if jax.default_backend()=='gpu' else 5e-16
-    np.testing.assert_allclose(j1,reference_j1(x),rtol=0,atol=atol)
+    np.testing.assert_allclose(j1,reference_j1(x),rtol=0,atol=5e-16)
+    np.testing.assert_array_equal(np.signbit(j1[x==0]),np.signbit(x[x==0]))
     assert actual.dtype==np.float64 and actual.shape==expected.shape
     np.testing.assert_allclose(actual,expected,rtol=2e-12,atol=2e-14)
     np.testing.assert_allclose(actual[0],1.,rtol=0,atol=3e-15)
@@ -119,3 +120,13 @@ def test_host_precision_is_independent_of_jax_global_x64():
     jax.config.update('jax_enable_x64',False)
     result=airy_beam(np.zeros((1,1,1),dtype=np.float64),np.array([150e6]),35.)
     assert result.dtype==np.float64
+
+
+def test_device_beam_rejects_disabled_x64():
+    from tabsim.jax import beam, interferometry
+    jax.config.update('jax_enable_x64',False)
+    theta,freqs=np.zeros((1,1,1)),np.array([150e6])
+    with pytest.raises(ValueError,match='x64'):
+        beam.airy_beam(theta,freqs,35.)
+    with pytest.raises(ValueError,match='x64'):
+        interferometry.rfi_amplitude(np.ones((1,1,1)),np.ones((1,1,1)),theta,freqs,35.)

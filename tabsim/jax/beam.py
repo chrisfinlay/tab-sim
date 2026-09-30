@@ -1,6 +1,7 @@
 """Device primary beams, numerically matching the host reference in tabsim.beam."""
 import sys
 
+import jax
 import jax.numpy as jnp
 
 # Cephes j1 (Moshier, release 2.8) as bundled with SciPy in xsf/cephes/j1.h.
@@ -65,7 +66,7 @@ def j1(x):
     far = a * jnp.cos(xl) + b * jnp.sin(xl)
     large = jnp.where(xl < 10.0, mid, far) * _SQRT2OPI / jnp.sqrt(xl)
     y = jnp.where(ax <= 5.0, small, large)
-    return jnp.where(x < 0, -y, y)
+    return jnp.where(jnp.signbit(x), -y, y)
 
 
 def airy_beam(theta, freqs, dish_d):
@@ -75,6 +76,11 @@ def airy_beam(theta, freqs, dish_d):
     theta (..., antenna) gives (..., antenna, frequency), with the same
     operation order, signed sidelobes and epsilon substitution at boresight.
     """
+    if not jax.config.x64_enabled:
+        raise ValueError(
+            "The device Airy beam requires JAX x64; set JAX_ENABLE_X64=true "
+            "or jax.config.update('jax_enable_x64', True)"
+        )
     theta = jnp.deg2rad(jnp.asarray(theta)[..., None])
     scale = jnp.pi * jnp.asarray(freqs) * jnp.asarray(dish_d).reshape(-1)[0]
     x = jnp.where(theta == 0.0, sys.float_info.epsilon,
