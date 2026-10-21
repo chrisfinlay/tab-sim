@@ -22,10 +22,10 @@ from tabsim.dask.interferometry import (
     astro_vis,
     astro_vis_gauss,
     astro_vis_exp,
-    rfi_vis,
+    rfi_vis_beam,
+    rfi_amplitude,
     add_noise,
     airy_beam,
-    Pv_to_Sv,
     SEFD_to_noise_std,
     int_sample_times,
     generate_gains,
@@ -536,6 +536,34 @@ Number of stationary RFI :  {n_stat}"""
                                       (self.n_rfi if kind == 'rfi' else self.n_ast) + count})
         return da.broadcast_to(intensity, (count,) + intensity.shape[1:])
 
+    def _add_rfi_vis(self, Pv, distances, angular_seps):
+        """Add RFI visibilities, beam included, and return the lazy apparent amplitude.
+
+        Pv is (n_src, n_time_fine, n_freq); distances and angular_seps are
+        (n_src, n_time_fine, n_ant). The amplitude is (n_src, n_time_fine,
+        n_ant, n_freq) and is only computed if it is saved or inspected.
+        """
+        n_src = Pv.shape[0]
+        shape = (n_src, self.n_time, self.n_int_samples)
+        chunks = (n_src, self.time_chunk, self.n_int_samples)
+
+        def split(x, last_chunk):
+            return x.reshape(shape + x.shape[-1:]).rechunk(chunks + (last_chunk,))
+
+        w = self.ants_uvw[:, :, -1].reshape(shape[1:] + (self.n_ant,))
+        self.vis_rfi += rfi_vis_beam(
+            split(Pv, self.freq_chunk),
+            split(distances, self.ant_chunk),
+            w.rechunk(chunks[1:] + (self.ant_chunk,)),
+            split(angular_seps, self.ant_chunk),
+            self.freqs,
+            self.dish_d,
+            self.a1,
+            self.a2,
+            visibility_precision=self.visibility_precision,
+        )
+        return rfi_amplitude(Pv, distances, angular_seps, self.freqs, self.dish_d)
+
     def addAstro(self, I: Array, ra: Array, dec: Array):
         """
         Add a set of astronomical sources to the observation.
@@ -759,32 +787,10 @@ Number of stationary RFI :  {n_stat}"""
             self.ants_xyz[None, :, :, :] - rfi_xyz[:, :, None, :], axis=-1
         )
         # distances is shape (n_src,n_time_fine,n_ant)
-        I = Pv_to_Sv(Pv, distances)
-        # I is shape (n_src,n_time_fine,n_ant,n_freq)
-
         angular_seps = angular_separation(rfi_xyz, self.ants_xyz, self.ra, self.dec)
-
         # angular_seps is shape (n_src,n_time_fine,n_ant)
-        rfi_A_app = da.sqrt(da.abs(I)) * airy_beam(
-            angular_seps, self.freqs, self.dish_d
-        )
-        # self.rfi_A_app is shape (n_src,n_time_fine,n_ant,n_freqs)
-        # distances is shape (n_src,n_time_fine,n_ant)
-        # self.ants_uvw is shape (n_time_fine,n_ant,3)
-
-        vis_rfi = rfi_vis(
-            rfi_A_app.reshape(
-                (-1, self.n_time, self.n_int_samples, self.n_ant, self.n_freq)
-            ),
-            (distances + self.ants_uvw[None, :, :, -1]).reshape(
-                (-1, self.n_time, self.n_int_samples, self.n_ant)
-            ),
-            self.freqs,
-            self.a1,
-            self.a2,
-            visibility_precision=self.visibility_precision,
-        )
-        self.vis_rfi += vis_rfi
+        rfi_A_app = self._add_rfi_vis(Pv, distances, angular_seps)
+        # rfi_A_app is shape (n_src,n_time_fine,n_ant,n_freqs)
 
         orbits = da.stack([elevation, inclination, lon_asc_node, periapsis], axis=1)
 
@@ -792,8 +798,8 @@ Number of stationary RFI :  {n_stat}"""
         self.rfi_satellite_orbit.append(orbits)
         self.rfi_satellite_ang_sep.append(angular_seps)
         self.rfi_satellite_A_app.append(rfi_A_app)
-        self.n_rfi_satellite += len(I)
-        self.n_rfi += len(I)
+        self.n_rfi_satellite += len(Pv)
+        self.n_rfi += len(Pv)
 
     def addTLESatelliteRFI(
         self,
@@ -831,7 +837,6 @@ Number of stationary RFI :  {n_stat}"""
             )
         ).rechunk((-1, self.time_fine_chunk, self.freq_chunk))
         norad_ids = da.asarray(da.atleast_1d(norad_ids), chunks=(-1,))
-        n_src = len(norad_ids)
 
         rfi_xyz = satellite_position_blocks(orbits, mjd_to_jd(self.times_mjd_fine))
         # from tabsim.jax.coordinates import kepler_orbit_many
@@ -854,48 +859,10 @@ Number of stationary RFI :  {n_stat}"""
         #     ants_pos(self.ITRF.compute(), mjd_to_jd(self.times_mjd_fine.compute()))[None, :, :, :] - rfi_xyz[:, :, None, :], axis=-1
         # ), chunks=(-1, self.time_fine_chunk, self.n_ant))
         # distances is shape (n_src,n_time_fine,n_ant)
-        I = Pv_to_Sv(Pv, distances)
-        # I is shape (n_src,n_time_fine,n_ant,n_freq)
-
-        c_distances = (
-            (distances + self.ants_uvw[None, :, :, -1])
-            .reshape((n_src, self.n_time, self.n_int_samples, self.n_ant))
-            .rechunk((n_src, self.time_chunk, self.n_int_samples, self.ant_chunk))
-        )
-
         angular_seps = angular_separation(rfi_xyz, self.ants_xyz, self.ra, self.dec)
-
         # angular_seps is shape (n_src,n_time_fine,n_ant)
-        rfi_A_app = da.sqrt(da.abs(I)) * airy_beam(
-            angular_seps, self.freqs, self.dish_d
-        )
-
-        rfi_A = rfi_A_app.reshape(
-            (n_src, self.n_time, self.n_int_samples, self.n_ant, self.n_freq)
-        ).rechunk(
-            (
-                n_src,
-                self.time_chunk,
-                self.n_int_samples,
-                self.ant_chunk,
-                self.freq_chunk,
-            )
-        )
-
-        # rfi_A_app = da.ones((Pv.shape[0], self.n_time_fine, self.n_ant, self.n_freq), chunks=(-1, self.time_fine_chunk, self.n_ant, self.freq_chunk))
-        # self.rfi_A_app is shape (n_src,n_time_fine,n_ant,n_freqs)
-        # distances is shape (n_src,n_time_fine,n_ant)
-        # self.ants_uvw is shape (n_time_fine,n_ant,3)
-
-        vis_rfi = rfi_vis(
-            rfi_A,
-            c_distances,
-            self.freqs,
-            self.a1,
-            self.a2,
-            visibility_precision=self.visibility_precision,
-        )
-        self.vis_rfi += vis_rfi
+        rfi_A_app = self._add_rfi_vis(Pv, distances, angular_seps)
+        # rfi_A_app is shape (n_src,n_time_fine,n_ant,n_freqs)
 
         self.rfi_tle_satellite_xyz.append(rfi_xyz)
         self.rfi_tle_satellite_orbit.append(tles)
@@ -903,8 +870,8 @@ Number of stationary RFI :  {n_stat}"""
         self.rfi_tle_satellite_A_app.append(rfi_A_app)
         self.norad_ids.append(norad_ids)
         self.orbit_records += [as_record(orbit) for orbit in orbits]
-        self.n_rfi_tle_satellite += len(I)
-        self.n_rfi += len(I)
+        self.n_rfi_tle_satellite += len(Pv)
+        self.n_rfi += len(Pv)
 
     def addStationaryRFI(
         self,
@@ -961,30 +928,10 @@ Number of stationary RFI :  {n_stat}"""
             self.ants_xyz[None, :, :, :] - rfi_xyz[:, :, None, :], axis=-1
         )
         # distances is shape (n_src,n_time_fine,n_ant)
-        I = Pv_to_Sv(Pv, distances)
-        # I is shape (n_src,n_time,n_ant,n_freq)
-
         angular_seps = angular_separation(rfi_xyz, self.ants_xyz, self.ra, self.dec)
-        rfi_A_app = da.sqrt(da.abs(I)) * airy_beam(
-            angular_seps, self.freqs, self.dish_d
-        )
-
-        # self.rfi_A_app is shape (n_src,n_time_fine,n_ant,n_freqs)
-        # self.ants_uvw is shape (n_time_fine,n_ant,3)
-        vis_rfi = rfi_vis(
-            rfi_A_app.reshape(
-                (-1, self.n_time, self.n_int_samples, self.n_ant, self.n_freq)
-            ),
-            (distances + self.ants_uvw[None, :, :, -1]).reshape(
-                (-1, self.n_time, self.n_int_samples, self.n_ant)
-            ),
-            self.freqs,
-            self.a1,
-            self.a2,
-            visibility_precision=self.visibility_precision,
-        )
-
-        self.vis_rfi += vis_rfi
+        # angular_seps is shape (n_src,n_time_fine,n_ant)
+        rfi_A_app = self._add_rfi_vis(Pv, distances, angular_seps)
+        # rfi_A_app is shape (n_src,n_time_fine,n_ant,n_freqs)
 
         positions = da.stack([latitude, longitude, elevation], axis=1)
 
@@ -992,8 +939,8 @@ Number of stationary RFI :  {n_stat}"""
         self.rfi_stationary_geo.append(positions)
         self.rfi_stationary_ang_sep.append(angular_seps)
         self.rfi_stationary_A_app.append(rfi_A_app)
-        self.n_rfi_stationary += len(I)
-        self.n_rfi += len(I)
+        self.n_rfi_stationary += len(Pv)
+        self.n_rfi += len(Pv)
 
     def addGains(
         self,

@@ -3,6 +3,7 @@ import warnings
 import jax.numpy as jnp
 from jax import ensure_compile_time_eval, jit, random, config
 from tabsim.precision import visibility_dtype
+from tabsim.jax.beam import airy_beam as device_airy_beam
 from jax.lax import scan
 
 from functools import lru_cache, partial
@@ -79,6 +80,69 @@ def rfi_vis(
         a1,
         a2,
         visibility_precision=visibility_precision,
+    )
+
+
+def rfi_amplitude(Pv, distances, ang_sep, freqs, dish_d):
+    """
+    Apparent RFI amplitude, sqrt(|Sv|) times the Airy voltage beam.
+
+    Parameters
+    ----------
+    Pv: array_like (..., n_freq)
+        Specific emission power in W/Hz.
+    distances: array_like (..., n_ant)
+        Distances from the sources to the antennas in metres.
+    ang_sep: array_like (..., n_ant)
+        Angular separation from the pointing direction in degrees.
+    freqs: array_like (n_freq,)
+        Frequencies in Hz.
+    dish_d: float
+        Dish diameter in metres.
+
+    Returns
+    -------
+    amplitude: array_like (..., n_ant, n_freq)
+        Float64 apparent amplitude in sqrt(Jy).
+    """
+    _require_x64()
+    Pv = jnp.asarray(Pv)
+    d = jnp.asarray(distances)
+    # Same expression order as Pv_to_Sv, for any leading dimensions.
+    Sv = Pv[..., None, :] / (4 * jnp.pi * d[..., None] ** 2) * 1e26
+    return jnp.sqrt(jnp.abs(Sv)) * device_airy_beam(ang_sep, freqs, dish_d)
+
+
+def rfi_vis_beam(
+    Pv, distances, w, ang_sep, freqs, dish_d, a1, a2, *, visibility_precision="single"
+):
+    """
+    RFI visibilities from emission power, including the Airy beam on the device.
+
+    Parameters
+    ----------
+    Pv: array_like (n_src, n_time, n_int, n_freq)
+        Specific emission power in W/Hz.
+    distances: array_like (n_src, n_time, n_int, n_ant)
+        Distances from the sources to the antennas in metres.
+    w: array_like (n_time, n_int, n_ant)
+        Antenna w coordinates in metres.
+    ang_sep: array_like (n_src, n_time, n_int, n_ant)
+        Angular separation from the pointing direction in degrees.
+    freqs, a1, a2, visibility_precision:
+        As for :func:`rfi_vis`.
+    dish_d: float
+        Dish diameter in metres.
+
+    Returns
+    -------
+    vis: array_like (n_time, n_bl, n_freq)
+        The visibilities.
+    """
+    amplitude = rfi_amplitude(Pv, distances, ang_sep, freqs, dish_d)
+    c_distances = jnp.asarray(distances) + jnp.asarray(w)[None]
+    return rfi_vis(
+        amplitude, c_distances, freqs, a1, a2, visibility_precision=visibility_precision
     )
 
 

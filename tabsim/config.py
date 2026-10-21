@@ -1087,6 +1087,11 @@ def save_inputs(obs: Observation, sim_config: dict, save_path: str) -> None:
         yaml.dump(sim_config, fp)
 
 
+def _max_amplitude(A_app: list) -> float:
+    """Signed maximum of lazy apparent amplitudes, reduced blockwise in one pass."""
+    return da.max(da.concatenate(A_app, axis=0)).compute(scheduler="synchronous")
+
+
 def print_fringe_freq_sat(obs: Observation):
     if len(obs.times_fine) == obs.n_int_samples:
         n_int = int(obs.n_int_samples) - 1
@@ -1096,7 +1101,7 @@ def print_fringe_freq_sat(obs: Observation):
         n_int = obs.n_int_samples
     fringe_params = [
         {
-            "times": obs.times_fine[::n_int].compute(),
+            "times_mjd": obs.times_mjd_fine[::n_int].compute(),
             "freq": obs.freqs.max().compute(),
             "rfi_xyz": da.concatenate(obs.rfi_satellite_xyz, axis=0)[
                 i, ::n_int
@@ -1114,7 +1119,7 @@ def print_fringe_freq_sat(obs: Observation):
     f_sample = (
         np.pi
         * np.max(np.abs(fringe_freq))
-        * np.max(obs.rfi_satellite_A_app)
+        * _max_amplitude(obs.rfi_satellite_A_app)
         / np.sqrt(6 * noise_std)
     )
     n_int = int(np.ceil(obs.int_time * f_sample))
@@ -1149,10 +1154,11 @@ def print_fringe_freq_tle_sat(obs: Observation):
     noise_std = obs.noise_std.mean().compute()
     if noise_std == 0:
         noise_std = 1.0
+    A_max = _max_amplitude(obs.rfi_tle_satellite_A_app)
     f_sample = (
         np.pi
         * np.max(np.abs(fringe_freq))
-        * np.max(obs.rfi_tle_satellite_A_app)
+        * A_max
         / np.sqrt(6 * noise_std)
     )
     n_int = int(np.ceil(obs.int_time * f_sample))
@@ -1160,7 +1166,7 @@ def print_fringe_freq_tle_sat(obs: Observation):
     print()
     print(f"Maximum Fringe Frequency is : {np.max(np.abs(fringe_freq)):.2f} Hz")
     print(
-        f"Maximum RFI Amplitude       : {np.max(obs.rfi_tle_satellite_A_app):.5f} sqrt(Jy)"
+        f"Maximum RFI Amplitude       : {A_max:.5f} sqrt(Jy)"
     )
     print(f"Maximum sampling rate is    : {f_sample:.2f} Hz")
     print(f"Recommended n_int is >=     : {n_int:.0f} ({obs.n_int_samples} used)")
