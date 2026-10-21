@@ -42,7 +42,7 @@ from tabsim.jax.coordinates import (
     mjd_to_jd,
     secs_to_days,
 )
-from tabsim.time import apparent_radec_of_date, gast_deg
+from tabsim.time import apparent_radec_of_date, apparent_radec_of_sources, gast_deg
 from tabsim.tools import beam_size
 from tabsim.write import construct_observation_ds, write_ms
 from tabsim.dask.extras import get_chunksizes, estimate_working_set
@@ -358,6 +358,14 @@ class Observation(Telescope):
         self.gsa = da.asarray(gast_deg(times_jd_fine), chunks=(self.time_fine_chunk,))
         self.tracked_ra = da.asarray(tracked_ra, chunks=(self.time_fine_chunk,))
         self.tracked_dec = da.asarray(tracked_dec, chunks=(self.time_fine_chunk,))
+
+        # The sky model's direction cosines are taken to the same frame as the
+        # uvw basis, at one reference time; see _source_lmn.
+        self.lmn_ref_jd = float(times_jd_fine[len(times_jd_fine) // 2])
+        self.tracked_radec_ref = tuple(
+            float(value[0])
+            for value in apparent_radec_of_date(ra, dec, [self.lmn_ref_jd])
+        )
         self.gha = (self.gsa - self.tracked_ra) % 360
         self.lsa = (self.gsa + longitude) % 360
         self.lha = (((self.gha + longitude) % 360 - 180) % 360) - 180
@@ -544,6 +552,35 @@ Number of stationary RFI :  {n_stat}"""
                              'covering the full workload, a smaller max_chunk_MB, or a larger budget.')
         return estimate
 
+    def _source_lmn(self, ra: Array, dec: Array) -> Array:
+        """Direction cosines of a sky model, in the frame the uvw are built in.
+
+        `radec_to_lmn` builds its tangent basis from the pole of the frame its
+        coordinates are referred to, so J2000 positions give a J2000 basis. The
+        uvw are built at the phase centre's apparent place of date, on the true
+        equator of date, so the sources are brought to that frame too. Pairing a
+        J2000 basis with the of-date uvw instead leaves the two rotated about w
+        by about 0.1 degrees, which is 0.2 wavelengths of path for a source one
+        degree off axis on a 4 km baseline at L band.
+
+        Both are evaluated at one reference time, the middle of the observation.
+        The apparent place moves about 0.05 arcsec over four hours, which leaves
+        under 0.005 wavelengths on the same baseline.
+        """
+
+        ra_app, dec_app = apparent_radec_of_sources(
+            np.asarray(da.asarray(ra).compute(), dtype=np.float64),
+            np.asarray(da.asarray(dec).compute(), dtype=np.float64),
+            self.lmn_ref_jd,
+        )
+        ra_ref, dec_ref = self.tracked_radec_ref
+
+        return radec_to_lmn(
+            da.asarray(ra_app).rechunk(da.asarray(ra).chunksize),
+            da.asarray(dec_app).rechunk(da.asarray(dec).chunksize),
+            [da.asarray(ra_ref), da.asarray(dec_ref)],
+        )
+
     def _check_source_budget(self, kind, intensity, *coordinates):
         counts = [intensity.shape[0]] + [da.atleast_1d(value).shape[0] for value in coordinates]
         count = max(counts)
@@ -581,7 +618,7 @@ Number of stationary RFI :  {n_stat}"""
         )
         ra = da.atleast_1d(ra)
         dec = da.atleast_1d(dec)
-        lmn = radec_to_lmn(ra, dec, [self.ra, self.dec])
+        lmn = self._source_lmn(ra, dec)
         theta = da.rad2deg(da.arcsin(da.linalg.norm(lmn[:, :-1], axis=-1)))
         I_app = (
             I
@@ -646,7 +683,7 @@ Number of stationary RFI :  {n_stat}"""
         pos_angle = da.atleast_1d(pos_angle)
         ra = da.atleast_1d(ra)
         dec = da.atleast_1d(dec)
-        lmn = radec_to_lmn(ra, dec, [self.ra, self.dec])
+        lmn = self._source_lmn(ra, dec)
         theta = da.rad2deg(da.arcsin(da.linalg.norm(lmn[:, :-1], axis=-1)))
         I_app = (
             I
@@ -700,7 +737,7 @@ Number of stationary RFI :  {n_stat}"""
         shape = da.atleast_1d(shape)
         ra = da.atleast_1d(ra)
         dec = da.atleast_1d(dec)
-        lmn = radec_to_lmn(ra, dec, [self.ra, self.dec])
+        lmn = self._source_lmn(ra, dec)
         theta = da.rad2deg(da.arcsin(da.linalg.norm(lmn[:, :-1], axis=-1)))
         I_app = (
             I

@@ -9,6 +9,7 @@ on MeerKAT for a 2019 observation, which is 63 wavelengths at L band.
 tab-sim#73, and tabascal#252 for the real-data reproducer.
 """
 
+import erfa
 import numpy as np
 import pytest
 from astropy.coordinates import SkyCoord, TETE, PrecessedGeocentric
@@ -18,7 +19,13 @@ import astropy.units as u
 
 from tabsim.dask.observation import Observation
 from tabsim.jax.coordinates import mjd_to_gast, mjd_to_gmst, mjd_to_jd
-from tabsim.time import apparent_radec_of_date, gast_deg, skyfield_time
+from tabsim.time import (
+    apparent_radec_of_date,
+    apparent_radec_of_sources,
+    gast_deg,
+    skyfield_time,
+)
+from tabsim.time import _unit_vectors
 
 # MeerKAT, 2019-09-15 ~15:15 UTC, field CGCG021-063: the observation tabascal#252
 # reproduces the displacement on.
@@ -72,13 +79,12 @@ def _observation(**kwargs):
     return Observation(**options)
 
 
-def _unit_vectors(ra_deg, dec_deg):
-    """RA/Dec in degrees to unit vectors ``(n, 3)``."""
+def _radec_degrees(s):
+    """One unit vector to RA in ``[0, 360)`` and Dec, in degrees."""
 
-    ra, dec = np.deg2rad(np.atleast_1d(ra_deg)), np.deg2rad(np.atleast_1d(dec_deg))
-
-    return np.stack(
-        [np.cos(dec) * np.cos(ra), np.cos(dec) * np.sin(ra), np.sin(dec)], axis=-1
+    return (
+        np.rad2deg(np.arctan2(s[1], s[0])) % 360.0,
+        np.rad2deg(np.arcsin(np.clip(s[2], -1.0, 1.0))),
     )
 
 
@@ -123,30 +129,51 @@ def test_apparent_place_matches_astropy_tete():
 
 
 def test_apparent_place_includes_annual_aberration():
-    """Aberration is applied, not only precession and nutation.
+    """Aberration is applied, not only frame bias, precession and nutation.
 
     tabascal#254 measured aberration improving its lock on a real satellite, so
-    the correlator tracks the apparent place. Dropping it would leave the
-    direction more than 10 arcsec out, and the precession-only place is that far
-    from what this returns.
+    the correlator tracks the apparent place.
+
+    The reference is the same direction carried to the equator of date by the
+    bias-precession-nutation rotation alone, from erfa's `pnm06a`, so the
+    separation measured here is the aberration and nothing else. astropy's
+    `PrecessedGeocentric` is not that reference: it is GCRS based, so it carries
+    aberration of its own, and it is on the mean rather than the true equinox,
+    which would make this a measurement of nutation instead.
     """
 
     jd = mjd_to_jd(MJD_2019)
     obstime = Time(jd, format="jd", scale="ut1")
     ra_app, dec_app = apparent_radec_of_date(RA_J2000, DEC_J2000, [jd])
 
+    bpn = erfa.pnm06a(obstime.tt.jd1, obstime.tt.jd2)
+    ra_bpn, dec_bpn = _radec_degrees(bpn @ _unit_vectors(RA_J2000, DEC_J2000)[0])
+
     tracked = SkyCoord(
         ra=ra_app[0] * u.deg, dec=dec_app[0] * u.deg, frame=TETE(obstime=obstime)
     )
-    no_aberration = SkyCoord(
+    unaberrated = SkyCoord(
+        ra=ra_bpn * u.deg, dec=dec_bpn * u.deg, frame=TETE(obstime=obstime)
+    )
+
+    separation = tracked.separation(unaberrated).arcsec
+
+    # Annual aberration is at most 20.5 arcsec, and 13.1 for this direction and
+    # date. Removing it from apparent_radec_of_date drops this to zero.
+    assert 5.0 < separation < 20.5
+    assert separation == pytest.approx(13.1, abs=0.5)
+
+    # And the mean-equinox frame really is the wrong reference: it sits far
+    # closer to the unaberrated direction than a full aberration away.
+    mean_equinox = SkyCoord(
         ra=RA_J2000 * u.deg, dec=DEC_J2000 * u.deg, frame="icrs"
     ).transform_to(PrecessedGeocentric(obstime=obstime, equinox=obstime))
-
-    separation = tracked.separation(
-        SkyCoord(no_aberration.ra, no_aberration.dec, frame=TETE(obstime=obstime))
-    ).arcsec
-
-    assert 10.0 < separation < 21.0  # annual aberration is at most 20.5 arcsec
+    assert (
+        SkyCoord(mean_equinox.ra, mean_equinox.dec, frame=TETE(obstime=obstime))
+        .separation(unaberrated)
+        .arcsec
+        < separation
+    )
 
 
 def test_tracked_direction_moves_off_j2000_by_the_precession():
@@ -259,3 +286,70 @@ def test_mjd_to_gast_matches_skyfield():
 
     offset = (analytic - reference + 180) % 360 - 180
     assert np.abs(offset).max() * 3600 < 1.0
+
+
+def _gcrs_unit_vectors(ra_deg, dec_deg, time_jd):
+    """J2000 directions as GCRS unit vectors, annual aberration included.
+
+    GCRS shares the ICRS axes, so this is the frame ``ants_xyz`` is in, and the
+    directions in it are the aberrated ones that a correlator tracks.
+    """
+
+    t = skyfield_time([time_jd])
+    pvh, pvb = erfa.epv00(t.whole, t.tdb_fraction)
+    v = pvb["v"][0] / erfa.DC
+
+    return erfa.ab(
+        _unit_vectors(ra_deg, dec_deg),
+        v,
+        np.linalg.norm(pvh["p"][0]),
+        np.sqrt(1.0 - v @ v),
+    )
+
+
+def test_off_axis_astronomical_phase_matches_the_geometric_path():
+    """u.l + v.m + w.(n-1) must be the real path difference, off axis too.
+
+    The direction cosines and the uvw have to be on one equator and equinox.
+    `radec_to_lmn` takes its tangent basis from the pole of the frame it is
+    given, so J2000 source positions paired with the of-date uvw leave the two
+    bases rotated about w by about 0.1 degrees. That is invisible on axis and
+    grows with the offset: 0.2 wavelengths at 1 degree on these baselines, which
+    is 76 degrees of phase.
+
+    The reference here is independent of `radec_to_lmn` altogether: the baseline
+    and both directions in GCRS, dotted directly.
+    """
+
+    offsets = np.array([0.0, 0.5, 1.0, 2.0])
+    ra_src = RA_J2000 + offsets / np.cos(np.deg2rad(DEC_J2000))
+    dec_src = np.full(offsets.shape, DEC_J2000)
+
+    obs = _observation()
+    obs.addAstro(
+        I=np.ones((len(offsets), 1)), ra=ra_src, dec=dec_src
+    )
+
+    lmn = np.asarray(obs.ast_p_lmn[0].compute())
+    bl_uvw = np.asarray(obs.bl_uvw[obs.t_idx].compute())
+    ants_xyz = np.asarray(obs.ants_xyz.compute())[np.asarray(obs.t_idx)]
+    a1, a2 = np.asarray(obs.a1), np.asarray(obs.a2)
+    times_jd = mjd_to_jd(np.asarray(obs.times_mjd.compute()))
+
+    modelled = np.einsum("tbi,si->tbs", bl_uvw, lmn) - bl_uvw[..., 2][:, :, None]
+
+    expected = np.empty_like(modelled)
+    for t, time_jd in enumerate(times_jd):
+        baselines = ants_xyz[t, a1] - ants_xyz[t, a2]
+        centre = _gcrs_unit_vectors(RA_J2000, DEC_J2000, time_jd)[0]
+        sources = _gcrs_unit_vectors(ra_src, dec_src, time_jd)
+        expected[t] = baselines @ (sources - centre).T
+
+    error = np.abs(modelled - expected)
+    wavelength = 299792458.0 / 1.227e9
+
+    # On axis this is exact; the tolerance covers the whole range of offsets.
+    assert error.max() / wavelength < 0.02, (
+        f"off-axis phase off by {error.max():.4f} m "
+        f"= {error.max() / wavelength:.3f} wavelengths"
+    )

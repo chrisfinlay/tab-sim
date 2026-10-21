@@ -127,10 +127,60 @@ def apparent_radec_of_date(ra_deg: float, dec_deg: float, times_jd):
     return _radec_deg(s_date)
 
 
+def apparent_radec_of_sources(ra_deg, dec_deg, time_jd: float):
+    """Many J2000 directions as their apparent places at one time.
+
+    :func:`apparent_radec_of_date` takes one direction through many times, for
+    the phase centre. This takes a whole sky model through one time, which is
+    what the direction cosines need.
+
+    :func:`tabsim.jax.coordinates.radec_to_lmn` builds its tangent basis from
+    the pole of the frame its coordinates are referred to, so J2000 source
+    positions produce a J2000 basis. The uvw are built at the phase centre's
+    apparent place of date, so the sources have to be brought to the same frame
+    or the two bases differ by a rotation about w.
+
+    One time is enough: the apparent place moves about 0.05 arcsec over four
+    hours, far below what the relative geometry of a sky model resolves.
+
+    Parameters
+    ----------
+    ra_deg, dec_deg : array_like (n_src,)
+        The J2000 source directions in degrees.
+    time_jd : float
+        The reference time as a Julian Date, normally the middle of the
+        observation.
+
+    Returns
+    -------
+    (np.ndarray, np.ndarray)
+        Apparent RA in ``[0, 360)`` and Dec, in degrees, one per source.
+    """
+
+    t = skyfield_time(float(time_jd))
+
+    v, em, bm1 = (np.asarray(x)[0] for x in _annual_aberration(t))
+    s_app = erfa.ab(_unit_vectors(ra_deg, dec_deg), v, em, bm1)
+    bpn = np.reshape(t.M, (3, 3, -1))[:, :, 0]  # GCRS -> true equator of date
+
+    return _radec_deg(s_app @ bpn.T)
+
+
 def _unit_vector(ra_deg: float, dec_deg: float) -> NDArray:
     ra, dec = np.deg2rad(float(ra_deg)), np.deg2rad(float(dec_deg))
 
     return np.array([np.cos(dec) * np.cos(ra), np.cos(dec) * np.sin(ra), np.sin(dec)])
+
+
+def _unit_vectors(ra_deg, dec_deg) -> NDArray:
+    """RA/Dec in degrees to unit vectors ``(n, 3)``."""
+
+    ra = np.deg2rad(np.atleast_1d(np.asarray(ra_deg, dtype=float)))
+    dec = np.deg2rad(np.atleast_1d(np.asarray(dec_deg, dtype=float)))
+
+    return np.stack(
+        [np.cos(dec) * np.cos(ra), np.cos(dec) * np.sin(ra), np.sin(dec)], axis=-1
+    )
 
 
 def _radec_deg(s: NDArray):

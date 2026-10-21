@@ -18,9 +18,28 @@ up to and including v0.0.13, which displaced every modelled RFI source by that
 angle — about 15 m of extra path on MeerKAT's longest baseline, or 63
 wavelengths at L band.
 
-Astronomical sources are unaffected. Their `lmn` are offsets from the phase
-centre, and the sky model and the centre are both J2000, so a rotation applied
-to both leaves the offsets unchanged.
+## The sky model moves with it
+
+Astronomical sources are *not* simply unaffected. It is tempting to argue that
+`lmn` are offsets from the phase centre, so rotating centre and source alike
+leaves them unchanged — but `radec_to_lmn` builds its tangent basis from the
+pole of the frame it is given, and the J2000 pole is not the true pole of date.
+Pairing J2000 direction cosines with of-date uvw therefore leaves the two bases
+rotated about `w` by about 0.1 degrees.
+
+That is invisible on axis and grows with the offset. On a 4 km baseline at L
+band it is 0.05 wavelengths of path at 0.25 degrees off axis, 0.2 at 1 degree
+and 0.4 at 2 degrees — 76 degrees of phase at one degree out.
+
+So the sky model is carried to the apparent frame too, by
+`tabsim.time.apparent_radec_of_sources`, before its direction cosines are
+taken. Both it and the centre are evaluated at one reference time, the middle
+of the observation: the apparent place moves about 0.05 arcsec over four hours,
+which leaves under 0.005 wavelengths on the same baseline.
+
+Source positions are still *given* in J2000, and the output still records them
+in J2000. Gaussian and exponential position angles are left alone; a 0.1 degree
+rotation of the reference north is far below the precision those carry.
 
 ## What is applied
 
