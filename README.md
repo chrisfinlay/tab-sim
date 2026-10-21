@@ -376,6 +376,7 @@ The structure of the `.zarr` file is as follows:
 | `n_stat_src` | Number of stationary RFI sources |
 | `n_time` | Number of time steps |
 | `n_time_fine` | Number of fine grained time steps |
+| `geometry_time_scale` | Time scale the epochs behind the geometry are read on: `ut1`. See [Phase tracking](docs/phase-tracking.md) |
 | `phase_tracking` | Direction the visibilities were fringe-stopped to: `apparent` is the target's apparent place of date. See [Phase tracking](docs/phase-tracking.md) |
 | `target_dec` | Declination of the J2000 target direction {deg} |
 | `target_name` | Name of the target |

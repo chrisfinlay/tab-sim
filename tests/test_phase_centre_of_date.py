@@ -254,6 +254,10 @@ def test_phase_tracking_convention_is_recorded():
 
     assert obs.phase_tracking == "apparent"
     assert attrs["phase_tracking"] == "apparent"
+    # The direction convention alone does not pin the geometry down: the epochs
+    # are read as UT1, and reading them as UTC moves the Earth by DUT1 (#79).
+    assert obs.geometry_time_scale == "ut1"
+    assert attrs["geometry_time_scale"] == "ut1"
     assert attrs["target_ra"] == RA_J2000
     assert attrs["target_dec"] == DEC_J2000
 

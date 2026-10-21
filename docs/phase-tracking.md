@@ -80,15 +80,28 @@ measured from the antenna positions cannot drift apart.
 
 ## What the output records
 
-The zarr attribute `phase_tracking` names the convention a run used:
+Two zarr attributes name the conventions the geometry was built with:
 
-| value | meaning |
-|-------|---------|
-| `apparent` | the apparent place of date, as above |
+| attribute | value | meaning |
+|-----------|-------|---------|
+| `phase_tracking` | `apparent` | the apparent place of date, as above |
+| `geometry_time_scale` | `ut1` | the scale the epochs behind the geometry are read on |
+
+The direction convention alone does not pin the geometry down, which is why the
+second is there. tab-sim reads its epochs as UT1, in `tabsim.time.skyfield_time`
+and everywhere else it calls skyfield, and the Measurement Set's `TIME` column
+carries those same numbers. Reading them as UTC instead moves the Earth by DUT1
+— currently under 0.2 s, about 0.07 wavelengths of `w` at L band on a 4 km
+baseline — and every satellite along its track by the distance it covers in that
+time. So a consumer that selects `apparent` but reads `TIME` as UTC still
+reconstructs a different geometry. That mismatch predates the tracking fix and
+is tracked in
+[#79](https://github.com/chrisfinlay/tab-sim/issues/79); recording the scale at
+least makes it a stated convention rather than an implied one.
 
 `target_ra` and `target_dec`, and the Measurement Set's `FIELD::PHASE_DIR`,
 remain the J2000 centre. The tracked direction is not recorded separately
-because it follows from those two and the convention, through
+because it follows from those, the convention and the times, through
 `apparent_radec_of_date`.
 
 Simulations from v0.0.13 and earlier carry no `phase_tracking` attribute, and
