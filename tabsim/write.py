@@ -176,6 +176,12 @@ def get_observation_attributes(obs: Observation):
         "target_name": obs.target_name,
         "target_ra": obs.ra,
         "target_dec": obs.dec,
+        # The convention the visibilities were fringe-stopped with, so a consumer
+        # can rebuild the same geometry rather than guess it. "apparent" is the
+        # J2000 centre above taken to its apparent place of date
+        # (tabsim.time.apparent_radec_of_date), which is the direction that pairs
+        # with GAST. See tab-sim#73 and tabascal#252.
+        "phase_tracking": getattr(obs, "phase_tracking", "apparent"),
         "int_time": obs.int_time,
         "chan_width": obs.chan_width,
         "dish_diameter": obs.dish_d,

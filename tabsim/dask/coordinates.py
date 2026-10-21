@@ -416,11 +416,17 @@ def ITRF_to_UVW(
     ant_chunk = itrf.chunksize[0]
     time_chunk = h0.chunksize[0]
 
+    # The tracked declination follows the phase centre's apparent place of date,
+    # so it varies with time and rides the time axis, chunked with the hour angle
+    # it pairs with. A single declination is broadcast along it, which keeps the
+    # fixed-direction callers working unchanged.
+    dec = da.broadcast_to(da.atleast_1d(dec), (n_time,)).rechunk((time_chunk,))  # type: ignore
+
     input = xr.Dataset(
         {
             "itrf": (["ant", "space"], itrf),
             "h0": (["time"], da.atleast_1d(h0)),  # type: ignore
-            "dec": (["cel_space_1"], da.atleast_1d(dec)),  # type: ignore
+            "dec": (["time"], dec),  # type: ignore
         }
     )
 

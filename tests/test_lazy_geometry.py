@@ -118,7 +118,11 @@ def test_uvw_and_baselines_preserve_origin_and_no_w(no_w):
         ra=30., dec=-30., ITRF_array=positions.tolist(), times_mjd=60000.+np.arange(8)*2/86400,
         freqs=np.array([150e6,151e6]), SEFD=np.ones(2)*5000, int_time=2,
         n_int_samples=3, max_chunk_MB=.001, no_w=no_w)
-    expected = np.array(itrf_to_uvw(positions, np.asarray(obs.gha), -30.))
+    # The tracking geometry follows the phase centre's apparent place of date,
+    # not the J2000 dec passed in; test_phase_centre_of_date covers that frame.
+    expected = np.array(
+        itrf_to_uvw(positions, np.asarray(obs.gha), np.asarray(obs.tracked_dec))
+    )
     if no_w:
         expected[:, :, 2] = 0
     np.testing.assert_allclose(obs.ants_uvw.compute(), expected, rtol=1e-12, atol=1e-9)
