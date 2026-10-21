@@ -415,19 +415,26 @@ def ITRF_to_UVW(
     n_time = h0.shape[0]
 
     ant_chunk = itrf.chunksize[0]
-    time_chunk = h0.chunksize[0]
+    h0 = da.atleast_1d(h0)  # type: ignore
+    # The hour angle's actual chunk layout, not chunksize, which is only its
+    # longest chunk: an h0 chunked (2, 1, 2) would put the quantities below on
+    # (2, 2, 1) and xarray would refuse the inconsistent time axis.
+    time_chunks = h0.chunks[0]
 
     # The tracked declination follows the phase centre's apparent place of date,
     # so it varies with time and rides the time axis, chunked with the hour angle
     # it pairs with. A single declination is broadcast along it, which keeps the
-    # fixed-direction callers working unchanged.
-    dec = da.broadcast_to(da.atleast_1d(dec), (n_time,)).rechunk((time_chunk,))  # type: ignore
-    roll = da.broadcast_to(da.atleast_1d(roll), (n_time,)).rechunk((time_chunk,))  # type: ignore
+    # fixed-direction callers working unchanged. The roll turns u and v about w;
+    # see tabsim.time.tracking_basis_roll.
+    # (time_chunks,) and not time_chunks: rechunk reads a bare tuple as one
+    # entry per dimension, so a (2, 1, 2) layout would look like three axes.
+    dec = da.broadcast_to(da.atleast_1d(dec), (n_time,)).rechunk((time_chunks,))  # type: ignore
+    roll = da.broadcast_to(da.atleast_1d(roll), (n_time,)).rechunk((time_chunks,))  # type: ignore
 
     input = xr.Dataset(
         {
             "itrf": (["ant", "space"], itrf),
-            "h0": (["time"], da.atleast_1d(h0)),  # type: ignore
+            "h0": (["time"], h0),  # type: ignore
             "dec": (["time"], dec),  # type: ignore
             # Not "roll": xarray.Dataset.roll() is a method, so ds.roll would
             # resolve to it rather than to this variable.
@@ -441,7 +448,7 @@ def ITRF_to_UVW(
                 ["time", "ant", "space"],
                 da.zeros(  # type: ignore
                     shape=(n_time, n_ant, 3),
-                    chunks=(time_chunk, ant_chunk, 3),
+                    chunks=(time_chunks, ant_chunk, 3),
                     dtype=float,
                 ),
             )

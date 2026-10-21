@@ -25,7 +25,7 @@ from tabsim.time import (
     skyfield_time,
     tracking_basis_roll,
 )
-from tabsim.time import _tangent_vectors
+from tabsim.time import _radec_deg, _tangent_vectors
 
 # MeerKAT, 2019-09-15 ~15:15 UTC, field CGCG021-063: the observation tabascal#252
 # reproduces the displacement on.
@@ -308,6 +308,61 @@ def _gcrs_unit_vectors(ra_deg, dec_deg, time_jd):
     )
 
 
+def _offset_directions(ra_deg, dec_deg, offsets_deg, position_angle_deg=30.0):
+    """Directions a true angular distance from a centre, at a position angle.
+
+    Offsetting in RA by `offset / cos(dec)` is not a true angular offset beside
+    the pole: at a declination of -89.9 a nominal 2 degrees becomes 1146 degrees
+    of RA, which wraps, and every source ends up within 0.2 degrees of the
+    centre. Walking out along the tangent plane instead gives the separation
+    asked for at any declination.
+    """
+
+    east, north, line_of_sight = _tangent_vectors(ra_deg, dec_deg)
+    rho = np.deg2rad(np.atleast_1d(offsets_deg))[:, None]
+    bearing = np.deg2rad(position_angle_deg)
+
+    directions = np.cos(rho) * line_of_sight + np.sin(rho) * (
+        np.sin(bearing) * east + np.cos(bearing) * north
+    )
+
+    return _radec_deg(directions)
+
+
+def test_itrf_to_uvw_keeps_irregular_time_chunks():
+    """The per-time declination and roll must follow the hour angle's chunks.
+
+    `chunksize` is only the longest chunk, so taking it as the layout puts an
+    hour angle chunked (2, 1, 2) alongside a declination chunked (2, 2, 1), and
+    xarray refuses the inconsistent time axis.
+    """
+
+    import dask.array as da
+
+    from tabsim.dask.coordinates import ITRF_to_UVW
+    from tabsim.jax.coordinates import itrf_to_uvw
+
+    h0 = np.array([10.0, 20.0, 30.0, 40.0, 50.0])
+    itrf = da.from_array(ITRF, chunks=(len(ITRF), 3))
+
+    for chunks in [(2, 1, 2), (3, 1, 1), (5,), (2, 2, 1)]:
+        for dec, roll in [
+            (-30.0, None),
+            (np.array([-30.0]), None),
+            (np.linspace(-30.0, -31.0, 5), np.linspace(0.0, 1.0, 5)),
+        ]:
+            args = [da.from_array(h0, chunks=chunks), da.asarray(np.atleast_1d(dec))]
+            if roll is not None:
+                args.append(da.asarray(roll))
+
+            actual = ITRF_to_UVW(itrf, *args).compute()
+            expected = np.asarray(
+                itrf_to_uvw(np.asarray(ITRF), h0, dec, 0.0 if roll is None else roll)
+            )
+
+            np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-9)
+
+
 @pytest.mark.parametrize(
     "dec_centre, n_time, int_time",
     [
@@ -337,9 +392,20 @@ def test_off_axis_astronomical_phase_matches_the_geometric_path(
     both directions in GCRS, dotted directly.
     """
 
+    # Several position angles, not one: the roll turns the l/m plane, so a
+    # single bearing can sit where the missing rotation barely changes the path
+    # and the regression would pass for the wrong reason.
     offsets = np.array([0.0, 0.5, 1.0, 2.0])
-    ra_src = RA_J2000 + offsets / np.cos(np.deg2rad(dec_centre))
-    dec_src = np.full(offsets.shape, dec_centre)
+    ra_src, dec_src = (
+        np.concatenate(values)
+        for values in zip(
+            *(
+                _offset_directions(RA_J2000, dec_centre, offsets, bearing)
+                for bearing in (0.0, 45.0, 90.0, 135.0)
+            )
+        )
+    )
+    ra_src, dec_src = np.asarray(ra_src), np.asarray(dec_src)
 
     obs = _observation(
         dec=dec_centre,
@@ -348,7 +414,7 @@ def test_off_axis_astronomical_phase_matches_the_geometric_path(
     )
     # (n_src, 1, 1): a two-dimensional I would be read as one source's
     # spectrogram, which would quietly reduce this to the on-axis case.
-    obs.addAstro(I=np.ones((len(offsets), 1, 1)), ra=ra_src, dec=dec_src)
+    obs.addAstro(I=np.ones((len(ra_src), 1, 1)), ra=ra_src, dec=dec_src)
 
     lmn = np.asarray(obs.ast_p_lmn[0].compute())
     bl_uvw = np.asarray(obs.bl_uvw[obs.t_idx].compute())
@@ -379,8 +445,10 @@ def test_off_axis_astronomical_phase_matches_the_geometric_path(
         f"= {error / wavelength:.3f} wavelengths at dec {dec_centre}"
     )
 
-    # On axis the pairing has to be exact regardless.
-    on_axis = np.abs(modelled[..., 0] - expected[..., 0]).max()
+    # On axis the pairing has to be exact regardless, at every bearing.
+    on_axis = np.abs(
+        modelled[..., :: len(offsets)] - expected[..., :: len(offsets)]
+    ).max()
     assert on_axis / wavelength < 1e-3
 
 

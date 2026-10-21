@@ -43,8 +43,8 @@ rolled apart by that angle:
 
 It is small away from the pole and enormous beside it, where the J2000 and
 of-date poles are 0.145 deg apart and the field sits between them. Ignoring it
-costs 0.44 wavelengths of path for a source 2 deg off axis near the equator and
-48 wavelengths for a polar field, and it would rotate an extended source
+costs 0.5 wavelengths of path for a source 2 deg off axis near the equator, 1.0
+at -45 and 500 for a polar field, and it would rotate an extended source
 outright.
 
 Rolling the basis rather than transforming the sky keeps three things simple:
