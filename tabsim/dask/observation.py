@@ -42,6 +42,7 @@ from tabsim.jax.coordinates import (
     mjd_to_jd,
     secs_to_days,
 )
+from tabsim.time import apparent_radec_of_date, gast_deg, tracking_basis_roll
 from tabsim.tools import beam_size
 from tabsim.write import construct_observation_ds, write_ms
 from tabsim.dask.extras import get_chunksizes, estimate_working_set
@@ -163,6 +164,11 @@ class Observation(Telescope):
     Visibility products default to complex64; pass visibility_precision="double"
     for complex128. Geometry and phase calculations remain float64 in both modes.
 
+    The visibilities are fringe-stopped to the phase centre's apparent place of
+    date, which is what a correlator tracks. `ra` and `dec` stay J2000: that is
+    the frame the sky model, the beam geometry and the MS field direction are in.
+    See `tabsim.time` and docs/phase-tracking.md.
+
     Parameters
     ----------
     latitude: float
@@ -172,9 +178,9 @@ class Observation(Telescope):
     elevation: float
         Elevation of the telescope.
     ra: float
-        Right Ascension of the phase centre.
+        Right Ascension of the J2000 phase centre.
     dec: float
-        Declination of the phase centre.
+        Declination of the J2000 phase centre.
     times: ndarray (n_time,)
         Time centroids of each data point in seconds as a Greenwich Mean Sidereal Time (GMST).
     freqs: ndarray (n_freq,)
@@ -334,23 +340,44 @@ class Observation(Telescope):
             self.n_int_samples // 2, self.n_time_fine, self.n_int_samples
         ).rechunk(self.time_chunk)
 
-        # self.gsa = da.asarray(
-        #     Time(self.times_mjd_fine.compute(), format="mjd")
-        #     .sidereal_time("mean", "greenwich")
-        #     .hour
-        #     * 15,
-        #     chunks=(self.time_fine_chunk,),
-        # )
-        from tabsim.jax.coordinates import mjd_to_gast
+        # The phase-tracking geometry below pairs a sidereal angle with a
+        # direction, so the two must be referred to the same equator and equinox.
+        # GAST is measured from the true equinox of date, so it pairs with the
+        # phase centre's apparent place of date and not with its J2000 RA/Dec:
+        # see tabsim.time and tab-sim#73. self.ra and self.dec stay J2000, which
+        # is what the sky model, the beam geometry and the MS field direction are
+        # given in.
+        #
+        # GAST comes from skyfield, which is also the rotation its ITRS-to-GCRS
+        # transform applies for self.ants_xyz below, so the tracking term and the
+        # RFI distances measured from those positions share one frame exactly.
+        times_jd_fine = mjd_to_jd(self.times_mjd_fine.compute())
+        self.phase_tracking = "apparent"
+        # tabsim.time.skyfield_time reads the epochs as UT1, as every other
+        # skyfield call here does. Recorded with the direction convention
+        # because the geometry depends on both.
+        self.geometry_time_scale = "ut1"
+        tracked_ra, tracked_dec = apparent_radec_of_date(ra, dec, times_jd_fine)
 
-        self.gsa = da.asarray(
-            mjd_to_gast(self.times_mjd_fine.compute()),
+        self.gsa = da.asarray(gast_deg(times_jd_fine), chunks=(self.time_fine_chunk,))
+        self.tracked_ra = da.asarray(tracked_ra, chunks=(self.time_fine_chunk,))
+        self.tracked_dec = da.asarray(tracked_dec, chunks=(self.time_fine_chunk,))
+
+        # u and v are rolled so they are the J2000 east and north carried onto
+        # the tracked frame, which is what the sky model's direction cosines are
+        # referred to. w, the tracking term, is unaffected by the roll.
+        self.tracked_roll = da.asarray(
+            tracking_basis_roll(ra, dec, times_jd_fine),
             chunks=(self.time_fine_chunk,),
         )
-        self.gha = (self.gsa - self.ra) % 360
+        self.gha = (self.gsa - self.tracked_ra) % 360
         self.lsa = (self.gsa + longitude) % 360
         self.lha = (((self.gha + longitude) % 360 - 180) % 360) - 180
-        self.altaz = da.asarray(alt_az_of_source(self.lsa.compute(), np.float64(latitude), np.float64(ra), np.float64(dec)))
+        self.altaz = da.asarray(
+            alt_az_of_source(
+                self.lsa.compute(), np.float64(latitude), tracked_ra, tracked_dec
+            )
+        )
 
         self.freqs = da.asarray(freqs, dtype=np.float64).rechunk((self.freq_chunk,))
         self.chan_width = da.diff(freqs)[0] if len(freqs) > 1 else chan_width
@@ -364,7 +391,9 @@ class Observation(Telescope):
         self.fov = beam_size(dish_d, freqs.max(), fwhp=False)
 
         # Preserve all antennas in a block: antenna zero defines the UVW origin.
-        self.ants_uvw = ITRF_to_UVW(self.ITRF.rechunk((-1, 3)), self.gha, self.dec)
+        self.ants_uvw = ITRF_to_UVW(
+            self.ITRF.rechunk((-1, 3)), self.gha, self.tracked_dec, self.tracked_roll
+        )
 
         if no_w:
             self.ants_uvw = da.where(np.array([True, True, False]), self.ants_uvw, 0.0)

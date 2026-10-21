@@ -12,3 +12,7 @@ Module Reference
 .. automodule:: tabsim.jax.interferometry
    :members:
    :undoc-members:
+
+.. automodule:: tabsim.time
+   :members:
+   :undoc-members:
