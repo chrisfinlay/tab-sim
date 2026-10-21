@@ -18,28 +18,46 @@ up to and including v0.0.13, which displaced every modelled RFI source by that
 angle — about 15 m of extra path on MeerKAT's longest baseline, or 63
 wavelengths at L band.
 
-## The sky model moves with it
+## The sky model stays in J2000, the basis rolls to meet it
 
-Astronomical sources are *not* simply unaffected. It is tempting to argue that
-`lmn` are offsets from the phase centre, so rotating centre and source alike
-leaves them unchanged — but `radec_to_lmn` builds its tangent basis from the
-pole of the frame it is given, and the J2000 pole is not the true pole of date.
-Pairing J2000 direction cosines with of-date uvw therefore leaves the two bases
-rotated about `w` by about 0.1 degrees.
+It is tempting to argue that astronomical sources are unaffected, since `lmn`
+are offsets from the phase centre and rotating centre and source alike leaves
+them unchanged. That is wrong: `radec_to_lmn` builds its tangent basis from the
+pole of the frame it is handed, and the J2000 pole is not the true pole of date.
 
-That is invisible on axis and grows with the offset. On a 4 km baseline at L
-band it is 0.05 wavelengths of path at 0.25 degrees off axis, 0.2 at 1 degree
-and 0.4 at 2 degrees — 76 degrees of phase at one degree out.
+So `w` is pointed at the apparent place, but `u` and `v` are then **rolled**
+about it, by `tabsim.time.tracking_basis_roll`, so that they are the J2000 east
+and north carried rigidly onto the tracked frame. J2000 direction cosines pair
+with them exactly. The roll leaves `w` untouched, so the RFI fringe-stopping
+term does not depend on it.
 
-So the sky model is carried to the apparent frame too, by
-`tabsim.time.apparent_radec_of_sources`, before its direction cosines are
-taken. Both it and the centre are evaluated at one reference time, the middle
-of the observation: the apparent place moves about 0.05 arcsec over four hours,
-which leaves under 0.005 wavelengths on the same baseline.
+Completing the basis from the of-date pole instead would leave the two bases
+rolled apart by that angle:
 
-Source positions are still *given* in J2000, and the output still records them
-in J2000. Gaussian and exponential position angles are left alone; a 0.1 degree
-rotation of the reference north is far below the precision those carry.
+| phase centre declination | roll |
+|---|---|
+| near the equator | 0.08 deg |
+| -45 | 0.11 deg |
+| -89 | 5.1 deg |
+| -89.9 | 72 deg |
+
+It is small away from the pole and enormous beside it, where the J2000 and
+of-date poles are 0.145 deg apart and the field sits between them. Ignoring it
+costs 0.44 wavelengths of path for a source 2 deg off axis near the equator and
+48 wavelengths for a polar field, and it would rotate an extended source
+outright.
+
+Rolling the basis rather than transforming the sky keeps three things simple:
+source positions are still given *and* recorded in J2000; a position angle
+measured from J2000 north stays a position angle, with no correction; and the
+direction cosines stay genuinely time independent, so nothing has to be frozen
+at a reference time.
+
+What remains is differential aberration: the whole field is carried by the phase
+centre's aberration, so a source at the edge keeps a residual of (v/c) times its
+offset, which is 0.035 wavelengths at 2 deg on a 4 km baseline at L band. That
+is deliberately not modelled -- tabascal's astronomical model makes the same
+uniform assumption, and standard imaging ignores the effect.
 
 ## What is applied
 

@@ -409,6 +409,7 @@ def ITRF_to_UVW(
     itrf: Array,
     h0: Array,
     dec: Array,
+    roll: Array = 0.0,
 ) -> Array:
     n_ant = itrf.shape[0]
     n_time = h0.shape[0]
@@ -421,12 +422,16 @@ def ITRF_to_UVW(
     # it pairs with. A single declination is broadcast along it, which keeps the
     # fixed-direction callers working unchanged.
     dec = da.broadcast_to(da.atleast_1d(dec), (n_time,)).rechunk((time_chunk,))  # type: ignore
+    roll = da.broadcast_to(da.atleast_1d(roll), (n_time,)).rechunk((time_chunk,))  # type: ignore
 
     input = xr.Dataset(
         {
             "itrf": (["ant", "space"], itrf),
             "h0": (["time"], da.atleast_1d(h0)),  # type: ignore
             "dec": (["time"], dec),  # type: ignore
+            # Not "roll": xarray.Dataset.roll() is a method, so ds.roll would
+            # resolve to it rather than to this variable.
+            "basis_roll": (["time"], roll),  # type: ignore
         }
     )
 
@@ -448,6 +453,7 @@ def ITRF_to_UVW(
             ds.itrf.data,
             ds.h0.data,
             ds.dec.data,
+            ds.basis_roll.data,
         )
         ds_out = xr.Dataset({"uvw": (["time", "ant", "space"], uvw)})
         return ds_out

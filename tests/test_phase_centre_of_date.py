@@ -21,11 +21,11 @@ from tabsim.dask.observation import Observation
 from tabsim.jax.coordinates import mjd_to_gast, mjd_to_gmst, mjd_to_jd
 from tabsim.time import (
     apparent_radec_of_date,
-    apparent_radec_of_sources,
     gast_deg,
     skyfield_time,
+    tracking_basis_roll,
 )
-from tabsim.time import _unit_vectors
+from tabsim.time import _tangent_vectors
 
 # MeerKAT, 2019-09-15 ~15:15 UTC, field CGCG021-063: the observation tabascal#252
 # reproduces the displacement on.
@@ -96,7 +96,7 @@ def _tracked_direction_gcrs(obs):
     """
 
     times_jd = mjd_to_jd(np.asarray(obs.times_mjd_fine.compute()))
-    s_date = _unit_vectors(np.asarray(obs.tracked_ra), np.asarray(obs.tracked_dec))
+    s_date = _tangent_vectors(np.asarray(obs.tracked_ra), np.asarray(obs.tracked_dec))[2]
     bpn = np.reshape(skyfield_time(times_jd).M, (3, 3, -1))  # GCRS -> of date
 
     return np.einsum("jit,tj->ti", bpn, s_date)
@@ -147,7 +147,7 @@ def test_apparent_place_includes_annual_aberration():
     ra_app, dec_app = apparent_radec_of_date(RA_J2000, DEC_J2000, [jd])
 
     bpn = erfa.pnm06a(obstime.tt.jd1, obstime.tt.jd2)
-    ra_bpn, dec_bpn = _radec_degrees(bpn @ _unit_vectors(RA_J2000, DEC_J2000)[0])
+    ra_bpn, dec_bpn = _radec_degrees(bpn @ _tangent_vectors(RA_J2000, DEC_J2000)[2])
 
     tracked = SkyCoord(
         ra=ra_app[0] * u.deg, dec=dec_app[0] * u.deg, frame=TETE(obstime=obstime)
@@ -299,36 +299,56 @@ def _gcrs_unit_vectors(ra_deg, dec_deg, time_jd):
     pvh, pvb = erfa.epv00(t.whole, t.tdb_fraction)
     v = pvb["v"][0] / erfa.DC
 
+    # Always (n, 3): _tangent_vectors squeezes for scalar input, and a (3,)
+    # return here would make the caller's [0] pick a component, not a vector.
+    directions = np.atleast_2d(_tangent_vectors(ra_deg, dec_deg)[2])
+
     return erfa.ab(
-        _unit_vectors(ra_deg, dec_deg),
-        v,
-        np.linalg.norm(pvh["p"][0]),
-        np.sqrt(1.0 - v @ v),
+        directions, v, np.linalg.norm(pvh["p"][0]), np.sqrt(1.0 - v @ v)
     )
 
 
-def test_off_axis_astronomical_phase_matches_the_geometric_path():
+@pytest.mark.parametrize(
+    "dec_centre, n_time, int_time",
+    [
+        (DEC_J2000, 4, 8.0),  # near the equator, a few samples
+        (-89.9, 25, 1800.0),  # a polar field over 12 hours
+        (-45.0, 9, 1800.0),
+    ],
+    ids=["equatorial", "polar-long", "mid-long"],
+)
+def test_off_axis_astronomical_phase_matches_the_geometric_path(
+    dec_centre, n_time, int_time
+):
     """u.l + v.m + w.(n-1) must be the real path difference, off axis too.
 
-    The direction cosines and the uvw have to be on one equator and equinox.
-    `radec_to_lmn` takes its tangent basis from the pole of the frame it is
-    given, so J2000 source positions paired with the of-date uvw leave the two
-    bases rotated about w by about 0.1 degrees. That is invisible on axis and
-    grows with the offset: 0.2 wavelengths at 1 degree on these baselines, which
-    is 76 degrees of phase.
+    The direction cosines and the uvw have to share one tangent basis.
+    `radec_to_lmn` takes its basis from the pole of the frame it is given, so
+    J2000 source positions need J2000 east and north. Completing the uvw basis
+    from the of-date pole instead leaves the two rolled apart by
+    `tracking_basis_roll`: 0.08 degrees near the equator, and 72 degrees at a
+    declination of -89.9, where it rotates an extended source outright.
 
-    The reference here is independent of `radec_to_lmn` altogether: the baseline
-    and both directions in GCRS, dotted directly.
+    The polar case also pins down the time dependence: the roll changes through
+    the observation, and freezing the sky model at a reference time instead
+    would drift here.
+
+    The reference is independent of `radec_to_lmn` altogether: the baseline and
+    both directions in GCRS, dotted directly.
     """
 
     offsets = np.array([0.0, 0.5, 1.0, 2.0])
-    ra_src = RA_J2000 + offsets / np.cos(np.deg2rad(DEC_J2000))
-    dec_src = np.full(offsets.shape, DEC_J2000)
+    ra_src = RA_J2000 + offsets / np.cos(np.deg2rad(dec_centre))
+    dec_src = np.full(offsets.shape, dec_centre)
 
-    obs = _observation()
-    obs.addAstro(
-        I=np.ones((len(offsets), 1)), ra=ra_src, dec=dec_src
+    obs = _observation(
+        dec=dec_centre,
+        times_mjd=MJD_2019 + np.arange(n_time) * int_time / 86400,
+        int_time=int_time,
     )
+    # (n_src, 1, 1): a two-dimensional I would be read as one source's
+    # spectrogram, which would quietly reduce this to the on-axis case.
+    obs.addAstro(I=np.ones((len(offsets), 1, 1)), ra=ra_src, dec=dec_src)
 
     lmn = np.asarray(obs.ast_p_lmn[0].compute())
     bl_uvw = np.asarray(obs.bl_uvw[obs.t_idx].compute())
@@ -341,15 +361,61 @@ def test_off_axis_astronomical_phase_matches_the_geometric_path():
     expected = np.empty_like(modelled)
     for t, time_jd in enumerate(times_jd):
         baselines = ants_xyz[t, a1] - ants_xyz[t, a2]
-        centre = _gcrs_unit_vectors(RA_J2000, DEC_J2000, time_jd)[0]
+        centre = _gcrs_unit_vectors(RA_J2000, dec_centre, time_jd)[0]
         sources = _gcrs_unit_vectors(ra_src, dec_src, time_jd)
         expected[t] = baselines @ (sources - centre).T
 
-    error = np.abs(modelled - expected)
+    error = np.abs(modelled - expected).max()
     wavelength = 299792458.0 / 1.227e9
 
-    # On axis this is exact; the tolerance covers the whole range of offsets.
-    assert error.max() / wavelength < 0.02, (
-        f"off-axis phase off by {error.max():.4f} m "
-        f"= {error.max() / wavelength:.3f} wavelengths"
+    # The floor here is differential aberration: the whole field is carried by
+    # the phase centre's aberration, so a source at the edge keeps a residual of
+    # (v/c) times its offset. That is 0.035 wavelengths at 2 degrees on these
+    # baselines, and it is what tabascal's astronomical model assumes too, so it
+    # is deliberately not modelled. The bug this guards against is 0.22
+    # wavelengths at 1 degree, and tens of wavelengths for the polar case.
+    assert error / wavelength < 0.05, (
+        f"off-axis phase off by {error:.4f} m "
+        f"= {error / wavelength:.3f} wavelengths at dec {dec_centre}"
     )
+
+    # On axis the pairing has to be exact regardless.
+    on_axis = np.abs(modelled[..., 0] - expected[..., 0]).max()
+    assert on_axis / wavelength < 1e-3
+
+
+def test_basis_roll_leaves_the_tracking_term_alone():
+    """The roll turns u and v about w, so the RFI fringe-stopping term is untouched."""
+
+    from tabsim.jax.coordinates import itrf_to_uvw
+
+    h0 = np.array([10.0, 20.0, 30.0])
+    without = np.asarray(itrf_to_uvw(ITRF, h0, -30.0))
+    with_roll = np.asarray(itrf_to_uvw(ITRF, h0, -30.0, 37.0))
+
+    np.testing.assert_array_equal(with_roll[..., 2], without[..., 2])
+    np.testing.assert_allclose(
+        np.linalg.norm(with_roll, axis=-1), np.linalg.norm(without, axis=-1), atol=1e-9
+    )
+    assert np.abs(with_roll[..., :2] - without[..., :2]).max() > 1.0
+
+
+def test_basis_roll_grows_towards_the_pole():
+    """It is 0.08 deg at the equator and tens of degrees beside the pole.
+
+    The J2000 and of-date poles are about 0.145 deg apart by 2019, so a field
+    sitting between them has its east and north turned a long way.
+    """
+
+    jd = mjd_to_jd(MJD_2019)
+    roll = {
+        dec: float(tracking_basis_roll(RA_J2000, dec, [jd])[0])
+        for dec in (DEC_J2000, -45.0, -89.0, -89.9)
+    }
+
+    assert abs(roll[DEC_J2000]) == pytest.approx(0.082, abs=0.005)
+    assert abs(roll[-45.0]) == pytest.approx(0.113, abs=0.005)
+    assert abs(roll[-89.0]) == pytest.approx(5.1, abs=0.3)
+    assert abs(roll[-89.9]) == pytest.approx(72.0, abs=1.0)
+
+

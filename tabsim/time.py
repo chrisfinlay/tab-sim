@@ -127,60 +127,99 @@ def apparent_radec_of_date(ra_deg: float, dec_deg: float, times_jd):
     return _radec_deg(s_date)
 
 
-def apparent_radec_of_sources(ra_deg, dec_deg, time_jd: float):
-    """Many J2000 directions as their apparent places at one time.
+def tracking_basis_roll(ra_deg: float, dec_deg: float, times_jd) -> NDArray:
+    """Roll of the uvw basis about w, in degrees, one per time.
 
-    :func:`apparent_radec_of_date` takes one direction through many times, for
-    the phase centre. This takes a whole sky model through one time, which is
-    what the direction cosines need.
+    ``w`` points at the phase centre's apparent place of date
+    (:func:`apparent_radec_of_date`), and :func:`tabsim.jax.coordinates.itrf_to_uvw`
+    would otherwise complete the basis with the east and north of *that* frame's
+    pole. Those are not the J2000 east and north, and
+    :func:`tabsim.jax.coordinates.radec_to_lmn` takes its tangent basis from the
+    pole of the frame it is handed, so J2000 direction cosines would not pair
+    with them.
 
-    :func:`tabsim.jax.coordinates.radec_to_lmn` builds its tangent basis from
-    the pole of the frame its coordinates are referred to, so J2000 source
-    positions produce a J2000 basis. The uvw are built at the phase centre's
-    apparent place of date, so the sources have to be brought to the same frame
-    or the two bases differ by a rotation about w.
+    This angle rolls the basis so that ``u`` and ``v`` are instead the J2000
+    east and north carried rigidly onto the tracked frame. J2000 direction
+    cosines then pair with them exactly, the sky model needs no transformation,
+    and a position angle measured from J2000 north stays a position angle.
 
-    One time is enough: the apparent place moves about 0.05 arcsec over four
-    hours, far below what the relative geometry of a sky model resolves.
+    It is small where the celestial pole is far away -- 0.08 deg at the equator,
+    0.11 at a declination of -45 -- and large near it: 72 deg at a declination
+    of -89.9, where the J2000 and of-date poles are 0.145 deg apart and the
+    field sits between them. Completing the basis from the of-date pole there
+    would rotate an extended source by that much.
 
     Parameters
     ----------
-    ra_deg, dec_deg : array_like (n_src,)
-        The J2000 source directions in degrees.
-    time_jd : float
-        The reference time as a Julian Date, normally the middle of the
-        observation.
+    ra_deg, dec_deg : float
+        The J2000 phase centre in degrees.
+    times_jd : array_like
+        Observation times as Julian Dates.
 
     Returns
     -------
-    (np.ndarray, np.ndarray)
-        Apparent RA in ``[0, 360)`` and Dec, in degrees, one per source.
+    np.ndarray
+        The roll in degrees, one per input time.
     """
 
-    t = skyfield_time(float(time_jd))
+    t = skyfield_time(times_jd)
 
-    v, em, bm1 = (np.asarray(x)[0] for x in _annual_aberration(t))
-    s_app = erfa.ab(_unit_vectors(ra_deg, dec_deg), v, em, bm1)
-    bpn = np.reshape(t.M, (3, 3, -1))[:, :, 0]  # GCRS -> true equator of date
+    east0, north0, w0 = _tangent_vectors(ra_deg, dec_deg)
+    s_app = erfa.ab(w0, *_annual_aberration(t))
 
-    return _radec_deg(s_app @ bpn.T)
+    # Rodrigues for the rigid rotation carrying w0 onto its apparent place,
+    # applied to the J2000 east. The axis degenerates only where there is no
+    # aberration to apply, and there the rotation is the identity.
+    axis = np.cross(w0, s_app)
+    sin_theta = np.linalg.norm(axis, axis=-1, keepdims=True)
+    axis = np.divide(axis, sin_theta, out=np.zeros_like(axis), where=sin_theta > 0)
+    cos_theta = (s_app @ w0)[:, None]
+    east = (
+        east0
+        + sin_theta * np.cross(axis, east0)
+        + (1.0 - cos_theta) * np.cross(axis, np.cross(axis, east0))
+    )
+
+    bpn = np.reshape(t.M, (3, 3, -1))  # GCRS -> true equator of date
+    east = np.einsum("ijt,tj->ti", bpn, east)
+
+    tracked = _tangent_vectors(*_radec_deg(np.einsum("ijt,tj->ti", bpn, s_app)))
+
+    return np.rad2deg(
+        np.arctan2(np.sum(east * tracked[1], axis=-1), np.sum(east * tracked[0], axis=-1))
+    )
+
+
+def _tangent_vectors(ra_deg, dec_deg):
+    """East, north and line-of-sight unit vectors at each direction, ``(..., 3)``.
+
+    East and north are taken with respect to the pole of whatever frame the
+    coordinates are referred to, which is the whole reason
+    :func:`tracking_basis_roll` exists.
+    """
+
+    ra = np.deg2rad(np.atleast_1d(np.asarray(ra_deg, dtype=float)))
+    dec = np.deg2rad(np.atleast_1d(np.asarray(dec_deg, dtype=float)))
+    zero = np.zeros_like(ra)
+
+    east = np.stack([-np.sin(ra), np.cos(ra), zero], axis=-1)
+    north = np.stack(
+        [-np.sin(dec) * np.cos(ra), -np.sin(dec) * np.sin(ra), np.cos(dec)], axis=-1
+    )
+    line_of_sight = np.stack(
+        [np.cos(dec) * np.cos(ra), np.cos(dec) * np.sin(ra), np.sin(dec)], axis=-1
+    )
+
+    if np.ndim(ra_deg) == 0 and np.ndim(dec_deg) == 0:
+        return east[0], north[0], line_of_sight[0]
+
+    return east, north, line_of_sight
 
 
 def _unit_vector(ra_deg: float, dec_deg: float) -> NDArray:
     ra, dec = np.deg2rad(float(ra_deg)), np.deg2rad(float(dec_deg))
 
     return np.array([np.cos(dec) * np.cos(ra), np.cos(dec) * np.sin(ra), np.sin(dec)])
-
-
-def _unit_vectors(ra_deg, dec_deg) -> NDArray:
-    """RA/Dec in degrees to unit vectors ``(n, 3)``."""
-
-    ra = np.deg2rad(np.atleast_1d(np.asarray(ra_deg, dtype=float)))
-    dec = np.deg2rad(np.atleast_1d(np.asarray(dec_deg, dtype=float)))
-
-    return np.stack(
-        [np.cos(dec) * np.cos(ra), np.cos(dec) * np.sin(ra), np.sin(dec)], axis=-1
-    )
 
 
 def _radec_deg(s: NDArray):

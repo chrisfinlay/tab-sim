@@ -644,7 +644,7 @@ def xyz_to_itrf(xyz: Array, gsa: Array) -> Array:
     return itrf
 
 
-def itrf_to_uvw(itrf: Array, h0: Array, dec: float) -> Array:
+def itrf_to_uvw(itrf: Array, h0: Array, dec: float, roll: Array = 0.0) -> Array:
     """
     Calculate uvw coordinates from ITRF/ECEF coordinates,
     source hour angle and declination. Use the Greenwich hour
@@ -663,6 +663,14 @@ def itrf_to_uvw(itrf: Array, h0: Array, dec: float) -> Array:
         The declination of the target in decimal degrees. A single value is
         broadcast over time; pass one per time to track a direction that moves,
         as the phase centre's apparent place of date does.
+    roll: float or Array (n_time,)
+        Rotation of the u and v axes about w, in decimal degrees, zero by
+        default. `w` is unchanged by it, so the phase-tracking term does not
+        depend on this. Use it to complete the basis with something other than
+        the east and north of `h0` and `dec`'s own frame: see
+        `tabsim.time.tracking_basis_roll`, which carries the J2000 east and
+        north onto a tracked frame of date so that J2000 direction cosines pair
+        with u and v.
 
     Returns
     -------
@@ -676,21 +684,31 @@ def itrf_to_uvw(itrf: Array, h0: Array, dec: float) -> Array:
 
     h0 = jnp.deg2rad(jnp.atleast_1d(h0))
     dec = jnp.deg2rad(jnp.asarray(dec))  # type: ignore
+    roll = jnp.deg2rad(jnp.asarray(roll))  # type: ignore
     ones = jnp.ones_like(h0)
 
-    R = jnp.array(
+    east = jnp.stack([jnp.sin(h0), jnp.cos(h0), jnp.zeros_like(h0)])
+    north = jnp.stack(
         [
-            [jnp.sin(h0), jnp.cos(h0), jnp.zeros_like(h0)],
-            [
-                -jnp.sin(dec) * jnp.cos(h0),
-                jnp.sin(dec) * jnp.sin(h0),
-                jnp.cos(dec) * ones,
-            ],
-            [
-                jnp.cos(dec) * jnp.cos(h0),
-                -jnp.cos(dec) * jnp.sin(h0),
-                jnp.sin(dec) * ones,
-            ],
+            -jnp.sin(dec) * jnp.cos(h0),
+            jnp.sin(dec) * jnp.sin(h0),
+            jnp.cos(dec) * ones,
+        ]
+    )
+    line_of_sight = jnp.stack(
+        [
+            jnp.cos(dec) * jnp.cos(h0),
+            -jnp.cos(dec) * jnp.sin(h0),
+            jnp.sin(dec) * ones,
+        ]
+    )
+
+    cos_roll, sin_roll = jnp.cos(roll), jnp.sin(roll)
+    R = jnp.stack(
+        [
+            cos_roll * east + sin_roll * north,
+            cos_roll * north - sin_roll * east,
+            line_of_sight,
         ]
     )
 
