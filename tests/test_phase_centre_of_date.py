@@ -611,6 +611,7 @@ def test_utc_epochs_survive_a_leap_second(iso):
 
 
 _OFFLINE_PROBE = """
+import errno
 import socket
 
 reached = []
@@ -619,12 +620,22 @@ def refuse_connection(self, address):
     reached.append(("connect", address))
     raise OSError("blocked by the test")
 
+def refuse_connection_ex(self, address):
+    reached.append(("connect_ex", address))
+    return errno.ECONNREFUSED
+
 def refuse_resolution(*args, **kwargs):
     reached.append(("resolve", args[:2]))
     raise socket.gaierror("blocked by the test")
 
+def refuse_hostname(*args, **kwargs):
+    reached.append(("gethostbyname", args[:1]))
+    raise socket.gaierror("blocked by the test")
+
 socket.socket.connect = refuse_connection
+socket.socket.connect_ex = refuse_connection_ex
 socket.getaddrinfo = refuse_resolution
+socket.gethostbyname = refuse_hostname
 
 import numpy as np
 from tabsim.time import apparent_radec_of_date, gast_deg, skyfield_time
@@ -638,14 +649,16 @@ assert np.isfinite(apparent_radec_of_date(229.1675, 0.2506, times)[0]).all()
 print("reached=%d" % len(reached), *reached, sep="|")
 
 seen = len(reached)
-try:
-    socket.getaddrinfo("iers.invalid", 443)
-except socket.gaierror:
-    pass
-try:
-    socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("127.0.0.1", 9))
-except OSError:
-    pass
+for attempt in (
+    lambda: socket.getaddrinfo("iers.invalid", 443),
+    lambda: socket.gethostbyname("iers.invalid"),
+    lambda: socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("127.0.0.1", 9)),
+    lambda: socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect_ex(("127.0.0.1", 9)),
+):
+    try:
+        attempt()
+    except OSError:
+        pass
 print("control=%d" % (len(reached) - seen))
 """
 
@@ -673,9 +686,15 @@ def test_reading_utc_touches_no_network(tmp_path):
     Counting connections alone would therefore have passed the astropy route
     on exactly the machines the test exists to protect.
 
+    Four ways out are refused: `getaddrinfo` and `gethostbyname` for a name,
+    `connect` and `connect_ex` for a socket. `connect_ex` reports an errno
+    rather than raising, so it is refused the way callers expect to be. That
+    covers the urllib, http.client, ssl and IPv6 paths astropy reaches the
+    network by, and a Unix socket too.
+
     The control line keeps the probe honest: an instrument that cannot see an
-    attempt cannot testify that none was made, so it makes one attempt of each
-    kind and reports what it saw.
+    attempt cannot testify that none was made, so it makes one attempt down
+    each of the four and reports how many it saw.
     """
 
     environment = dict(os.environ)
@@ -693,9 +712,9 @@ def test_reading_utc_touches_no_network(tmp_path):
 
     assert finished.returncode == 0, finished.stderr[-2000:]
     assert "reached=0" in finished.stdout, finished.stdout.strip()
-    assert "control=2" in finished.stdout, (
-        "the probe saw neither a lookup nor a connection of its own, so "
-        f"reached=0 attests to nothing: {finished.stdout.strip()}"
+    assert "control=4" in finished.stdout, (
+        "the probe did not see all four of its own attempts, so reached=0 "
+        f"attests to nothing: {finished.stdout.strip()}"
     )
 
 
