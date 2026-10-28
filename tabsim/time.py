@@ -68,7 +68,8 @@ def skyfield_time(times_jd):
     erfa's leap-second table is compiled in, so this needs no cache and no
     network. astropy would do the same conversion, but its first UTC-to-TAI
     call tries to refresh that table from IERS and IANA, which on an offline
-    node is several connection timeouts per worker before it falls back.
+    node stalls every worker on name resolution or connection before it falls
+    back to the table it ships with.
 
     ``tai_jd`` takes the two-part Julian Date, so the day number and the
     fraction stay separate all the way through and no precision is lost.

@@ -611,12 +611,20 @@ def test_utc_epochs_survive_a_leap_second(iso):
 
 
 _OFFLINE_PROBE = """
-import socket, sys
-attempts = []
-def refuse(self, address):
-    attempts.append(address)
-    raise OSError("blocked")
-socket.socket.connect = refuse
+import socket
+
+reached = []
+
+def refuse_connection(self, address):
+    reached.append(("connect", address))
+    raise OSError("blocked by the test")
+
+def refuse_resolution(*args, **kwargs):
+    reached.append(("resolve", args[:2]))
+    raise socket.gaierror("blocked by the test")
+
+socket.socket.connect = refuse_connection
+socket.getaddrinfo = refuse_resolution
 
 import numpy as np
 from tabsim.time import apparent_radec_of_date, gast_deg, skyfield_time
@@ -627,7 +635,18 @@ times = np.array([2458742.1354, 2458742.1355, 2458742.1356])
 assert np.isfinite(gast_deg(times)).all()
 assert np.isfinite(np.asarray(skyfield_time(times).tt)).all()
 assert np.isfinite(apparent_radec_of_date(229.1675, 0.2506, times)[0]).all()
-print("connects=%d" % len(attempts), *attempts, sep="|")
+print("reached=%d" % len(reached), *reached, sep="|")
+
+seen = len(reached)
+try:
+    socket.getaddrinfo("iers.invalid", 443)
+except socket.gaierror:
+    pass
+try:
+    socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("127.0.0.1", 9))
+except OSError:
+    pass
+print("control=%d" % (len(reached) - seen))
 """
 
 
@@ -637,14 +656,26 @@ def test_reading_utc_touches_no_network(tmp_path):
     erfa's leap-second table is compiled into pyerfa, so decoding a UTC Julian
     Date needs no cache and no network. astropy would do the same conversion,
     but its first UTC-to-TAI call tries to refresh that table from IERS and
-    IANA: five connection attempts, which on an offline node are five timeouts
-    in every worker before it falls back.
+    IANA, which on an offline node stalls every worker before it falls back.
 
     This runs in a fresh process with HOME pointed at an empty directory, so
     astropy's download cache is cold. In-process the cache is warm and the
     attempts never happen, which would make the test pass whatever the
     implementation did. Nothing here disables astropy's auto-download: the
     probe asserts it is on, since the point is to see what a simulation sees.
+
+    Name resolution is counted as well as connection, because it comes first
+    and can be the only thing that happens. Against the astropy route this
+    probe records two lookups, of `hpiers.obspm.fr` and `data.iana.org`, and
+    then five connections -- but only where those names resolve. Where they do
+    not, as on the offline node this test is about, astropy swallows the
+    failure and falls back to bundled data having opened no connection at all.
+    Counting connections alone would therefore have passed the astropy route
+    on exactly the machines the test exists to protect.
+
+    The control line keeps the probe honest: an instrument that cannot see an
+    attempt cannot testify that none was made, so it makes one attempt of each
+    kind and reports what it saw.
     """
 
     environment = dict(os.environ)
@@ -661,7 +692,11 @@ def test_reading_utc_touches_no_network(tmp_path):
     )
 
     assert finished.returncode == 0, finished.stderr[-2000:]
-    assert "connects=0" in finished.stdout, finished.stdout.strip()
+    assert "reached=0" in finished.stdout, finished.stdout.strip()
+    assert "control=2" in finished.stdout, (
+        "the probe saw neither a lookup nor a connection of its own, so "
+        f"reached=0 attests to nothing: {finished.stdout.strip()}"
+    )
 
 
 def test_observation_samples_are_evenly_spaced_across_a_leap_second():
