@@ -334,6 +334,9 @@ def gmsa_from_jd(jd: float) -> float:
     """Get the Greenwich Mean Sidereal Angle in degrees from the Julian Day (UT1).
     Calculated using https://aa.usno.navy.mil/faq/GAST
 
+    As with `mjd_to_gmst`, the Julian Date must be on UT1. tab-sim reads its
+    epochs as UTC, so a caller has to carry them over first.
+
     Parameters
     ----------
     jd : float
@@ -374,7 +377,21 @@ def jd_from_gmst(gmst: float) -> float:
 
 
 def mjd_to_gmst(mjd: float) -> float:
-    """Taken from OSKAR simulator"""
+    """Greenwich Mean Sidereal Angle in degrees, from a **UT1** MJD.
+
+    Taken from the OSKAR simulator (`oskar_convert_mjd_to_gmst`). The scale is
+    not optional: the `fmod(mjd, 1)` term is the UT1 fraction of the day and
+    24110.54841 s is GMST at 0h UT1, so this is the classic GMST(UT1) series.
+    erfa's `gst00b` likewise takes "UT1 as a 2-part Julian Date", and casacore
+    reaches GMST through `UTC_UT1` (which adds `MeasTable::dUT1`) and then
+    `UT1_GMST1`.
+
+    tab-sim reads its own epochs as UTC (`tabsim.time.skyfield_time`), so a UTC
+    MJD must be carried to UT1 before it is passed here. Feeding UTC straight in
+    omits DUT1, which is 2.6 arcsec of Earth rotation at present. The simulation
+    geometry does not use this function; it takes GAST from skyfield, which does
+    the conversion internally.
+    """
 
     sec2rad = 7.2722052166430399038487e-5
     two_pi = 6.28318530717958647693
@@ -397,7 +414,12 @@ def mjd_to_gmst(mjd: float) -> float:
 
 
 def equation_of_equinoxes(mjd: float) -> float:
-    """Taken from OSKAR simulator"""
+    """The equation of the equinoxes in RADIANS, from a **UT1** MJD.
+
+    Taken from the OSKAR simulator. Note the unit: the sidereal angles either
+    side of this, `mjd_to_gmst` and `mjd_to_gast`, are in degrees, so adding
+    this to one of them directly is a bug.
+    """
 
     deg2rad = 0.0174532925199432957692
     hour2rad = 0.261799387799149436539
@@ -421,9 +443,19 @@ def equation_of_equinoxes(mjd: float) -> float:
 
 
 def mjd_to_gast(mjd: float) -> float:
-    """Taken from OSKAR simulator"""
+    """Greenwich Apparent Sidereal Angle in degrees, from a **UT1** MJD.
 
-    gast = mjd_to_gmst(mjd) + equation_of_equinoxes(mjd)
+    Taken from the OSKAR simulator. See `mjd_to_gmst` on the time scale: a UTC
+    MJD passed here is 2.6 arcsec of Earth rotation out.
+
+    `mjd_to_gmst` is in degrees and `equation_of_equinoxes` in radians, so the
+    latter is converted before the two are added. Adding them directly applied
+    the equation of the equinoxes at 1/57th of its size, which left this
+    returning GMST rather than GAST, up to 17 arcsec out (tab-sim#73). That is
+    0.3 m of path on a 4 km baseline, so it mattered to the RFI phase.
+    """
+
+    gast = mjd_to_gmst(mjd) + jnp.rad2deg(equation_of_equinoxes(mjd))
 
     return gast
 
@@ -633,7 +665,7 @@ def xyz_to_itrf(xyz: Array, gsa: Array) -> Array:
     return itrf
 
 
-def itrf_to_uvw(itrf: Array, h0: Array, dec: float) -> Array:
+def itrf_to_uvw(itrf: Array, h0: Array, dec: float, roll: Array = 0.0) -> Array:
     """
     Calculate uvw coordinates from ITRF/ECEF coordinates,
     source hour angle and declination. Use the Greenwich hour
@@ -648,8 +680,18 @@ def itrf_to_uvw(itrf: Array, h0: Array, dec: float) -> Array:
         Antenna positions in the ITRF frame in units of metres.
     h0: Array (n_time,)
         The hour angle of the target in decimal degrees.
-    dec: float
-        The declination of the target in decimal degrees.
+    dec: float or Array (n_time,)
+        The declination of the target in decimal degrees. A single value is
+        broadcast over time; pass one per time to track a direction that moves,
+        as the phase centre's apparent place of date does.
+    roll: float or Array (n_time,)
+        Rotation of the u and v axes about w, in decimal degrees, zero by
+        default. `w` is unchanged by it, so the phase-tracking term does not
+        depend on this. Use it to complete the basis with something other than
+        the east and north of `h0` and `dec`'s own frame: see
+        `tabsim.time.tracking_basis_roll`, which carries the J2000 east and
+        north onto a tracked frame of date so that J2000 direction cosines pair
+        with u and v.
 
     Returns
     -------
@@ -663,21 +705,31 @@ def itrf_to_uvw(itrf: Array, h0: Array, dec: float) -> Array:
 
     h0 = jnp.deg2rad(jnp.atleast_1d(h0))
     dec = jnp.deg2rad(jnp.asarray(dec))  # type: ignore
+    roll = jnp.deg2rad(jnp.asarray(roll))  # type: ignore
     ones = jnp.ones_like(h0)
 
-    R = jnp.array(
+    east = jnp.stack([jnp.sin(h0), jnp.cos(h0), jnp.zeros_like(h0)])
+    north = jnp.stack(
         [
-            [jnp.sin(h0), jnp.cos(h0), jnp.zeros_like(h0)],
-            [
-                -jnp.sin(dec) * jnp.cos(h0),
-                jnp.sin(dec) * jnp.sin(h0),
-                jnp.cos(dec) * ones,
-            ],
-            [
-                jnp.cos(dec) * jnp.cos(h0),
-                -jnp.cos(dec) * jnp.sin(h0),
-                jnp.sin(dec) * ones,
-            ],
+            -jnp.sin(dec) * jnp.cos(h0),
+            jnp.sin(dec) * jnp.sin(h0),
+            jnp.cos(dec) * ones,
+        ]
+    )
+    line_of_sight = jnp.stack(
+        [
+            jnp.cos(dec) * jnp.cos(h0),
+            -jnp.cos(dec) * jnp.sin(h0),
+            jnp.sin(dec) * ones,
+        ]
+    )
+
+    cos_roll, sin_roll = jnp.cos(roll), jnp.sin(roll)
+    R = jnp.stack(
+        [
+            cos_roll * east + sin_roll * north,
+            cos_roll * north - sin_roll * east,
+            line_of_sight,
         ]
     )
 
@@ -718,7 +770,11 @@ def calculate_fringe_frequency(
     """
 
     lam = C / freq
-    # Should change this to astropy.time.Time
+    # gmsa_from_jd takes UT1 and tab-sim's epochs are UTC, so this is DUT1 (about
+    # 2.3 arcsec of rotation) out. It stays because the result is only used to
+    # size n_int: the quantity taken from it is a fringe *rate*, which a rotation
+    # offset of that size changes by a part in 1e5, far inside the ceil() that
+    # turns it into a sample count. Nothing here reaches the visibilities.
     gsa = gmsa_from_jd(mjd_to_jd(times_mjd))  # type: ignore
     times = (times_mjd - times_mjd[0]) * 24 * 3600
 

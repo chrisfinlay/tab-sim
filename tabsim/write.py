@@ -176,6 +176,17 @@ def get_observation_attributes(obs: Observation):
         "target_name": obs.target_name,
         "target_ra": obs.ra,
         "target_dec": obs.dec,
+        # The conventions the tracking geometry was built with, so a consumer can
+        # rebuild it rather than guess. "apparent" is the J2000 centre above taken
+        # to its apparent place of date (tabsim.time.apparent_radec_of_date),
+        # which is the direction that pairs with GAST. See tab-sim#73 and
+        # tabascal#252.
+        "phase_tracking": getattr(obs, "phase_tracking", "apparent"),
+        # The scale the times below are read on. The direction convention alone
+        # does not pin the geometry down, so the scale is recorded beside it.
+        # UTC is what the MS TIME column carries and what consumers read it back
+        # on, so a consumer needs no correction to reconstruct this geometry.
+        "geometry_time_scale": getattr(obs, "geometry_time_scale", "utc"),
         "int_time": obs.int_time,
         "chan_width": obs.chan_width,
         "dish_diameter": obs.dish_d,

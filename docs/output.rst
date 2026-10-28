@@ -45,7 +45,9 @@ Use `xarray` to open `.zarr` files:
 Includes:
 - Coordinates: `ant`, `freq`, `time`, `uvw`, `radec`, etc.
 - Data: `vis_obs`, `vis_rfi`, `vis_ast`, `noise_data`, `rfi_tle_sat_xyz`, etc.
-- Attributes: observation metadata and simulation parameters
+- Attributes: observation metadata and simulation parameters, including
+  ``phase_tracking``, the direction the visibilities were fringe-stopped to. See
+  `Phase tracking <phase-tracking.md>`_.
 
 Measurement Set (.ms)
 ---------------------
