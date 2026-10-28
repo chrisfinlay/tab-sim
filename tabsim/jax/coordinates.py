@@ -334,6 +334,9 @@ def gmsa_from_jd(jd: float) -> float:
     """Get the Greenwich Mean Sidereal Angle in degrees from the Julian Day (UT1).
     Calculated using https://aa.usno.navy.mil/faq/GAST
 
+    As with `mjd_to_gmst`, the Julian Date must be on UT1. tab-sim reads its
+    epochs as UTC, so a caller has to carry them over first.
+
     Parameters
     ----------
     jd : float
@@ -374,7 +377,21 @@ def jd_from_gmst(gmst: float) -> float:
 
 
 def mjd_to_gmst(mjd: float) -> float:
-    """Greenwich Mean Sidereal Angle in degrees. Taken from OSKAR simulator."""
+    """Greenwich Mean Sidereal Angle in degrees, from a **UT1** MJD.
+
+    Taken from the OSKAR simulator (`oskar_convert_mjd_to_gmst`). The scale is
+    not optional: the `fmod(mjd, 1)` term is the UT1 fraction of the day and
+    24110.54841 s is GMST at 0h UT1, so this is the classic GMST(UT1) series.
+    erfa's `gst00b` likewise takes "UT1 as a 2-part Julian Date", and casacore
+    reaches GMST through `UTC_UT1` (which adds `MeasTable::dUT1`) and then
+    `UT1_GMST1`.
+
+    tab-sim reads its own epochs as UTC (`tabsim.time.skyfield_time`), so a UTC
+    MJD must be carried to UT1 before it is passed here. Feeding UTC straight in
+    omits DUT1, which is 2.6 arcsec of Earth rotation at present. The simulation
+    geometry does not use this function; it takes GAST from skyfield, which does
+    the conversion internally.
+    """
 
     sec2rad = 7.2722052166430399038487e-5
     two_pi = 6.28318530717958647693
@@ -397,10 +414,11 @@ def mjd_to_gmst(mjd: float) -> float:
 
 
 def equation_of_equinoxes(mjd: float) -> float:
-    """The equation of the equinoxes in RADIANS. Taken from OSKAR simulator.
+    """The equation of the equinoxes in RADIANS, from a **UT1** MJD.
 
-    Note the unit: the sidereal angles either side of this, `mjd_to_gmst` and
-    `mjd_to_gast`, are in degrees. Adding this to one of them directly is a bug.
+    Taken from the OSKAR simulator. Note the unit: the sidereal angles either
+    side of this, `mjd_to_gmst` and `mjd_to_gast`, are in degrees, so adding
+    this to one of them directly is a bug.
     """
 
     deg2rad = 0.0174532925199432957692
@@ -425,7 +443,10 @@ def equation_of_equinoxes(mjd: float) -> float:
 
 
 def mjd_to_gast(mjd: float) -> float:
-    """Greenwich Apparent Sidereal Angle in degrees. Taken from OSKAR simulator.
+    """Greenwich Apparent Sidereal Angle in degrees, from a **UT1** MJD.
+
+    Taken from the OSKAR simulator. See `mjd_to_gmst` on the time scale: a UTC
+    MJD passed here is 2.6 arcsec of Earth rotation out.
 
     `mjd_to_gmst` is in degrees and `equation_of_equinoxes` in radians, so the
     latter is converted before the two are added. Adding them directly applied

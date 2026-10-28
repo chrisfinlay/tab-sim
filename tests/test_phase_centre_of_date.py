@@ -9,6 +9,8 @@ on MeerKAT for a 2019 observation, which is 63 wavelengths at L band.
 tab-sim#73, and tabascal#252 for the real-data reproducer.
 """
 
+import pathlib
+
 import erfa
 import numpy as np
 import pytest
@@ -18,7 +20,7 @@ from astropy.utils import iers
 import astropy.units as u
 
 from tabsim.dask.observation import Observation
-from tabsim.jax.coordinates import mjd_to_gast, mjd_to_gmst, mjd_to_jd
+from tabsim.jax.coordinates import jd_to_mjd, mjd_to_gast, mjd_to_gmst, mjd_to_jd
 from tabsim.time import (
     apparent_radec_of_date,
     gast_deg,
@@ -254,12 +256,20 @@ def test_phase_tracking_convention_is_recorded():
 
     assert obs.phase_tracking == "apparent"
     assert attrs["phase_tracking"] == "apparent"
-    # The direction convention alone does not pin the geometry down: the epochs
-    # are read as UT1, and reading them as UTC moves the Earth by DUT1 (#79).
-    assert obs.geometry_time_scale == "ut1"
-    assert attrs["geometry_time_scale"] == "ut1"
+    # The direction convention alone does not pin the geometry down, so the
+    # scale the epochs are read on is recorded beside it.
+    assert obs.geometry_time_scale == "utc"
+    assert attrs["geometry_time_scale"] == "utc"
     assert attrs["target_ra"] == RA_J2000
     assert attrs["target_dec"] == DEC_J2000
+
+
+def _ut1_mjd(mjd):
+    """A UTC MJD carried to UT1, as the analytic sidereal helpers require."""
+
+    jd_ut1 = np.ravel(np.asarray(skyfield_time(mjd_to_jd(mjd)).ut1))
+
+    return jd_to_mjd(jd_ut1)
 
 
 def test_mjd_to_gast_is_apparent_not_mean_sidereal_time():
@@ -270,8 +280,9 @@ def test_mjd_to_gast_is_apparent_not_mean_sidereal_time():
     """
 
     mjds = np.array([51544.5, 55000.2, MJD_2019, 60000.3, 61000.0, 62000.7])
-    gast = np.asarray(mjd_to_gast(mjds))
-    gmst = np.asarray(mjd_to_gmst(mjds))
+    ut1 = _ut1_mjd(mjds)
+    gast = np.asarray(mjd_to_gast(ut1))
+    gmst = np.asarray(mjd_to_gmst(ut1))
 
     eqeq = (gast - gmst + 180) % 360 - 180
     reference = (gast_deg(mjd_to_jd(mjds)) - gmst + 180) % 360 - 180
@@ -281,15 +292,39 @@ def test_mjd_to_gast_is_apparent_not_mean_sidereal_time():
     np.testing.assert_allclose(eqeq * 3600, reference * 3600, atol=0.5)
 
 
-def test_mjd_to_gast_matches_skyfield():
-    """tab-sim's analytic GAST and the skyfield GAST the geometry uses agree."""
+def test_mjd_to_gast_matches_skyfield_on_the_same_scale():
+    """The analytic GAST and skyfield's agree once both are given UT1.
+
+    `mjd_to_gast` is the OSKAR GMST(UT1) series plus the equation of the
+    equinoxes, so it takes UT1, as erfa's `gst00b` and casacore's `UT1_GMST1`
+    do. tab-sim reads its epochs as UTC and lets skyfield carry them to UT1, so
+    the comparison has to put both on one scale before it means anything.
+    """
 
     mjds = MJD_2019 + np.arange(5) * 8 / 86400
-    analytic = np.asarray(mjd_to_gast(mjds))
     reference = gast_deg(mjd_to_jd(mjds))
 
-    offset = (analytic - reference + 180) % 360 - 180
-    assert np.abs(offset).max() * 3600 < 1.0
+    matched = np.asarray(mjd_to_gast(_ut1_mjd(mjds)))
+    assert np.abs((matched - reference + 180) % 360 - 180).max() * 3600 < 1.0
+
+
+def test_sidereal_angle_needs_ut1_not_utc():
+    """Passing the UTC epoch straight to the analytic series loses DUT1.
+
+    This is the approximation tab-sim used to make everywhere, and the one OSKAR
+    still makes by feeding `start_time_utc` to its GMST(UT1) series. It is worth
+    a test because it is invisible: nothing errors, the Earth is just turned to
+    the wrong angle.
+    """
+
+    mjds = MJD_2019 + np.arange(5) * 8 / 86400
+    reference = gast_deg(mjd_to_jd(mjds))
+
+    unconverted = np.asarray(mjd_to_gast(mjds))
+    offset = np.abs((unconverted - reference + 180) % 360 - 180).max() * 3600
+
+    # DUT1 was about -0.15 s at this epoch, which is ~2.3 arcsec of rotation.
+    assert 1.5 < offset < 15.0
 
 
 def _gcrs_unit_vectors(ra_deg, dec_deg, time_jd):
@@ -491,3 +526,52 @@ def test_basis_roll_grows_towards_the_pole():
     assert abs(roll[-89.9]) == pytest.approx(72.0, abs=1.0)
 
 
+
+
+def test_epochs_are_read_as_utc():
+    """The epochs are UTC, so skyfield turns the Earth to UT1 = UTC + DUT1.
+
+    Reading the same numbers as UT1 instead, as tab-sim did before and as OSKAR
+    still does by handing `start_time_utc` to a GMST(UT1) series, makes this
+    difference exactly zero and leaves the Earth 2.3 arcsec out of place. The
+    oracle is astropy's own IERS table, not skyfield's.
+    """
+
+    jd = mjd_to_jd(MJD_2019)
+
+    actual = (float(np.ravel(np.asarray(skyfield_time([jd]).ut1))[0]) - jd) * 86400
+    expected = (Time(jd, format="jd", scale="utc").ut1.jd - jd) * 86400
+
+    assert abs(actual - expected) < 0.01
+    # Non-zero is the point: UT1 and UTC are not the same instant.
+    assert abs(actual) > 0.05
+    assert abs(actual) < 0.9  # leap seconds keep DUT1 inside this
+
+
+def test_every_skyfield_time_goes_through_one_place():
+    """No module may build a skyfield time itself.
+
+    The scale is a single decision, made in `tabsim.time.skyfield_time`. Calling
+    a `Timescale` constructor anywhere else reintroduces exactly the mismatch
+    this module exists to prevent, and it is invisible: nothing errors, the
+    Earth is just turned to the wrong angle and the satellites moved along
+    their tracks.
+    """
+
+    import tabsim
+
+    package = pathlib.Path(tabsim.__file__).parent
+    constructors = ("ut1_jd", "tai_jd", "tt_jd", "tdb_jd", "_utc_jd", "ts.utc(")
+
+    offenders = []
+    for source in sorted(package.rglob("*.py")):
+        if source.name == "time.py" and source.parent == package:
+            continue  # the one place that is allowed to decide
+        text = source.read_text()
+        for name in constructors:
+            if name in text:
+                offenders.append(f"{source.relative_to(package)}: {name}")
+
+    assert not offenders, "build skyfield times via tabsim.time.skyfield_time: " + str(
+        offenders
+    )

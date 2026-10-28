@@ -85,19 +85,45 @@ Two zarr attributes name the conventions the geometry was built with:
 | attribute | value | meaning |
 |-----------|-------|---------|
 | `phase_tracking` | `apparent` | the apparent place of date, as above |
-| `geometry_time_scale` | `ut1` | the scale the epochs behind the geometry are read on |
+| `geometry_time_scale` | `utc` | the scale the epochs behind the geometry are read on |
 
 The direction convention alone does not pin the geometry down, which is why the
-second is there. tab-sim reads its epochs as UT1, in `tabsim.time.skyfield_time`
-and everywhere else it calls skyfield, and the Measurement Set's `TIME` column
-carries those same numbers. Reading them as UTC instead moves the Earth by DUT1
-— currently under 0.2 s, about 0.07 wavelengths of `w` at L band on a 4 km
-baseline — and every satellite along its track by the distance it covers in that
-time. So a consumer that selects `apparent` but reads `TIME` as UTC still
-reconstructs a different geometry. That mismatch predates the tracking fix and
-is tracked in
-[#79](https://github.com/chrisfinlay/tab-sim/issues/79); recording the scale at
-least makes it a stated convention rather than an implied one.
+second is there.
+
+## Time scale
+
+Every epoch is read as **UTC**, in `tabsim.time.skyfield_time`, and every
+skyfield call in tab-sim goes through it. That is what a config's
+`start_time_isot` and `start_time_jd` state, what the Measurement Set's `TIME`
+column carries, and what a consumer reads that column back on, so the geometry
+a consumer rebuilds is the one that was simulated.
+
+The sidereal angle, though, is a function of **UT1**, not UTC, and that is not a
+tab-sim opinion:
+
+- erfa's `gst00b` takes "UT1 as a 2-part Julian Date";
+- casacore reaches sidereal time through `UTC_UT1`, which adds
+  `MeasTable::dUT1`, and only then `UT1_GMST1` / `UT1_GAST`;
+- OSKAR's `oskar_convert_mjd_to_gmst` is the classic GMST-at-0h-UT1 series, with
+  `fmod(mjd, 1)` as the UT1 fraction of the day.
+
+So UTC has to be carried to UT1 before the Earth is turned. skyfield does that
+inside `gast_deg` and the ITRS-to-GCRS rotation, from its own tables.
+
+tab-sim used to skip it, reading its epochs as UT1 directly — the same
+approximation OSKAR makes by handing `start_time_utc` to that UT1 series. It is
+invisible: nothing errors, the Earth is simply turned by DUT1 too far, about
+2.3 arcsec at present, and every satellite is dragged along its track by the
+distance it covers in that time. For a 2019 epoch that was 33 mm on a 4 km
+baseline and **1.2 km** for a satellite in low Earth orbit.
+
+`tabsim.jax.coordinates.mjd_to_gmst` and `mjd_to_gast` are the OSKAR series and
+still take a **UT1** MJD, as their docstrings say. The simulation geometry does
+not use them; it takes GAST from skyfield, which does the conversion itself.
+
+Only UTC is read. Honouring a scale an input declares for itself, as tabascal
+does for an MS `TIME` column's `MEASINFO` record, is
+[#82](https://github.com/chrisfinlay/tab-sim/issues/82).
 
 `target_ra` and `target_dec`, and the Measurement Set's `FIELD::PHASE_DIR`,
 remain the J2000 centre. The tracked direction is not recorded separately

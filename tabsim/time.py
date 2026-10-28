@@ -33,33 +33,46 @@ def timescale():
 
 
 def skyfield_time(times_jd):
-    """Julian Dates as a :class:`skyfield.timelib.Time`, read as UT1.
+    """Julian Dates as a :class:`skyfield.timelib.Time`, read as UTC.
 
-    tab-sim reads its observation times as UT1 throughout -- antenna positions
-    (:func:`tabsim.dask.coordinates.itrs_to_gcrs_sf`) and satellite propagation
-    (:mod:`tabsim.tle`) both call ``ut1_jd`` -- so the sidereal angle and the
-    tracked direction are read the same way and the whole simulation stays on one
-    time scale.
+    A Julian Date is a number until a scale says what it counts, and the scale
+    is not cosmetic. tab-sim reads its epochs as UTC: that is what a config's
+    ``start_time_isot`` and ``start_time_jd`` state, what the Measurement Set's
+    ``TIME`` column is written as, and what tabascal reads that column back on.
+    Reading the same number as UT1 instead omits DUT1, under 0.2 s at present,
+    which turns the Earth by about 2 arcsec and drags every satellite along its
+    track by the distance it covers in that time.
 
-    Note this differs from tabascal, which reads a Measurement Set's ``TIME``
-    column on the scale the column declares, almost always UTC. Reading a UTC
-    epoch as UT1 omits DUT1, currently under 0.2 s, which rotates the Earth by
-    about 2 arcsec. It is a separate question from the frame pairing this module
-    exists for, and changing it would move every simulated satellite along its
-    track, so it is left as it is here and tracked separately.
+    Every skyfield call in tab-sim comes through here, so the antenna positions,
+    the satellite trajectories, the sidereal angle and the tracked direction are
+    all read on one scale.
+
+    Only UTC is read. Honouring a scale that an input declares for itself, as
+    tabascal does for an MS ``TIME`` column's ``MEASINFO`` record, is deferred.
+
+    The Julian Date is split into whole and fractional parts before skyfield
+    sees it: a JD's ~2.5e6 day magnitude leaves f64 only about 5e-10 days of
+    resolution on the value as a whole, which is some 40 microseconds.
+
+    This uses skyfield's private ``_utc_jd``, which is why ``pyproject.toml``
+    pins skyfield. Keeping it to this one call site means the pin protects a
+    single line.
 
     Parameters
     ----------
     times_jd : array_like
-        Observation times as Julian Dates.
+        Observation times as Julian Dates, on UTC.
 
     Returns
     -------
     skyfield.timelib.Time
-        The same times, read as UT1.
+        The same times, read as UTC.
     """
 
-    return timescale().ut1_jd(np.atleast_1d(np.asarray(times_jd, dtype=float)))
+    times_jd = np.atleast_1d(np.asarray(times_jd, dtype=float))
+    whole = np.floor(times_jd)
+
+    return timescale()._utc_jd(whole, times_jd - whole)
 
 
 def gast_deg(times_jd) -> NDArray:

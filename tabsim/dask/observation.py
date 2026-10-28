@@ -353,10 +353,10 @@ class Observation(Telescope):
         # RFI distances measured from those positions share one frame exactly.
         times_jd_fine = mjd_to_jd(self.times_mjd_fine.compute())
         self.phase_tracking = "apparent"
-        # tabsim.time.skyfield_time reads the epochs as UT1, as every other
+        # tabsim.time.skyfield_time reads the epochs as UTC, as every other
         # skyfield call here does. Recorded with the direction convention
         # because the geometry depends on both.
-        self.geometry_time_scale = "ut1"
+        self.geometry_time_scale = "utc"
         tracked_ra, tracked_dec = apparent_radec_of_date(ra, dec, times_jd_fine)
 
         self.gsa = da.asarray(gast_deg(times_jd_fine), chunks=(self.time_fine_chunk,))

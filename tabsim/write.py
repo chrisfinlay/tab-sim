@@ -183,13 +183,10 @@ def get_observation_attributes(obs: Observation):
         # tabascal#252.
         "phase_tracking": getattr(obs, "phase_tracking", "apparent"),
         # The scale the times below are read on. The direction convention alone
-        # does not pin the geometry down: tab-sim reads its epochs as UT1, and
-        # reading the same numbers as UTC moves the Earth by DUT1 (about 0.15 s,
-        # or 0.07 wavelengths of w at L band on a 4 km baseline) and every
-        # satellite along its track. The MS TIME column carries these same
-        # numbers. Stated rather than implied; tab-sim#79 tracks reconciling it
-        # with consumers that read MS TIME as UTC.
-        "geometry_time_scale": getattr(obs, "geometry_time_scale", "ut1"),
+        # does not pin the geometry down, so the scale is recorded beside it.
+        # UTC is what the MS TIME column carries and what consumers read it back
+        # on, so a consumer needs no correction to reconstruct this geometry.
+        "geometry_time_scale": getattr(obs, "geometry_time_scale", "utc"),
         "int_time": obs.int_time,
         "chan_width": obs.chan_width,
         "dish_diameter": obs.dish_d,

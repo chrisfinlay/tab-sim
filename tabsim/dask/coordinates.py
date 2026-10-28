@@ -259,15 +259,16 @@ def GEO_to_XYZ_vmap1(geo: Array, times: Array) -> Array:
 
 GEO_to_XYZ_vmap1.__doc__ = coord.GEO_to_XYZ_vmap1.__doc__
 
-from skyfield.api import Distance, load
+from skyfield.api import Distance
 from skyfield.toposlib import ITRSPosition
 import numpy as np
 from numpy.typing import NDArray
 
+from tabsim.time import skyfield_time
+
 def itrs_to_gcrs_sf(pos_itrs: NDArray, times_jd: NDArray) -> NDArray:
 
-    ts = load.timescale()
-    t_sf = ts.ut1_jd(np.array(times_jd))
+    t_sf = skyfield_time(times_jd)
 
     pos_gcrs = np.stack(
         [ITRSPosition(Distance(m=pos)).at(t_sf).position.m.T for pos in pos_itrs], axis=1
