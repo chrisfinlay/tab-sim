@@ -187,8 +187,10 @@ class Observation(Telescope):
         Right Ascension of the J2000 phase centre.
     dec: float
         Declination of the J2000 phase centre.
-    times: ndarray (n_time,)
-        Time centroids of each data point in seconds as a Greenwich Mean Sidereal Time (GMST).
+    times_mjd: ndarray (n_time,)
+        Time centroid of each data point, as a Modified Julian Date on UTC. Only
+        the first is read: the grid is rebuilt from it at `int_time` SI second
+        spacing. See `tabsim.time` on the scale.
     freqs: ndarray (n_freq,)
         Frequency centroids for each observation channel in Hz.
     SEFD: ndarray (n_freq,)

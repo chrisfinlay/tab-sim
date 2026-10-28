@@ -9,7 +9,10 @@ on MeerKAT for a 2019 observation, which is 63 wavelengths at L band.
 tab-sim#73, and tabascal#252 for the real-data reproducer.
 """
 
+import os
 import pathlib
+import subprocess
+import sys
 
 import erfa
 import numpy as np
@@ -117,7 +120,7 @@ def test_apparent_place_matches_astropy_tete():
         (60000.8, 300.0, -60.0),
     ]:
         jd = mjd_to_jd(mjd)
-        obstime = Time(jd, format="jd", scale="ut1")
+        obstime = Time(jd, format="jd", scale="utc")
         ra_app, dec_app = apparent_radec_of_date(ra, dec, [jd])
 
         expected = SkyCoord(ra=ra * u.deg, dec=dec * u.deg, frame="icrs").transform_to(
@@ -145,7 +148,7 @@ def test_apparent_place_includes_annual_aberration():
     """
 
     jd = mjd_to_jd(MJD_2019)
-    obstime = Time(jd, format="jd", scale="ut1")
+    obstime = Time(jd, format="jd", scale="utc")
     ra_app, dec_app = apparent_radec_of_date(RA_J2000, DEC_J2000, [jd])
 
     bpn = erfa.pnm06a(obstime.tt.jd1, obstime.tt.jd2)
@@ -593,8 +596,8 @@ def test_utc_epochs_survive_a_leap_second(iso):
     On a day carrying a leap second the extra second is folded into the same
     unit interval, so the fraction cannot be multiplied out. Skyfield's
     `_utc_jd` does exactly that and lands up to a full second early, which is
-    7 km of satellite track. astropy, which built these dates, is asked to
-    decode them instead, and the result goes to skyfield on TAI.
+    7 km of satellite track. `erfa.utctai` decodes the date on the right
+    convention instead, and the result goes to skyfield on TAI.
 
     astropy's own TT is the oracle.
     """
@@ -607,36 +610,58 @@ def test_utc_epochs_survive_a_leap_second(iso):
     assert error < 1e-3, f"{iso} read {error:.6f} s away from its own instant"
 
 
-def test_reading_utc_touches_no_network(monkeypatch):
+_OFFLINE_PROBE = """
+import socket, sys
+attempts = []
+def refuse(self, address):
+    attempts.append(address)
+    raise OSError("blocked")
+socket.socket.connect = refuse
+
+import numpy as np
+from tabsim.time import apparent_radec_of_date, gast_deg, skyfield_time
+from astropy.utils import iers
+assert iers.conf.auto_download, "the probe must run with the production default"
+
+times = np.array([2458742.1354, 2458742.1355, 2458742.1356])
+assert np.isfinite(gast_deg(times)).all()
+assert np.isfinite(np.asarray(skyfield_time(times).tt)).all()
+assert np.isfinite(apparent_radec_of_date(229.1675, 0.2506, times)[0]).all()
+print("connects=%d" % len(attempts), *attempts, sep="|")
+"""
+
+
+def test_reading_utc_touches_no_network(tmp_path):
     """Simulations run on nodes with no route out.
 
-    erfa's leap-second table is compiled in, so decoding a UTC Julian Date needs
-    no cache and no network. astropy would do the same conversion, but its first
-    UTC-to-TAI call tries to refresh that table from IERS and IANA: with a cold
-    cache that is five connection attempts, and on an offline node that is five
-    timeouts in every worker before it falls back.
+    erfa's leap-second table is compiled into pyerfa, so decoding a UTC Julian
+    Date needs no cache and no network. astropy would do the same conversion,
+    but its first UTC-to-TAI call tries to refresh that table from IERS and
+    IANA: five connection attempts, which on an offline node are five timeouts
+    in every worker before it falls back.
 
-    The fixtures elsewhere in this file disable astropy's auto-download, so this
-    one deliberately does not touch that setting -- it has to see what a
-    simulation would see.
+    This runs in a fresh process with HOME pointed at an empty directory, so
+    astropy's download cache is cold. In-process the cache is warm and the
+    attempts never happen, which would make the test pass whatever the
+    implementation did. Nothing here disables astropy's auto-download: the
+    probe asserts it is on, since the point is to see what a simulation sees.
     """
 
-    import socket
+    environment = dict(os.environ)
+    environment["HOME"] = str(tmp_path)
+    environment["XDG_CACHE_HOME"] = str(tmp_path / ".cache")
+    environment["PYTHONPATH"] = str(pathlib.Path(__file__).resolve().parents[1])
 
-    attempts = []
+    finished = subprocess.run(
+        [sys.executable, "-c", _OFFLINE_PROBE],
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=600,
+    )
 
-    def refuse(self, address):
-        attempts.append(address)
-        raise OSError("the test blocked this connection")
-
-    monkeypatch.setattr(socket.socket, "connect", refuse)
-
-    times = mjd_to_jd(MJD_2019 + np.arange(3) * 8 / 86400)
-    assert np.isfinite(gast_deg(times)).all()
-    assert np.isfinite(np.asarray(skyfield_time(times).tt)).all()
-    assert np.isfinite(apparent_radec_of_date(RA_J2000, DEC_J2000, times)[0]).all()
-
-    assert not attempts, f"reading UTC attempted {len(attempts)} connections: {attempts}"
+    assert finished.returncode == 0, finished.stderr[-2000:]
+    assert "connects=0" in finished.stdout, finished.stdout.strip()
 
 
 def test_observation_samples_are_evenly_spaced_across_a_leap_second():
