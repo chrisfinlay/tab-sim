@@ -605,3 +605,73 @@ def test_utc_epochs_survive_a_leap_second(iso):
     error = abs(actual - epoch.tt.jd) * 86400
 
     assert error < 1e-3, f"{iso} read {error:.6f} s away from its own instant"
+
+
+def test_reading_utc_touches_no_network(monkeypatch):
+    """Simulations run on nodes with no route out.
+
+    erfa's leap-second table is compiled in, so decoding a UTC Julian Date needs
+    no cache and no network. astropy would do the same conversion, but its first
+    UTC-to-TAI call tries to refresh that table from IERS and IANA: with a cold
+    cache that is five connection attempts, and on an offline node that is five
+    timeouts in every worker before it falls back.
+
+    The fixtures elsewhere in this file disable astropy's auto-download, so this
+    one deliberately does not touch that setting -- it has to see what a
+    simulation would see.
+    """
+
+    import socket
+
+    attempts = []
+
+    def refuse(self, address):
+        attempts.append(address)
+        raise OSError("the test blocked this connection")
+
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+
+    times = mjd_to_jd(MJD_2019 + np.arange(3) * 8 / 86400)
+    assert np.isfinite(gast_deg(times)).all()
+    assert np.isfinite(np.asarray(skyfield_time(times).tt)).all()
+    assert np.isfinite(apparent_radec_of_date(RA_J2000, DEC_J2000, times)[0]).all()
+
+    assert not attempts, f"reading UTC attempted {len(attempts)} connections: {attempts}"
+
+
+def test_observation_samples_are_evenly_spaced_across_a_leap_second():
+    """Samples are int_time SI seconds apart, even over a 86401-second day.
+
+    The grid is built from a start epoch plus elapsed seconds. A UTC day
+    carrying a leap second has 86401 of them folded into the same unit interval
+    of Julian Date, so `start + seconds / 86400` would stretch the observation:
+    half a second by midday and a full second by the end, which drags every
+    satellite along its track. Measured on TT, which is uniform.
+    """
+
+    int_time = 600.0
+    start = Time("2016-12-31T23:30:00", format="isot", scale="utc")
+    obs = _observation(
+        times_mjd=jd_to_mjd(start.jd) + np.arange(10) * int_time / 86400,
+        int_time=int_time,
+    )
+
+    for label, mjd, step in [
+        ("coarse", np.asarray(obs.times_mjd.compute()), int_time),
+        (
+            "fine",
+            np.asarray(obs.times_mjd_fine.compute()),
+            int_time / obs.n_int_samples,
+        ),
+    ]:
+        tt = Time(mjd_to_jd(mjd), format="jd", scale="utc").tt.jd
+        spacing = np.diff(tt) * 86400
+
+        assert np.abs(spacing - step).max() < 1e-3, (
+            f"{label} sample spacing drifts by "
+            f"{np.abs(spacing - step).max():.4f} s across the leap second"
+        )
+
+    # And the observation really does span the leap second, or it proves nothing.
+    utc = Time(mjd_to_jd(np.asarray(obs.times_mjd.compute())), format="jd", scale="utc")
+    assert utc[0] < Time("2016-12-31T23:59:60", format="isot", scale="utc") < utc[-1]

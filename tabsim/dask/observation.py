@@ -39,10 +39,16 @@ from tabsim.jax.coordinates import (
     itrf_to_geo,
     alt_az_of_source,
     gmsa_from_jd,
+    jd_to_mjd,
     mjd_to_jd,
     secs_to_days,
 )
-from tabsim.time import apparent_radec_of_date, gast_deg, tracking_basis_roll
+from tabsim.time import (
+    apparent_radec_of_date,
+    gast_deg,
+    tracking_basis_roll,
+    utc_jd_after,
+)
 from tabsim.tools import beam_size
 from tabsim.write import construct_observation_ds, write_ms
 from tabsim.dask.extras import get_chunksizes, estimate_working_set
@@ -278,7 +284,14 @@ class Observation(Telescope):
         start_mjd = times_mjd[0]
         # times = (times_mjd - times_mjd[0]) * 24 * 3600
         times = da.linspace(0, int_time * n_time, n_time, endpoint=False)
-        times_mjd = start_mjd + secs_to_days(times)
+        # The samples are spaced by int_time SI seconds. A UTC day carrying a
+        # leap second is 86401 of them, so start + seconds/86400 would drift
+        # across such a day; see tabsim.time.utc_jd_after. Identical to that
+        # arithmetic on every other day.
+        start_jd = mjd_to_jd(float(start_mjd.compute()))
+        times_mjd = da.asarray(
+            jd_to_mjd(utc_jd_after(start_jd, times.compute())), dtype=np.float64
+        )
 
         n_int_samples = n_int_samples + 1 if n_int_samples % 2 == 0 else n_int_samples
 
@@ -320,7 +333,10 @@ class Observation(Telescope):
             int_sample_times(self.times.compute(), n_int_samples)
         ).rechunk(self.time_fine_chunk)
 
-        self.times_mjd_fine = start_mjd + secs_to_days(self.times_fine)
+        self.times_mjd_fine = da.asarray(
+            jd_to_mjd(utc_jd_after(start_jd, self.times_fine.compute())),
+            dtype=np.float64,
+        ).rechunk(self.time_fine_chunk)
 
         #######################################
         # dt = da.diff(self.times_fine)[:1]

@@ -21,7 +21,6 @@ from functools import lru_cache
 
 import erfa
 import numpy as np
-from astropy.time import Time
 from numpy.typing import NDArray
 from skyfield.api import load
 
@@ -56,17 +55,20 @@ def skyfield_time(times_jd):
     resolution on the value as a whole, which is some 40 microseconds.
 
     A UTC Julian Date is not a count of 86400-second days: on a day carrying a
-    leap second, the extra second is folded into the same unit interval, so the
-    fraction cannot simply be multiplied out. astropy builds these dates --
-    ``load_obs`` makes them with ``Time(...).jd`` -- and erfa, astropy and
-    casacore share the convention, so astropy is asked to decode its own dates
-    rather than skyfield being handed a fraction to scale. The result goes to
-    skyfield on TAI, which is a uniform count and has no such ambiguity.
+    leap second the extra second is folded into the same unit interval, so the
+    fraction cannot simply be multiplied out. ``erfa.utctai`` decodes the date
+    on that convention -- the one erfa, astropy and casacore share -- and hands
+    skyfield TAI, which is a uniform count with no such ambiguity.
 
     Skyfield's ``_utc_jd`` does multiply the fraction out, and is up to a full
     second wrong across a leap-second day: an hour of 2016-12-31 read that way
     lands 0.5 to 1.0 s early, which is 7 km of satellite track. On every other
     day the two agree exactly.
+
+    erfa's leap-second table is compiled in, so this needs no cache and no
+    network. astropy would do the same conversion, but its first UTC-to-TAI
+    call tries to refresh that table from IERS and IANA, which on an offline
+    node is several connection timeouts per worker before it falls back.
 
     ``tai_jd`` takes the two-part Julian Date, so the day number and the
     fraction stay separate all the way through and no precision is lost.
@@ -82,9 +84,48 @@ def skyfield_time(times_jd):
         The same times, read as UTC.
     """
 
-    utc = Time(np.atleast_1d(np.asarray(times_jd, dtype=float)), format="jd", scale="utc")
+    times_jd = np.atleast_1d(np.asarray(times_jd, dtype=float))
+    whole = np.floor(times_jd)
 
-    return timescale().tai_jd(utc.tai.jd1, utc.tai.jd2)
+    return timescale().tai_jd(*erfa.utctai(whole, times_jd - whole))
+
+
+def utc_jd_after(start_jd, elapsed_seconds) -> NDArray:
+    """UTC Julian Dates a given number of SI seconds after a UTC start.
+
+    A UTC day is not always 86400 seconds: one carrying a leap second has
+    86401, and that extra second is folded into the same unit interval of
+    Julian Date. ``start_jd + seconds / 86400`` therefore drifts across such a
+    day -- half a second by midday and a full second by the end, which is some
+    7 km of satellite track. The elapsed seconds are added on TAI, which is a
+    uniform count, and the result converted back to UTC.
+
+    On every other day this returns exactly ``start_jd + elapsed / 86400``,
+    bit for bit, so only observations spanning a leap second move.
+
+    Parameters
+    ----------
+    start_jd : float
+        The first epoch, as a UTC Julian Date.
+    elapsed_seconds : array_like
+        SI seconds elapsed since ``start_jd``.
+
+    Returns
+    -------
+    np.ndarray
+        One UTC Julian Date per elapsed time.
+    """
+
+    start_jd = float(start_jd)
+    whole = np.floor(start_jd)
+    tai_day, tai_fraction = erfa.utctai(whole, start_jd - whole)
+
+    elapsed = np.asarray(elapsed_seconds, dtype=float)
+    tai_fraction = tai_fraction + elapsed / 86400.0
+
+    return np.add(
+        *erfa.taiutc(np.broadcast_to(tai_day, elapsed.shape), tai_fraction)
+    )
 
 
 def gast_deg(times_jd) -> NDArray:

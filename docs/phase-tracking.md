@@ -125,6 +125,31 @@ Only UTC is read. Honouring a scale an input declares for itself, as tabascal
 does for an MS `TIME` column's `MEASINFO` record, is
 [#82](https://github.com/chrisfinlay/tab-sim/issues/82).
 
+### Leap seconds
+
+A UTC day is not always 86400 seconds. One carrying a leap second has 86401,
+and the extra second is folded into the same unit interval of Julian Date, so
+the fraction cannot be multiplied out and elapsed seconds cannot be added to it
+directly. Two places care:
+
+- reading an epoch: `erfa.utctai` decodes the date on that convention and hands
+  skyfield TAI, which is uniform. Skyfield's own `_utc_jd` multiplies the
+  fraction out and lands up to a full second early on such a day.
+- building the sample grid: `tabsim.time.utc_jd_after` adds the elapsed SI
+  seconds on TAI and converts back, so samples stay `int_time` apart. Adding
+  `seconds / 86400` to a UTC date stretches the observation instead — half a
+  second by midday and a full second by the end.
+
+A second is some 7 km of satellite track, so neither is cosmetic. On any day
+without a leap second both reduce exactly to the naive arithmetic, so only
+observations spanning one are affected — 2015-06-30 and 2016-12-31 are the
+most recent.
+
+erfa's leap-second table is compiled in, so none of this needs a cache or a
+network. astropy would do the same conversions, but its first UTC-to-TAI call
+tries to refresh that table from IERS and IANA, which is five connection
+attempts on a cold cache and five timeouts per worker on an offline node.
+
 `target_ra` and `target_dec`, and the Measurement Set's `FIELD::PHASE_DIR`,
 remain the J2000 centre. The tracked direction is not recorded separately
 because it follows from those, the convention and the times, through
