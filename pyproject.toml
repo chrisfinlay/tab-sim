@@ -23,9 +23,9 @@ dependencies = [
     # which zarr 2 does not accept, so the zarr pin implies a ceiling here too.
     "jax", "dask", "psutil", "xarray<2026.9", "zarr<3.0.0",
     "dask-ms>=0.2.21", "scipy", "tqdm", "matplotlib",
-    # tabsim.time.skyfield_time reads UTC Julian Dates through skyfield's
-    # private _utc_jd; the pin protects that one call site.
-    "astropy", "skyfield>=1.49,<2", "sgp4", "platformdirs", "numpy", "pyyaml", "pandas",
+    # skyfield floor: tabsim.time.skyfield_time passes a two-part Julian Date
+    # to the public tai_jd. The major bound guards an API break.
+    "astropy", "skyfield>=1.45,<2", "sgp4", "platformdirs", "numpy", "pyyaml", "pandas",
     # Annual aberration for the tracked phase centre, from an analytic series
     # with no ephemeris to download, so it works offline. See tabsim.time.
     "pyerfa",

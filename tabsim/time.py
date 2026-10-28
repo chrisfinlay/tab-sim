@@ -13,7 +13,7 @@ the two packages have to agree on where the phase centre is. Both apply annual
 aberration from pyerfa's analytic series and then skyfield's
 bias-precession-nutation matrix.
 
-Times here are read as UT1, as every other skyfield call in tab-sim does (see
+Times here are read as UTC, as every skyfield call in tab-sim is (see
 :func:`skyfield_time`).
 """
 
@@ -21,6 +21,7 @@ from functools import lru_cache
 
 import erfa
 import numpy as np
+from astropy.time import Time
 from numpy.typing import NDArray
 from skyfield.api import load
 
@@ -54,9 +55,21 @@ def skyfield_time(times_jd):
     sees it: a JD's ~2.5e6 day magnitude leaves f64 only about 5e-10 days of
     resolution on the value as a whole, which is some 40 microseconds.
 
-    This uses skyfield's private ``_utc_jd``, which is why ``pyproject.toml``
-    pins skyfield. Keeping it to this one call site means the pin protects a
-    single line.
+    A UTC Julian Date is not a count of 86400-second days: on a day carrying a
+    leap second, the extra second is folded into the same unit interval, so the
+    fraction cannot simply be multiplied out. astropy builds these dates --
+    ``load_obs`` makes them with ``Time(...).jd`` -- and erfa, astropy and
+    casacore share the convention, so astropy is asked to decode its own dates
+    rather than skyfield being handed a fraction to scale. The result goes to
+    skyfield on TAI, which is a uniform count and has no such ambiguity.
+
+    Skyfield's ``_utc_jd`` does multiply the fraction out, and is up to a full
+    second wrong across a leap-second day: an hour of 2016-12-31 read that way
+    lands 0.5 to 1.0 s early, which is 7 km of satellite track. On every other
+    day the two agree exactly.
+
+    ``tai_jd`` takes the two-part Julian Date, so the day number and the
+    fraction stay separate all the way through and no precision is lost.
 
     Parameters
     ----------
@@ -69,10 +82,9 @@ def skyfield_time(times_jd):
         The same times, read as UTC.
     """
 
-    times_jd = np.atleast_1d(np.asarray(times_jd, dtype=float))
-    whole = np.floor(times_jd)
+    utc = Time(np.atleast_1d(np.asarray(times_jd, dtype=float)), format="jd", scale="utc")
 
-    return timescale()._utc_jd(whole, times_jd - whole)
+    return timescale().tai_jd(utc.tai.jd1, utc.tai.jd2)
 
 
 def gast_deg(times_jd) -> NDArray:

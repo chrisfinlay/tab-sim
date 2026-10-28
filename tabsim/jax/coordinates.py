@@ -770,7 +770,11 @@ def calculate_fringe_frequency(
     """
 
     lam = C / freq
-    # Should change this to astropy.time.Time
+    # gmsa_from_jd takes UT1 and tab-sim's epochs are UTC, so this is DUT1 (about
+    # 2.3 arcsec of rotation) out. It stays because the result is only used to
+    # size n_int: the quantity taken from it is a fringe *rate*, which a rotation
+    # offset of that size changes by a part in 1e5, far inside the ceil() that
+    # turns it into a sample count. Nothing here reaches the visibilities.
     gsa = gmsa_from_jd(mjd_to_jd(times_mjd))  # type: ignore
     times = (times_mjd - times_mjd[0]) * 24 * 3600
 

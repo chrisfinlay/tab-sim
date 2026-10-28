@@ -575,3 +575,33 @@ def test_every_skyfield_time_goes_through_one_place():
     assert not offenders, "build skyfield times via tabsim.time.skyfield_time: " + str(
         offenders
     )
+
+
+@pytest.mark.parametrize(
+    "iso",
+    [
+        "2016-12-31T12:00:00.000",  # midday on a leap-second day
+        "2016-12-31T23:59:59.000",  # the second before the leap second
+        "2017-01-01T00:00:00.000",  # the second after it
+        "2015-06-30T23:59:59.000",  # a different leap second
+        "2019-09-15T15:15:15.000",  # an ordinary day, for contrast
+    ],
+)
+def test_utc_epochs_survive_a_leap_second(iso):
+    """A UTC Julian Date is not a count of 86400-second days.
+
+    On a day carrying a leap second the extra second is folded into the same
+    unit interval, so the fraction cannot be multiplied out. Skyfield's
+    `_utc_jd` does exactly that and lands up to a full second early, which is
+    7 km of satellite track. astropy, which built these dates, is asked to
+    decode them instead, and the result goes to skyfield on TAI.
+
+    astropy's own TT is the oracle.
+    """
+
+    epoch = Time(iso, format="isot", scale="utc")
+
+    actual = float(np.ravel(np.asarray(skyfield_time([epoch.jd]).tt))[0])
+    error = abs(actual - epoch.tt.jd) * 86400
+
+    assert error < 1e-3, f"{iso} read {error:.6f} s away from its own instant"
