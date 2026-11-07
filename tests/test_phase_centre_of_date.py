@@ -27,9 +27,14 @@ from tabsim.jax.coordinates import jd_to_mjd, mjd_to_gast, mjd_to_gmst, mjd_to_j
 from tabsim.time import (
     apparent_radec_of_date,
     gast_deg,
+    ms_time_from_utc_mjd,
+    phase_frame,
     skyfield_time,
     tracking_basis_roll,
+    utc_mjd_after,
 )
+from tabsim.tle import ant_pos, get_sat_pos_tle
+from orbit_helpers import ISS_EPOCH_JD, tle_record
 from tabsim.time import _radec_deg, _tangent_vectors
 
 # MeerKAT, 2019-09-15 ~15:15 UTC, field CGCG021-063: the observation tabascal#252
@@ -551,6 +556,20 @@ def test_epochs_are_read_as_utc():
     assert abs(actual) < 0.9  # leap seconds keep DUT1 inside this
 
 
+@pytest.mark.parametrize(
+    "times_jd", [ISS_EPOCH_JD, [ISS_EPOCH_JD], ISS_EPOCH_JD + np.arange(3) / 86400]
+)
+def test_shapes_follow_the_epochs(times_jd):
+    """Position helpers keep the epochs' shape, a scalar giving one vector; the
+    phase frame is one row per time."""
+
+    shape = np.shape(times_jd)
+
+    assert get_sat_pos_tle(tle_record(), "ISS", times_jd).shape == (3, *shape)
+    assert ant_pos(ITRF[0], times_jd).shape == (*shape, 3)
+    assert phase_frame(RA_J2000, DEC_J2000, times_jd).shape == (np.size(times_jd), 4)
+
+
 def test_every_skyfield_time_goes_through_one_place():
     """No module may build a skyfield time itself.
 
@@ -754,3 +773,14 @@ def test_observation_samples_are_evenly_spaced_across_a_leap_second():
     # And the observation really does span the leap second, or it proves nothing.
     utc = Time(mjd_to_jd(np.asarray(obs.times_mjd.compute())), format="jd", scale="utc")
     assert utc[0] < Time("2016-12-31T23:59:60", format="isot", scale="utc") < utc[-1]
+
+
+def test_ordinary_days_keep_the_naive_arithmetic():
+    """Where no leap second intervenes, across midnight included, the sample grid
+    and the MS TIME are `start + seconds / 86400` and `mjd * 86400` bit for bit."""
+
+    elapsed = np.arange(30000) * 2.0
+    naive = MJD_2019 + elapsed / 86400
+
+    np.testing.assert_array_equal(utc_mjd_after(MJD_2019, elapsed), naive)
+    np.testing.assert_array_equal(ms_time_from_utc_mjd(naive), naive * 86400)

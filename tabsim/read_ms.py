@@ -7,6 +7,8 @@ from typing import Union
 import os
 import yaml
 
+from tabsim.time import utc_mjd_from_ms_time
+
 
 def write_antenna_itrf_from_ms(
     ms_path: str, tel_name: str = "telescope", save_dir: str = "./"
@@ -52,7 +54,7 @@ def read_time_data_from_ms(ms_path: str) -> tuple[str, float, int]:
     n_time = len(times)
     int_time = float(np.diff(np.sort(times)[:2])[0])
 
-    start_time_isot = Time(np.min(times) / (24 * 3600), format="mjd").isot
+    start_time_isot = Time(utc_mjd_from_ms_time(np.min(times)), format="mjd").isot
 
     return start_time_isot, int_time, n_time
 

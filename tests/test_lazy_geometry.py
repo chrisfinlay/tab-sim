@@ -8,6 +8,7 @@ from astropy.utils import iers
 
 from tabsim.dask import coordinates as dc
 from tabsim import tle
+from tabsim import time as tabsim_time
 from benchmarks.harness import build_observation
 from orbit_helpers import ISS_EPOCH_JD, ISS_NORAD_ID, tle_record, omm_record_from_tle
 
@@ -78,9 +79,16 @@ def test_observation_setup_only_evaluates_first_uvw_tile(monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError('Skyfield geometry eagerly computed during setup')
     monkeypatch.setattr(dc, 'itrs_to_gcrs_sf', forbidden)
+    epochs = []
+    original_time = tabsim_time.skyfield_time
+    def skyfield_time(times_jd):
+        epochs.append(np.size(times_jd))
+        return original_time(times_jd)
+    monkeypatch.setattr(tabsim_time, 'skyfield_time', skyfield_time)
     obs = build_observation(dict(telescope='SKA-Low-AA0.5', antennas=4, times=32,
         channels=4, samples=3, point_sources=0, rfi_sources=0), .001)
     assert calls and sum(calls) <= obs.time_fine_chunk
+    assert epochs and sum(epochs) <= obs.time_fine_chunk
     assert obs.time_fine_chunk < obs.n_time_fine
     obs.addTLESatelliteRFI(np.ones((1, 1, 4))*1e-14, [ISS_NORAD_ID], [tle_record()])
     assert sum(calls) <= obs.time_fine_chunk

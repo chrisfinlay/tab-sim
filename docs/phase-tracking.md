@@ -130,20 +130,27 @@ does for an MS `TIME` column's `MEASINFO` record, is
 A UTC day is not always 86400 seconds. One carrying a leap second has 86401,
 and the extra second is folded into the same unit interval of Julian Date, so
 the fraction cannot be multiplied out and elapsed seconds cannot be added to it
-directly. Two places care:
+directly. erfa and astropy share that convention; casacore does not. Three
+places care:
 
 - reading an epoch: `erfa.utctai` decodes the date on that convention and hands
   skyfield TAI, which is uniform. Skyfield's own `_utc_jd` multiplies the
   fraction out and lands up to a full second early on such a day.
-- building the sample grid: `tabsim.time.utc_jd_after` adds the elapsed SI
+- building the sample grid: `tabsim.time.utc_mjd_after` adds the elapsed SI
   seconds on TAI and converts back, so samples stay `int_time` apart. Adding
   `seconds / 86400` to a UTC date stretches the observation instead — half a
   second by midday and a full second by the end.
+- writing the Measurement Set: casacore reads `TIME` as a count of 86400-second
+  days with TAI − UTC stepping at 0h, so `tabsim.time.ms_time_from_utc_mjd`
+  converts at that boundary, and `utc_mjd_from_ms_time` back when an MS is
+  read. The leap second itself has no name on casacore's count; a sample
+  centred inside it is written as casacore's own TAI-to-UTC conversion writes
+  it, as a repeat of the second before, and reads back one second early.
 
-A second is some 7 km of satellite track, so neither is cosmetic. On any day
-without a leap second both reduce exactly to the naive arithmetic, so only
-observations spanning one are affected — 2015-06-30 and 2016-12-31 are the
-most recent.
+A second is some 7 km of satellite track, so none of this is cosmetic. Wherever
+no leap second intervenes, the sample grid and the MS `TIME` are the naive
+arithmetic bit for bit, so only observations spanning one are affected —
+2015-06-30 and 2016-12-31 are the most recent.
 
 erfa's leap-second table is compiled in, so none of this needs a cache or a
 network. astropy would do the same conversions, but its first UTC-to-TAI call

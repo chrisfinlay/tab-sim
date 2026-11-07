@@ -19,6 +19,8 @@ import numpy as np
 
 from dask.array.core import Array
 
+from tabsim.time import ms_time_from_utc_mjd
+
 
 def rm_dir(path: str, overwrite: bool = True):
     """Remove a directory but check for existence and overwrite flag before.
@@ -583,9 +585,12 @@ def construct_ms_data_table(
     else:
         flags = da.asarray(flags).reshape(n_row, n_freq, n_corr)
 
+    # casacore counts 86400-second days, which a leap-second day is not.
+    time_seconds = da.asarray(ds.coords["time_mjd"].data).map_blocks(
+        ms_time_from_utc_mjd, dtype=np.float64
+    )
     row_times = da.asarray(
-        (ds.coords["time_mjd"].data[:, None] * da.ones(shape=(1, n_bl))).flatten()
-        * (24 * 3600)
+        (time_seconds[:, None] * da.ones(shape=(1, n_bl))).flatten()
     )
     ant1 = (
         (ds.antenna1.data[None, :] * da.ones(shape=(n_time, 1)))

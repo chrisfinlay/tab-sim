@@ -57,8 +57,10 @@ def skyfield_time(times_jd):
     A UTC Julian Date is not a count of 86400-second days: on a day carrying a
     leap second the extra second is folded into the same unit interval, so the
     fraction cannot simply be multiplied out. ``erfa.utctai`` decodes the date
-    on that convention -- the one erfa, astropy and casacore share -- and hands
-    skyfield TAI, which is a uniform count with no such ambiguity.
+    on that convention -- the one erfa and astropy share -- and hands skyfield
+    TAI, which is a uniform count with no such ambiguity. casacore does not
+    share it: an MS ``TIME`` counts 86400-second days, so it is converted where
+    it is written and read (:func:`ms_time_from_utc_mjd`).
 
     Skyfield's ``_utc_jd`` does multiply the fraction out, and is up to a full
     second wrong across a leap-second day: an hour of 2016-12-31 read that way
@@ -82,51 +84,134 @@ def skyfield_time(times_jd):
     Returns
     -------
     skyfield.timelib.Time
-        The same times, read as UTC.
+        The same times, read as UTC, in the shape they were given.
     """
 
-    times_jd = np.atleast_1d(np.asarray(times_jd, dtype=float))
+    times_jd = np.asarray(times_jd, dtype=float)
     whole = np.floor(times_jd)
 
     return timescale().tai_jd(*erfa.utctai(whole, times_jd - whole))
 
 
-def utc_jd_after(start_jd, elapsed_seconds) -> NDArray:
-    """UTC Julian Dates a given number of SI seconds after a UTC start.
+def utc_mjd_after(start_mjd, elapsed_seconds) -> NDArray:
+    """UTC Modified Julian Dates a given number of SI seconds after a UTC start.
 
     A UTC day is not always 86400 seconds: one carrying a leap second has
     86401, and that extra second is folded into the same unit interval of
-    Julian Date. ``start_jd + seconds / 86400`` therefore drifts across such a
+    Julian Date. ``start_mjd + seconds / 86400`` therefore drifts across such a
     day -- half a second by midday and a full second by the end, which is some
     7 km of satellite track. The elapsed seconds are added on TAI, which is a
-    uniform count, and the result converted back to UTC.
+    uniform count, and the result converted back to UTC. The day number and
+    its fraction stay separate throughout, so no precision is lost to a full
+    Julian Date.
 
-    On every other day this returns exactly ``start_jd + elapsed / 86400``,
-    bit for bit, so only observations spanning a leap second move.
+    Wherever no leap second lies between the start and a sample, that sample is
+    ``start_mjd + elapsed / 86400`` itself, bit for bit, so only observations
+    spanning a leap second move.
 
     Parameters
     ----------
-    start_jd : float
-        The first epoch, as a UTC Julian Date.
+    start_mjd : float
+        The first epoch, as a UTC Modified Julian Date.
     elapsed_seconds : array_like
-        SI seconds elapsed since ``start_jd``.
+        SI seconds elapsed since ``start_mjd``.
 
     Returns
     -------
     np.ndarray
-        One UTC Julian Date per elapsed time.
+        One UTC Modified Julian Date per elapsed time.
     """
 
-    start_jd = float(start_jd)
-    whole = np.floor(start_jd)
-    tai_day, tai_fraction = erfa.utctai(whole, start_jd - whole)
-
+    start_mjd = float(start_mjd)
+    day = np.floor(start_mjd)
     elapsed = np.asarray(elapsed_seconds, dtype=float)
-    tai_fraction = tai_fraction + elapsed / 86400.0
+    naive = start_mjd + elapsed / 86400.0
 
-    return np.add(
-        *erfa.taiutc(np.broadcast_to(tai_day, elapsed.shape), tai_fraction)
+    tai_day, tai_fraction = erfa.utctai(erfa.DJM0 + day, start_mjd - day)
+    utc_day, utc_fraction = erfa.taiutc(
+        np.broadcast_to(tai_day, elapsed.shape), tai_fraction + elapsed / 86400.0
     )
+    stepped = (utc_day - erfa.DJM0) + utc_fraction
+
+    # TAI - UTC at the start of the first day and the end of each sample's day
+    # differ exactly when a leap second, or pre-1972 drift, lies between them.
+    uniform = _tai_minus_utc(np.floor(naive) + 1.0) == _tai_minus_utc(day)
+
+    return np.where(uniform, naive, stepped)
+
+
+def ms_time_from_utc_mjd(times_mjd) -> NDArray:
+    """A Measurement Set ``TIME``, in seconds, for UTC Modified Julian Dates.
+
+    casacore does not read ``TIME`` on erfa's convention. It counts
+    86400-second days and applies TAI - UTC as a step at 0h, so on a day
+    carrying a leap second a second of day ``s`` is ``s / 86401`` of erfa's
+    day, not ``s / 86400``. Multiplying the date out would put a casacore
+    reader up to a full second away from the simulated instant by the end of
+    such a day.
+
+    The leap second itself has no name on casacore's count. A sample inside it
+    is written as casacore's own TAI-to-UTC conversion writes it, as a repeat
+    of the second before, and so reads back one second early.
+
+    On any day without a leap second this is ``times_mjd * 86400``, bit for
+    bit.
+
+    Parameters
+    ----------
+    times_mjd : array_like
+        Times as UTC Modified Julian Dates, on erfa's convention.
+
+    Returns
+    -------
+    np.ndarray
+        Seconds since MJD 0 on UTC, as casacore reads them.
+    """
+
+    mjd = np.asarray(times_mjd, dtype=float)
+    day = np.floor(mjd)
+    leap = _leap_at_end_of(day)
+
+    seconds = (mjd - day) * (86400.0 + leap)
+    seconds = np.where(seconds >= 86400.0, seconds - leap, seconds)
+
+    return np.where(leap == 0.0, mjd * 86400.0, day * 86400.0 + seconds)
+
+
+def utc_mjd_from_ms_time(seconds) -> NDArray:
+    """UTC Modified Julian Dates, on erfa's convention, for an MS ``TIME``.
+
+    The inverse of :func:`ms_time_from_utc_mjd` everywhere but the leap second
+    itself, which casacore's count cannot name.
+    """
+
+    seconds = np.asarray(seconds, dtype=float)
+    day = np.floor(seconds / 86400.0)
+    leap = _leap_at_end_of(day)
+
+    return np.where(
+        leap == 0.0, seconds / 86400.0, day + (seconds - day * 86400.0) / (86400.0 + leap)
+    )
+
+
+def _tai_minus_utc(mjd_day) -> NDArray:
+    """TAI - UTC in seconds at 0h UTC of each whole MJD."""
+
+    year, month, day, _ = erfa.jd2cal(erfa.DJM0, mjd_day)
+
+    return erfa.dat(year, month, day, 0.0)
+
+
+def _leap_at_end_of(mjd_day) -> NDArray:
+    """Seconds a leap at the end of each whole MJD adds to it, as erfa reckons it.
+
+    Pre-1972 drift is not a leap: it is carried by both conventions alike.
+    """
+
+    year, month, day, _ = erfa.jd2cal(erfa.DJM0, mjd_day)
+    start, noon = erfa.dat(year, month, day, 0.0), erfa.dat(year, month, day, 0.5)
+
+    return _tai_minus_utc(mjd_day + 1.0) - (start + 2.0 * (noon - start))
 
 
 def gast_deg(times_jd) -> NDArray:
@@ -149,7 +234,7 @@ def gast_deg(times_jd) -> NDArray:
         GAST in degrees.
     """
 
-    return np.asarray(skyfield_time(times_jd).gast) * 15.0  # GAST hours -> degrees
+    return _gast_deg(skyfield_time(np.atleast_1d(times_jd)))
 
 
 def apparent_radec_of_date(ra_deg: float, dec_deg: float, times_jd):
@@ -186,12 +271,9 @@ def apparent_radec_of_date(ra_deg: float, dec_deg: float, times_jd):
         Apparent RA in ``[0, 360)`` and Dec, in degrees, one per input time.
     """
 
-    t = skyfield_time(times_jd)
+    tracked, _ = _tracked_frame(ra_deg, dec_deg, skyfield_time(np.atleast_1d(times_jd)))
 
-    s_app = erfa.ab(_unit_vector(ra_deg, dec_deg), *_annual_aberration(t))
-    s_date = np.einsum("ijt,tj->ti", np.reshape(t.M, (3, 3, -1)), s_app)
-
-    return _radec_deg(s_date)
+    return _radec_deg(tracked)
 
 
 def tracking_basis_roll(ra_deg: float, dec_deg: float, times_jd) -> NDArray:
@@ -229,9 +311,37 @@ def tracking_basis_roll(ra_deg: float, dec_deg: float, times_jd) -> NDArray:
         The roll in degrees, one per input time.
     """
 
-    t = skyfield_time(times_jd)
+    tracked, east = _tracked_frame(
+        ra_deg, dec_deg, skyfield_time(np.atleast_1d(times_jd))
+    )
 
-    east0, north0, w0 = _tangent_vectors(ra_deg, dec_deg)
+    return _basis_roll(east, *_radec_deg(tracked))
+
+
+def phase_frame(ra_deg: float, dec_deg: float, times_jd) -> NDArray:
+    """GAST, the tracked RA and Dec, and the basis roll, in degrees, ``(n_time, 4)``.
+
+    :func:`gast_deg`, :func:`apparent_radec_of_date` and
+    :func:`tracking_basis_roll` in one pass, sharing the skyfield time, its
+    nutation and the aberration, which dominate the cost. The simulation
+    evaluates it one time chunk at a time.
+    """
+
+    t = skyfield_time(np.atleast_1d(times_jd))
+    tracked, east = _tracked_frame(ra_deg, dec_deg, t)
+    ra, dec = _radec_deg(tracked)
+
+    return np.stack([_gast_deg(t), ra, dec, _basis_roll(east, ra, dec)], axis=-1)
+
+
+def _gast_deg(t) -> NDArray:
+    return np.asarray(t.gast) * 15.0  # GAST hours -> degrees
+
+
+def _tracked_frame(ra_deg, dec_deg, t):
+    """The tracked direction and the carried J2000 east, ``(n, 3)``, of date."""
+
+    east0, _, w0 = _tangent_vectors(ra_deg, dec_deg)
     s_app = erfa.ab(w0, *_annual_aberration(t))
 
     # Rodrigues for the rigid rotation carrying w0 onto its apparent place,
@@ -248,9 +358,14 @@ def tracking_basis_roll(ra_deg: float, dec_deg: float, times_jd) -> NDArray:
     )
 
     bpn = np.reshape(t.M, (3, 3, -1))  # GCRS -> true equator of date
-    east = np.einsum("ijt,tj->ti", bpn, east)
 
-    tracked = _tangent_vectors(*_radec_deg(np.einsum("ijt,tj->ti", bpn, s_app)))
+    return np.einsum("ijt,tj->ti", bpn, s_app), np.einsum("ijt,tj->ti", bpn, east)
+
+
+def _basis_roll(east, ra_deg, dec_deg) -> NDArray:
+    """Angle from the tracked frame's east to the carried J2000 east, degrees."""
+
+    tracked = _tangent_vectors(ra_deg, dec_deg)
 
     return np.rad2deg(
         np.arctan2(np.sum(east * tracked[1], axis=-1), np.sum(east * tracked[0], axis=-1))
@@ -281,12 +396,6 @@ def _tangent_vectors(ra_deg, dec_deg):
         return east[0], north[0], line_of_sight[0]
 
     return east, north, line_of_sight
-
-
-def _unit_vector(ra_deg: float, dec_deg: float) -> NDArray:
-    ra, dec = np.deg2rad(float(ra_deg)), np.deg2rad(float(dec_deg))
-
-    return np.array([np.cos(dec) * np.cos(ra), np.cos(dec) * np.sin(ra), np.sin(dec)])
 
 
 def _radec_deg(s: NDArray):

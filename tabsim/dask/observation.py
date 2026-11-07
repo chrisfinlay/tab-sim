@@ -39,16 +39,10 @@ from tabsim.jax.coordinates import (
     itrf_to_geo,
     alt_az_of_source,
     gmsa_from_jd,
-    jd_to_mjd,
     mjd_to_jd,
     secs_to_days,
 )
-from tabsim.time import (
-    apparent_radec_of_date,
-    gast_deg,
-    tracking_basis_roll,
-    utc_jd_after,
-)
+from tabsim.time import phase_frame, utc_mjd_after
 from tabsim.tools import beam_size
 from tabsim.write import construct_observation_ds, write_ms
 from tabsim.dask.extras import get_chunksizes, estimate_working_set
@@ -60,6 +54,16 @@ from tabsim.tle import (
 )
 
 from astropy.time import Time
+
+
+def _phase_frame_block(times_mjd, ra, dec, latitude, longitude):
+    """`tabsim.time.phase_frame` for one time chunk, with the centre's alt-az appended."""
+
+    frame = phase_frame(ra, dec, mjd_to_jd(times_mjd))
+    lsa = (frame[:, 0] + longitude) % 360
+    altaz = alt_az_of_source(lsa, np.float64(latitude), frame[:, 1], frame[:, 2])
+
+    return np.concatenate([frame, np.asarray(altaz)], axis=1)
 
 
 class Telescope(object):
@@ -288,12 +292,10 @@ class Observation(Telescope):
         times = da.linspace(0, int_time * n_time, n_time, endpoint=False)
         # The samples are spaced by int_time SI seconds. A UTC day carrying a
         # leap second is 86401 of them, so start + seconds/86400 would drift
-        # across such a day; see tabsim.time.utc_jd_after. Identical to that
-        # arithmetic on every other day.
-        start_jd = mjd_to_jd(float(start_mjd.compute()))
-        times_mjd = da.asarray(
-            jd_to_mjd(utc_jd_after(start_jd, times.compute())), dtype=np.float64
-        )
+        # across such a day; see tabsim.time.utc_mjd_after. Identical to that
+        # arithmetic wherever no leap second intervenes.
+        start_mjd = float(start_mjd.compute())
+        times_mjd = da.asarray(utc_mjd_after(start_mjd, times.compute()), dtype=np.float64)
 
         n_int_samples = n_int_samples + 1 if n_int_samples % 2 == 0 else n_int_samples
 
@@ -336,8 +338,7 @@ class Observation(Telescope):
         ).rechunk(self.time_fine_chunk)
 
         self.times_mjd_fine = da.asarray(
-            jd_to_mjd(utc_jd_after(start_jd, self.times_fine.compute())),
-            dtype=np.float64,
+            utc_mjd_after(start_mjd, self.times_fine.compute()), dtype=np.float64
         ).rechunk(self.time_fine_chunk)
 
         #######################################
@@ -369,33 +370,36 @@ class Observation(Telescope):
         # GAST comes from skyfield, which is also the rotation its ITRS-to-GCRS
         # transform applies for self.ants_xyz below, so the tracking term and the
         # RFI distances measured from those positions share one frame exactly.
-        times_jd_fine = mjd_to_jd(self.times_mjd_fine.compute())
         self.phase_tracking = "apparent"
         # tabsim.time.skyfield_time reads the epochs as UTC, as every other
         # skyfield call here does. Recorded with the direction convention
         # because the geometry depends on both.
         self.geometry_time_scale = "utc"
-        tracked_ra, tracked_dec = apparent_radec_of_date(ra, dec, times_jd_fine)
 
-        self.gsa = da.asarray(gast_deg(times_jd_fine), chunks=(self.time_fine_chunk,))
-        self.tracked_ra = da.asarray(tracked_ra, chunks=(self.time_fine_chunk,))
-        self.tracked_dec = da.asarray(tracked_dec, chunks=(self.time_fine_chunk,))
-
+        # Evaluated per fine-time chunk, like the antenna positions, so setup
+        # never holds skyfield's nutation series for the whole history.
+        frame = self.times_mjd_fine.map_blocks(
+            _phase_frame_block,
+            ra=float(ra),
+            dec=float(dec),
+            latitude=float(latitude),
+            longitude=float(longitude),
+            new_axis=1,
+            chunks=(self.times_mjd_fine.chunks[0], (6,)),
+            meta=np.empty((0, 6), dtype=np.float64),
+        )
+        self.gsa = frame[:, 0]
+        self.tracked_ra = frame[:, 1]
+        self.tracked_dec = frame[:, 2]
         # u and v are rolled so they are the J2000 east and north carried onto
         # the tracked frame, which is what the sky model's direction cosines are
         # referred to. w, the tracking term, is unaffected by the roll.
-        self.tracked_roll = da.asarray(
-            tracking_basis_roll(ra, dec, times_jd_fine),
-            chunks=(self.time_fine_chunk,),
-        )
+        self.tracked_roll = frame[:, 3]
+        self.altaz = frame[:, 4:]
+
         self.gha = (self.gsa - self.tracked_ra) % 360
         self.lsa = (self.gsa + longitude) % 360
         self.lha = (((self.gha + longitude) % 360 - 180) % 360) - 180
-        self.altaz = da.asarray(
-            alt_az_of_source(
-                self.lsa.compute(), np.float64(latitude), tracked_ra, tracked_dec
-            )
-        )
 
         self.freqs = da.asarray(freqs, dtype=np.float64).rechunk((self.freq_chunk,))
         self.chan_width = da.diff(freqs)[0] if len(freqs) > 1 else chan_width
