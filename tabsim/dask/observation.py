@@ -293,7 +293,7 @@ class Observation(Telescope):
         # The samples are spaced by int_time SI seconds. A UTC day carrying a
         # leap second is 86401 of them, so start + seconds/86400 would drift
         # across such a day; see tabsim.time.utc_mjd_after. Identical to that
-        # arithmetic wherever no leap second intervenes.
+        # arithmetic between ordinary days with no leap between them.
         start_mjd = float(start_mjd.compute())
         times_mjd = da.asarray(utc_mjd_after(start_mjd, times.compute()), dtype=np.float64)
 

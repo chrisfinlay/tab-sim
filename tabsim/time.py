@@ -105,9 +105,11 @@ def utc_mjd_after(start_mjd, elapsed_seconds) -> NDArray:
     its fraction stay separate throughout, so no precision is lost to a full
     Julian Date.
 
-    Wherever no leap second lies between the start and a sample, that sample is
-    ``start_mjd + elapsed / 86400`` itself, bit for bit, so only observations
-    spanning a leap second move.
+    Where the start and a sample both fall on ordinary days, 86400 SI seconds
+    with no leap at their end, and no leap lies between them, that sample is
+    ``start_mjd + elapsed / 86400`` itself, bit for bit. Samples on a
+    leap-second day, or separated from the start by a leap, in either
+    direction, take the TAI route, as does anything before 1972.
 
     Parameters
     ----------
@@ -133,9 +135,15 @@ def utc_mjd_after(start_mjd, elapsed_seconds) -> NDArray:
     )
     stepped = (utc_day - erfa.DJM0) + utc_fraction
 
-    # TAI - UTC at the start of the first day and the end of each sample's day
-    # differ exactly when a leap second, or pre-1972 drift, lies between them.
-    uniform = _tai_minus_utc(np.floor(naive) + 1.0) == _tai_minus_utc(day)
+    # The naive sum is exact only when both endpoint days are 86400 SI seconds
+    # long, with no leap at their end and no pre-1972 drift, and TAI - UTC is
+    # the same on both, so that no leap lies between them in either direction.
+    sample_day = np.floor(naive)
+    uniform = (
+        _ordinary_day(day)
+        & _ordinary_day(sample_day)
+        & (_tai_minus_utc(sample_day) == _tai_minus_utc(day))
+    )
 
     return np.where(uniform, naive, stepped)
 
@@ -154,8 +162,8 @@ def ms_time_from_utc_mjd(times_mjd) -> NDArray:
     is written as casacore's own TAI-to-UTC conversion writes it, as a repeat
     of the second before, and so reads back one second early.
 
-    On any day without a leap second this is ``times_mjd * 86400``, bit for
-    bit.
+    On a day with no leap second at its end this is ``times_mjd * 86400``, bit
+    for bit. On a leap-second day every sample moves, by up to a second.
 
     Parameters
     ----------
@@ -194,12 +202,35 @@ def utc_mjd_from_ms_time(seconds) -> NDArray:
     )
 
 
+def ms_time_tai_minus_utc(seconds) -> NDArray:
+    """TAI - UTC, in seconds, at each MS ``TIME``, as casacore reckons it.
+
+    Adding its differences to those of ``TIME`` gives elapsed SI seconds, which
+    ``TIME`` alone is not across a leap second.
+    """
+
+    seconds = np.asarray(seconds, dtype=float)
+    day = np.floor(seconds / 86400.0)
+    year, month, date, _ = erfa.jd2cal(erfa.DJM0, day)
+
+    return erfa.dat(year, month, date, (seconds - day * 86400.0) / 86400.0)
+
+
 def _tai_minus_utc(mjd_day) -> NDArray:
     """TAI - UTC in seconds at 0h UTC of each whole MJD."""
 
     year, month, day, _ = erfa.jd2cal(erfa.DJM0, mjd_day)
 
     return erfa.dat(year, month, day, 0.0)
+
+
+def _ordinary_day(mjd_day) -> NDArray:
+    """Whether each whole MJD is 86400 SI seconds of uniform UTC: no leap, no drift."""
+
+    year, month, day, _ = erfa.jd2cal(erfa.DJM0, mjd_day)
+    start, noon = erfa.dat(year, month, day, 0.0), erfa.dat(year, month, day, 0.5)
+
+    return (noon == start) & (_tai_minus_utc(mjd_day + 1.0) == start)
 
 
 def _leap_at_end_of(mjd_day) -> NDArray:

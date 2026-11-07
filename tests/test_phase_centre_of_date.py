@@ -737,7 +737,11 @@ def test_reading_utc_touches_no_network(tmp_path):
     )
 
 
-def test_observation_samples_are_evenly_spaced_across_a_leap_second():
+@pytest.mark.parametrize(
+    "iso, int_time",
+    [("2016-12-31T23:30:00", 600.0), ("2017-01-01T00:00:00", 1800.0)],  # before, after
+)
+def test_observation_samples_are_evenly_spaced_across_a_leap_second(iso, int_time):
     """Samples are int_time SI seconds apart, even over a 86401-second day.
 
     The grid is built from a start epoch plus elapsed seconds. A UTC day
@@ -747,8 +751,7 @@ def test_observation_samples_are_evenly_spaced_across_a_leap_second():
     satellite along its track. Measured on TT, which is uniform.
     """
 
-    int_time = 600.0
-    start = Time("2016-12-31T23:30:00", format="isot", scale="utc")
+    start = Time(iso, format="isot", scale="utc")
     obs = _observation(
         times_mjd=jd_to_mjd(start.jd) + np.arange(10) * int_time / 86400,
         int_time=int_time,
@@ -770,8 +773,11 @@ def test_observation_samples_are_evenly_spaced_across_a_leap_second():
             f"{np.abs(spacing - step).max():.4f} s across the leap second"
         )
 
-    # And the observation really does span the leap second, or it proves nothing.
-    utc = Time(mjd_to_jd(np.asarray(obs.times_mjd.compute())), format="jd", scale="utc")
+    # And the samples really do span the leap second, or it proves nothing; the
+    # fine samples reach back before a start just after it.
+    utc = Time(
+        mjd_to_jd(np.asarray(obs.times_mjd_fine.compute())), format="jd", scale="utc"
+    )
     assert utc[0] < Time("2016-12-31T23:59:60", format="isot", scale="utc") < utc[-1]
 
 
@@ -784,3 +790,19 @@ def test_ordinary_days_keep_the_naive_arithmetic():
 
     np.testing.assert_array_equal(utc_mjd_after(MJD_2019, elapsed), naive)
     np.testing.assert_array_equal(ms_time_from_utc_mjd(naive), naive * 86400)
+
+
+@pytest.mark.parametrize(
+    "iso", ["2017-01-01T00:00:00", "2016-12-31T12:00:00", "1965-07-01T00:00:00"]
+)
+def test_grid_counts_si_seconds_in_both_directions(iso):
+    """Forwards and backwards across a leap second, from on or after a leap-second
+    day, and through pre-1972 drift, each sample is its SI offset from the start."""
+
+    start = Time(iso, format="isot", scale="utc")
+    elapsed = np.array([-90000.0, -86400.0, -43200.0, -600.0, 0.0, 600.0, 86400.0])
+
+    actual = Time(utc_mjd_after(start.mjd, elapsed), format="mjd", scale="utc")
+    expected = start + elapsed * u.s
+
+    assert np.abs((actual.tai - expected.tai).sec).max() < 1e-4

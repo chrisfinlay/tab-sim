@@ -143,14 +143,27 @@ places care:
 - writing the Measurement Set: casacore reads `TIME` as a count of 86400-second
   days with TAI − UTC stepping at 0h, so `tabsim.time.ms_time_from_utc_mjd`
   converts at that boundary, and `utc_mjd_from_ms_time` back when an MS is
-  read. The leap second itself has no name on casacore's count; a sample
-  centred inside it is written as casacore's own TAI-to-UTC conversion writes
-  it, as a repeat of the second before, and reads back one second early.
+  read. The integration time read back is the SI spacing, which raw `TIME`
+  differences are not across a leap. The leap second itself has no name on
+  casacore's count; a sample centred inside it is written as casacore's own
+  TAI-to-UTC conversion writes it, as a repeat of the second before, and reads
+  back one second early.
 
-A second is some 7 km of satellite track, so none of this is cosmetic. Wherever
-no leap second intervenes, the sample grid and the MS `TIME` are the naive
-arithmetic bit for bit, so only observations spanning one are affected —
-2015-06-30 and 2016-12-31 are the most recent.
+A second is some 7 km of satellite track, so none of this is cosmetic. Three
+cases differ:
+
+- an ordinary day, of 86400 seconds with no leap at its end: a sample there is
+  the naive arithmetic bit for bit, in the grid and in the MS `TIME`, provided
+  the start is on an ordinary day too and no leap lies between them;
+- a leap-second day: every sample on it needs the conversion, not just those
+  near the leap. Its MS `TIME` differs from `mjd * 86400` by 0, 0.25, 0.5 and
+  0.75 s at 0h, 6h, 12h and 18h;
+- an interval crossing a leap, in either direction: the grid steps on TAI, so a
+  sample before a start just after a leap, as the fine samples of the first
+  integration are, lands on its SI offset.
+
+Before 1972 UTC drifted against TAI every day, so the grid always takes the TAI
+route there. 2015-06-30 and 2016-12-31 are the most recent leap-second days.
 
 erfa's leap-second table is compiled in, so none of this needs a cache or a
 network. astropy would do the same conversions, but its first UTC-to-TAI call

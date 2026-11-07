@@ -144,8 +144,8 @@ def test_single_rfi_can_accumulate_into_double_ms(tmp_path):
 def test_ms_time_reads_back_through_casacore_across_a_leap_second(
     elapsed, early, tmp_path
 ):
-    """casacore reads TIME back as the simulated instant, but for the leap second
-    itself, which its count cannot name and which reads as the second before."""
+    """casacore and read_ms read TIME back as the simulated instant and SI spacing,
+    but for the leap second itself, which their count cannot name: a second early."""
     day, fraction = erfa.dtf2d("UTC", 2016, 12, 31, 23, 30, 0.0)
     times = utc_mjd_after((day - erfa.DJM0) + fraction, [0.0, elapsed])
     path = tmp_path / "leap.ms"
@@ -164,4 +164,8 @@ def test_ms_time_reads_back_through_casacore_across_a_leap_second(
     np.testing.assert_allclose(
         (np.array(read) - simulated) * 86400, [0.0, -early], atol=1e-5
     )
-    assert read_time_data_from_ms(str(path))[0] == "2016-12-31T23:30:00.000"
+    assert read_time_data_from_ms(str(path)) == (
+        "2016-12-31T23:30:00.000",
+        pytest.approx(elapsed - early, abs=1e-5),
+        2,
+    )
