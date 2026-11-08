@@ -119,8 +119,8 @@ observation:
   SEFD: null                  # Required - System equivalent flux density of the antennas in Jy. Visibility noise is calculated from this, chan_width, and int_time
   auto_corrs: False           # Optional - Whether to simulate the autocorrelations
   chan_width: null            # Required if n_freq < 2 - The bandwidth of a single frequency channel in Hz
-  ra: null                    # Required - Right ascension of the target direction in decimal degrees
-  dec: null                   # Required - Declination of the target direction in decimal degrees
+  ra: null                    # Required - ICRS right ascension of the target in decimal degrees
+  dec: null                   # Required - ICRS declination of the target in decimal degrees
   int_time: null              # Required - Integration time per time step in seconds
   n_freq: null                # Required - Number of frequency channels to simulate
   n_int: null                 # Required - Number of samples used to integrate within a single time step. 

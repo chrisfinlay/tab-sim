@@ -12,7 +12,7 @@ from casacore.measures import measures
 from casacore.quanta import quantity
 from casacore.tables import table
 from daskms import xds_from_ms
-from tabsim.read_ms import read_time_data_from_ms
+from tabsim.read_ms import construct_config_from_ms, read_time_data_from_ms
 from tabsim.time import utc_mjd_after
 from tabsim.write import write_ms, construct_ms_data_table, add_to_ms
 
@@ -107,6 +107,38 @@ def test_ms_all_visibility_columns_roundtrip(dtype, tmp_path):
     read = xds_from_ms(str(path), columns=["DATA"], group_cols=[])[0]
     np.testing.assert_array_equal(read.DATA.compute(), expected)
     read.close()
+
+
+def test_ms_direction_frame_roundtrip(tmp_path):
+    """The stored centre is ICRS, the input frame of the tracking geometry."""
+    ds = observation_dataset(np.complex64)
+    path = tmp_path / "direction.ms"
+    write_ms(ds, path)
+    expected = [ds.target_ra, ds.target_dec]
+    for subtable, columns in (
+        ("FIELD", ("PHASE_DIR", "DELAY_DIR", "REFERENCE_DIR")),
+        ("SOURCE", ("DIRECTION",)),
+    ):
+        with table(str(path) + "::" + subtable, ack=False) as tab:
+            for column in columns:
+                info = tab.getcolkeyword(column, "MEASINFO")
+                assert info == {"type": "direction", "Ref": "ICRS"}
+                direction = tab.getcell(column, 0).reshape(2)
+                np.testing.assert_allclose(
+                    np.rad2deg(direction), expected, rtol=0, atol=1e-12
+                )
+                # Exercise casacore's measure parser, not just the keyword record.
+                m = measures()
+                measure = m.direction(
+                    info["Ref"], *(quantity(float(x), "rad") for x in direction)
+                )
+                assert m.measure(measure, "ICRS")["refer"] == "ICRS"
+    # This is the same path used by the write-config command.
+    _, config = construct_config_from_ms(str(path), save_dir=str(tmp_path))
+    np.testing.assert_allclose(
+        [config["observation"][k] for k in ("ra", "dec")],
+        expected, rtol=0, atol=1e-12,
+    )
 
 
 def test_existing_single_columns_reject_double_before_writing(tmp_path):

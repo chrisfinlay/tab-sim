@@ -240,8 +240,8 @@ def test_source_at_infinity_in_tracked_direction_fringe_stops_flat():
     assert spread < 1e-2, f"fringe-stopped path varies by {spread} m across the array"
 
 
-def test_j2000_phase_centre_is_what_the_output_records():
-    """The field direction stays J2000; only the tracking geometry is of date."""
+def test_icrs_phase_centre_is_what_the_output_records():
+    """The field direction stays ICRS; only the tracking geometry is of date."""
 
     obs = _observation()
 
@@ -270,6 +270,7 @@ def test_phase_tracking_convention_is_recorded():
     assert attrs["geometry_time_scale"] == "utc"
     assert attrs["target_ra"] == RA_J2000
     assert attrs["target_dec"] == DEC_J2000
+    assert attrs["target_frame"] == "ICRS"
 
 
 def _ut1_mjd(mjd):

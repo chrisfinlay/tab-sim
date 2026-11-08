@@ -689,8 +689,8 @@ def itrf_to_uvw(itrf: Array, h0: Array, dec: float, roll: Array = 0.0) -> Array:
         default. `w` is unchanged by it, so the phase-tracking term does not
         depend on this. Use it to complete the basis with something other than
         the east and north of `h0` and `dec`'s own frame: see
-        `tabsim.time.tracking_basis_roll`, which carries the J2000 east and
-        north onto a tracked frame of date so that J2000 direction cosines pair
+        `tabsim.time.tracking_basis_roll`, which carries the ICRS east and
+        north onto a tracked frame of date so that ICRS direction cosines pair
         with u and v.
 
     Returns

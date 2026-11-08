@@ -83,13 +83,29 @@ def read_freq_data_from_ms(
 def read_phase_centre_from_ms(
     ms_path: str,
 ) -> tuple[Union[float, None], Union[float, None]]:
+    """Read the first FIELD phase centre in the config's ICRS frame."""
+    from casacore.measures import measures
+    from casacore.quanta import quantity
+    from casacore.tables import table
 
     try:
-        xds_src = xds_from_table(ms_path + "::SOURCE")[0]
-
-        ra, dec = [float(x) for x in np.rad2deg(xds_src.DIRECTION.data[0]).compute()]
-    except:
-        print("Phase centre could not be read from MS file.")
+        with table(str(ms_path) + "::FIELD", ack=False) as field:
+            info = field.getcolkeyword("PHASE_DIR", "MEASINFO")
+            if "VarRefCol" in info or field.getcell("NUM_POLY", 0) != 0:
+                raise ValueError("Only fixed-frame, constant FIELD directions are supported")
+            direction = field.getcell("PHASE_DIR", 0)[0]
+        ref = info["Ref"].upper()
+        if ref != "ICRS":
+            m = measures()
+            converted = m.measure(
+                m.direction(ref, *(quantity(float(x), "rad") for x in direction)),
+                "ICRS",
+            )
+            direction = [quantity(converted[k]).get_value("rad") for k in ("m0", "m1")]
+        ra, dec = map(float, np.rad2deg(direction))
+        ra %= 360.0
+    except Exception as error:
+        print(f"Phase centre could not be read from MS file: {error}")
         ra, dec = None, None
 
     return ra, dec
