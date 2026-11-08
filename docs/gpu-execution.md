@@ -4,7 +4,8 @@ The Dask visibility and coordinate callbacks explicitly place their inputs on
 the worker's device, compute, and return completed NumPy results. A process-wide
 GPU slot stays occupied through device-to-host readback. The default is one
 active GPU block; independent component streams may still overlap host work and
-storage I/O. Airy evaluation stays entirely on the host.
+storage I/O. The RFI Airy beam runs on the device inside the RFI visibility block;
+the astronomical Airy beam stays on the host.
 
 This complements the staged writer from PR 64. A slot bounds active GPU work;
 it cannot bound an arbitrary Dask graph's completed host results. Use the default
