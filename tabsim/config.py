@@ -807,7 +807,7 @@ def add_tle_satellite_sources(obs: Observation, sim_config: dict) -> None:
             obs_epoch_jd=obs_epoch_jd,
         )
 
-    print(f"NORAD IDs included : {list(norad_ids)}")
+    print(f"NORAD IDs included : {[int(nid) for nid in norad_ids]}")
 
     records_by_id = dict(zip([int(nid) for nid in norad_ids], records))
 
@@ -843,6 +843,11 @@ def add_tle_satellite_sources(obs: Observation, sim_config: dict) -> None:
         ids, spectra = generate_spectra(sat_spec, obs.freqs, "norad_id")
         if selected is None:
             uids = np.unique(ids)[: sat_["max_n_sat"]]
+            if len(uids) < len(np.unique(ids)):
+                print(
+                    f"NORAD IDs used (max_n_sat={sat_['max_n_sat']}) : "
+                    f"{[int(uid) for uid in uids]}"
+                )
         else:
             uids = np.asarray(selected, dtype=int)
         for uid in tqdm(uids):
