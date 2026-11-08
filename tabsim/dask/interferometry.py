@@ -1,6 +1,7 @@
 from functools import partial
 from tabsim.precision import visibility_dtype
 from tabsim.execution import execute_kernel
+from tabsim.dask.extras import whole_absent_dims
 from tabsim.beam import airy_beam as host_airy_beam
 from jax import jit
 
@@ -101,7 +102,7 @@ def astro_vis(
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
         return ds_out
 
-    ds = xr.map_blocks(_astro_vis, input, template=output)
+    ds = xr.map_blocks(_astro_vis, whole_absent_dims(input, output), template=output)
 
     return ds.vis.data
 
@@ -183,7 +184,7 @@ def astro_vis_gauss(
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
         return ds_out
 
-    ds = xr.map_blocks(_astro_vis_gauss, input, template=output)
+    ds = xr.map_blocks(_astro_vis_gauss, whole_absent_dims(input, output), template=output)
 
     return ds.vis.data
 
@@ -254,7 +255,7 @@ def astro_vis_exp(
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
         return ds_out
 
-    ds = xr.map_blocks(_astro_vis_exp, input, template=output)
+    ds = xr.map_blocks(_astro_vis_exp, whole_absent_dims(input, output), template=output)
 
     return ds.vis.data
 
@@ -331,7 +332,7 @@ def rfi_vis(
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
         return ds_out
 
-    ds = xr.map_blocks(_rfi_vis, input, template=output)
+    ds = xr.map_blocks(_rfi_vis, whole_absent_dims(input, output), template=output)
 
     return ds.vis.data
 
@@ -528,7 +529,7 @@ def ants_to_bl(G: Array, a1: Array, a2: Array) -> Array:
         ds_out = xr.Dataset({"G_bl": (["time", "bl", "freq"], G_bl)})
         return ds_out
 
-    ds = xr.map_blocks(_ants_to_bl, input, template=output)
+    ds = xr.map_blocks(_ants_to_bl, whole_absent_dims(input, output), template=output)
 
     return ds.G_bl.data
 
@@ -568,7 +569,7 @@ def airy_beam(theta, freqs, dish_d):
         ds_out = xr.Dataset({"beam": (["src", "time", "ant", "freq"], beam)})
         return ds_out
 
-    ds = xr.map_blocks(_airy_beam, input, template=output)
+    ds = xr.map_blocks(_airy_beam, whole_absent_dims(input, output), template=output)
 
     return ds.beam.data
 
@@ -604,7 +605,7 @@ def Pv_to_Sv(Pv, d):
         ds_out = xr.Dataset({"Sv": (["src", "time", "ant", "freq"], Sv)})
         return ds_out
 
-    ds = xr.map_blocks(_Pv_to_Sv, input, template=output)
+    ds = xr.map_blocks(_Pv_to_Sv, whole_absent_dims(input, output), template=output)
 
     return ds.Sv.data
 
@@ -823,7 +824,7 @@ def apply_gains(
         ds_out = xr.Dataset({"vis_obs": (["time", "bl", "freq"], vis_obs)})
         return ds_out
 
-    ds = xr.map_blocks(_apply_gains, input, template=output)
+    ds = xr.map_blocks(_apply_gains, whole_absent_dims(input, output), template=output)
 
     return ds.vis_obs.data
 

@@ -54,3 +54,23 @@ def test_split_antenna_axis_matches_one_block(fn):
     positions = np.array([[10.0, 0, 0], [20, 5, 0], [30, 0, 2], [40, 1, 0]])
     split = fn(da.from_array(positions, chunks=((1, 2, 1), 3))).compute()
     np.testing.assert_allclose(split, fn(da.from_array(positions)).compute(), rtol=1e-12)
+
+
+SPLIT = {
+    # Zero phase everywhere: the visibility is the sum of fluxes (15), the mean
+    # squared sample amplitude (11) and the product of gains 1 and 2 (2).
+    "astro_vis_sources": (lambda s, l: di.astro_vis(s, da.zeros((T, 1, 3)), l, da.from_array(np.full(1, 1e8))),
+                          [np.arange(1.0, 6)[:, None, None] * np.ones((5, T, 1)), np.tile([0.0, 0, 1], (5, 1))],
+                          [((2, 1, 2), T, 1), ((2, 1, 2), 3)], 15),
+    "rfi_vis_samples": (lambda a, d: di.rfi_vis(a, d, da.from_array(np.full(1, 1e8)), da.from_array([0]), da.from_array([1])),
+                        [np.arange(1.0, 6)[None, None, :, None, None] * np.ones((1, T, 5, 2, 1)), np.zeros((1, T, 5, 2))],
+                        [(1, T, (2, 1, 2), 2, 1), (1, T, (2, 1, 2), 2)], 11),
+    "ants_to_bl_antennas": (lambda g: di.ants_to_bl(g, da.from_array([0]), da.from_array([1])),
+                            [np.arange(1.0, 6)[None, :, None] * np.ones((T, 5, 1), complex)], [(T, (2, 1, 2), 1)], 2),
+}
+
+
+@pytest.mark.parametrize("name", SPLIT)
+def test_split_reduced_axis_is_not_truncated(name):
+    fn, arrays, chunks, expected = SPLIT[name]
+    np.testing.assert_allclose(fn(*[da.from_array(x, chunks=c) for x, c in zip(arrays, chunks)]).compute(), expected)

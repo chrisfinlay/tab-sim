@@ -1,4 +1,5 @@
 from tabsim.execution import execute_kernel
+from tabsim.dask.extras import whole_absent_dims
 from tabsim.jax import coordinates as coord
 
 from jax import jit
@@ -56,7 +57,7 @@ def radec_to_lmn(ra: Array, dec: Array, phase_centre: Array) -> Array:
         ds_out = xr.Dataset({"lmn": (["src", "lmn_space"], lmn)})
         return ds_out
 
-    ds = xr.map_blocks(_radec_to_lmn, input, template=output)
+    ds = xr.map_blocks(_radec_to_lmn, whole_absent_dims(input, output), template=output)
 
     return ds.lmn.data
 
@@ -95,7 +96,7 @@ def radec_to_XYZ(ra: Array, dec: Array) -> Array:
         ds_out = xr.Dataset({"XYZ": (["src", "space"], XYZ)})
         return ds_out
 
-    ds = xr.map_blocks(_radec_to_XYZ, input, template=output)
+    ds = xr.map_blocks(_radec_to_XYZ, whole_absent_dims(input, output), template=output)
 
     return ds.XYZ.data
 
@@ -134,7 +135,7 @@ def ENU_to_GEO(geo_ref: Array, ENU: Array) -> Array:
         ds_out = xr.Dataset({"GEO": (["ant", "space"], GEO)})
         return ds_out
 
-    ds = xr.map_blocks(_ENU_to_GEO, input, template=output)
+    ds = xr.map_blocks(_ENU_to_GEO, whole_absent_dims(input, output), template=output)
 
     return ds.GEO.data
 
@@ -173,7 +174,7 @@ def GEO_to_XYZ(geo: Array, times: Array) -> Array:
         ds_out = xr.Dataset({"XYZ": (["time", "space"], XYZ)})
         return ds_out
 
-    ds = xr.map_blocks(_GEO_to_XYZ, input, template=output)
+    ds = xr.map_blocks(_GEO_to_XYZ, whole_absent_dims(input, output), template=output)
 
     return ds.XYZ.data
 
@@ -213,7 +214,7 @@ def GEO_to_XYZ_vmap0(geo: Array, times: Array) -> Array:
         ds_out = xr.Dataset({"XYZ": (["src", "time", "space"], XYZ)})
         return ds_out
 
-    ds = xr.map_blocks(_GEO_to_XYZ, input, template=output)
+    ds = xr.map_blocks(_GEO_to_XYZ, whole_absent_dims(input, output), template=output)
 
     return ds.XYZ.data
 
@@ -252,7 +253,7 @@ def GEO_to_XYZ_vmap1(geo: Array, times: Array) -> Array:
         ds_out = xr.Dataset({"XYZ": (["time", "ant", "space"], XYZ)})
         return ds_out
 
-    ds = xr.map_blocks(_GEO_to_XYZ, input, template=output)
+    ds = xr.map_blocks(_GEO_to_XYZ, whole_absent_dims(input, output), template=output)
 
     return ds.XYZ.data
 
@@ -354,7 +355,7 @@ def ITRF_to_XYZ(itrf: Array, gsa: Array) -> Array:
         ds_out = xr.Dataset({"xyz": (["time", "ant", "space"], XYZ)})
         return ds_out
 
-    ds = xr.map_blocks(_ITRF_to_XYZ, input, template=output)
+    ds = xr.map_blocks(_ITRF_to_XYZ, whole_absent_dims(input, output), template=output)
 
     return ds.xyz.data
 
@@ -398,7 +399,7 @@ def ENU_to_ITRF(ENU: Array, lat: Array, lon: Array, el: Array) -> Array:
         ds_out = xr.Dataset({"ITRF": (["ant", "space"], ITRF)})
         return ds_out
 
-    ds = xr.map_blocks(_ENU_to_ITRF, input, template=output)
+    ds = xr.map_blocks(_ENU_to_ITRF, whole_absent_dims(input, output), template=output)
 
     return ds.ITRF.data
 
@@ -469,7 +470,7 @@ def ITRF_to_UVW(
         ds_out = xr.Dataset({"uvw": (["time", "ant", "space"], uvw)})
         return ds_out
 
-    ds = xr.map_blocks(_ITRF_to_UVW, input, template=output)
+    ds = xr.map_blocks(_ITRF_to_UVW, whole_absent_dims(input, output), template=output)
 
     return ds.uvw.data
 
@@ -513,7 +514,7 @@ def angular_separation(rfi_xyz: Array, ants_xyz: Array, ra: Array, dec: Array) -
         ds_out = xr.Dataset({"sep": (["src", "time", "ant"], sep)})
         return ds_out
 
-    ds = xr.map_blocks(_angular_separation, input, template=output)
+    ds = xr.map_blocks(_angular_separation, whole_absent_dims(input, output), template=output)
 
     return ds.sep.data
 
@@ -568,7 +569,7 @@ def orbit_vmap(
         ds_out = xr.Dataset({"orbit": (["src", "time", "space"], orbit)})
         return ds_out
 
-    ds = xr.map_blocks(_orbit_vmap, input, template=output)
+    ds = xr.map_blocks(_orbit_vmap, whole_absent_dims(input, output), template=output)
 
     return ds.orbit.data
 

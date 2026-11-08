@@ -112,3 +112,13 @@ def get_chunksizes(n_t, n_f, n_int, n_bl, MB_max, *, n_ant=None, n_rfi=0, n_ast=
     return dict(time=t, freq=f, chunk_bytes=f'{size / 1e6:.0f} MB',
                 nominal_bytes=size, max_chunk_bytes=limit, working_set=model,
                 working_set_budget_bytes=budget)
+
+
+def whole_absent_dims(inputs, template):
+    """Give every input dimension the template lacks a single chunk.
+
+    xarray.map_blocks passes a kernel only one block of a dimension its output
+    does not have, so a kernel that sums over sources or indexes antennas would
+    silently see part of the axis if it were split.
+    """
+    return inputs.chunk({dim: -1 for dim in inputs.dims if dim not in template.dims})
