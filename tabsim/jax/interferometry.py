@@ -688,7 +688,8 @@ def int_sample_times(times: jnp.ndarray, n_int_samples: int = 1, int_time=None):
         The number of samples to take per integration time.
     int_time: float, optional
         The integration time. Defaults to the spacing of the first two times,
-        so it is required for a single time.
+        so it is required for a single time; with several times it must equal
+        that spacing, since the samples form one contiguous grid.
 
     Returns
     -------
@@ -697,10 +698,13 @@ def int_sample_times(times: jnp.ndarray, n_int_samples: int = 1, int_time=None):
     """
     times = jnp.asarray(times)
     n_int_samples = jnp.asarray(n_int_samples)  # type: ignore
-    if int_time is None:
-        if len(times) < 2:
-            raise ValueError("int_time is required to sample a single time")
-        int_time = times[1] - times[0]
+    if len(times) > 1:
+        spacing = times[1] - times[0]
+        if int_time is not None and not jnp.isclose(int_time, spacing, rtol=1e-9, atol=0):
+            raise ValueError(f"int_time {int_time} differs from the time spacing {spacing}")
+        int_time = spacing
+    elif int_time is None:
+        raise ValueError("int_time is required to sample a single time")
     times_fine = (
         int_time / (2 * n_int_samples)
         + jnp.arange(

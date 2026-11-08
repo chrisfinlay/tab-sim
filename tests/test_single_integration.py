@@ -12,6 +12,8 @@ def test_one_time_uses_the_given_int_time():
     np.testing.assert_allclose(int_sample_times(np.array([5.0]), 3, 2.0), [5 - 2 / 3, 5, 5 + 2 / 3])
     with pytest.raises(ValueError, match="int_time"):
         int_sample_times(np.array([5.0]), 3)
+    with pytest.raises(ValueError, match="spacing"):
+        int_sample_times(np.array([0.0, 10.0]), 1, 2.0)
 
 
 def test_single_integration_observation_computes():
