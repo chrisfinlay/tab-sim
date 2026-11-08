@@ -142,16 +142,17 @@ def test_rfi_path_is_bounded_and_on_device(tmp_path, monkeypatch, capsys):
         assert execution_stats()['calls'] > 0
 
 
-@pytest.mark.parametrize('n_power_freq', [5, 1])
-def test_dask_rfi_beam_accepts_mismatched_input_chunks(n_power_freq):
+@pytest.mark.parametrize('singleton', [None, 'power', 'angles', 'w'])
+def test_dask_rfi_beam_accepts_mismatched_chunks_and_broadcasting(singleton):
     from tabsim.dask import interferometry as dask_itf
-    Pv = da.full((2, 7, n_power_freq), 1e-14, chunks=(2, 3, 2))
+    Pv = da.full((2, 7, 1 if singleton == 'power' else 5), 1e-14, chunks=(2, 3, 2))
     d = da.full((2, 7, 4), 1e6, chunks=(2, 3, 4))
-    ang = da.full(d.shape, 15.0, chunks=(1, 7, 2))
+    ang = da.full((1, 1, 1) if singleton == 'angles' else d.shape, 15.0, chunks=(1, 7, 2))
+    w = da.zeros((1, 1, 1) if singleton == 'w' else (7, 1, 4), chunks=(7, 1, 1))
     freqs = da.from_array(np.linspace(1e9, 1.4e9, 5), chunks=3)
-    expected = np.sqrt(np.abs(np.asarray(itf.Pv_to_Sv(Pv.compute(), d.compute())))) * airy_beam(ang.compute(), freqs.compute(), 35.0)
+    expected = np.sqrt(np.abs(np.asarray(itf.Pv_to_Sv(Pv.compute(), d.compute())))) * airy_beam(np.broadcast_to(ang.compute(), d.shape), freqs.compute(), 35.0)
     np.testing.assert_allclose(dask_itf.rfi_amplitude(Pv, d, ang, freqs, 35.0).compute(), expected, rtol=2e-12, atol=2e-14)
     a1, a2 = da.from_array(np.array([0, 0, 1])), da.from_array(np.array([1, 2, 2]))
-    vis = dask_itf.rfi_vis_beam(Pv[:, :, None], d[:, :, None], da.zeros((7, 1, 4), chunks=(7, 1, 1)),
-                                ang[:, :, None], freqs, 35.0, a1, a2, visibility_precision="double")
+    vis = dask_itf.rfi_vis_beam(Pv[:, :, None], d[:, :, None], w, ang[:, :, None], freqs, 35.0, a1, a2,
+                                visibility_precision="double")
     assert np.isfinite(vis.compute()).all()
