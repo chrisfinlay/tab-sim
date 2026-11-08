@@ -40,7 +40,7 @@ def main():
     xds = xr.open_zarr(zarr_path)
 
     ra, dec = xds.ast_p_radec.data.compute().T
-    c = SkyCoord(ra, dec, unit="deg", frame="fk5")
+    c = SkyCoord(ra, dec, unit="deg", frame="icrs")
 
     max_U = np.max(np.linalg.norm(xds.bl_uvw.data[0], axis=-1))
     syn_bw = (3e8 / (max_U * xds.freq.data.max())).compute()

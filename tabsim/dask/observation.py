@@ -175,7 +175,7 @@ class Observation(Telescope):
     for complex128. Geometry and phase calculations remain float64 in both modes.
 
     The visibilities are fringe-stopped to the phase centre's apparent place of
-    date, which is what a correlator tracks. `ra` and `dec` stay J2000: that is
+    date, which is what a correlator tracks. `ra` and `dec` stay ICRS: that is
     the frame the sky model, the beam geometry and the MS field direction are in.
     See `tabsim.time` and docs/phase-tracking.md.
 
@@ -188,9 +188,9 @@ class Observation(Telescope):
     elevation: float
         Elevation of the telescope.
     ra: float
-        Right Ascension of the J2000 phase centre.
+        Right Ascension of the ICRS phase centre.
     dec: float
-        Declination of the J2000 phase centre.
+        Declination of the ICRS phase centre.
     times_mjd: ndarray (n_time,)
         Time centroid of each data point, as a Modified Julian Date on UTC. Only
         the first is read: the grid is rebuilt from it at `int_time` SI second
@@ -362,8 +362,8 @@ class Observation(Telescope):
         # The phase-tracking geometry below pairs a sidereal angle with a
         # direction, so the two must be referred to the same equator and equinox.
         # GAST is measured from the true equinox of date, so it pairs with the
-        # phase centre's apparent place of date and not with its J2000 RA/Dec:
-        # see tabsim.time and tab-sim#73. self.ra and self.dec stay J2000, which
+        # phase centre's apparent place of date and not with its ICRS RA/Dec:
+        # see tabsim.time and tab-sim#73. self.ra and self.dec stay ICRS, which
         # is what the sky model, the beam geometry and the MS field direction are
         # given in.
         #
@@ -391,7 +391,7 @@ class Observation(Telescope):
         self.gsa = frame[:, 0]
         self.tracked_ra = frame[:, 1]
         self.tracked_dec = frame[:, 2]
-        # u and v are rolled so they are the J2000 east and north carried onto
+        # u and v are rolled so they are the ICRS east and north carried onto
         # the tracked frame, which is what the sky model's direction cosines are
         # referred to. w, the tracking term, is unaffected by the roll.
         self.tracked_roll = frame[:, 3]

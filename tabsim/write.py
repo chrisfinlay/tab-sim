@@ -178,8 +178,9 @@ def get_observation_attributes(obs: Observation):
         "target_name": obs.target_name,
         "target_ra": obs.ra,
         "target_dec": obs.dec,
+        "target_frame": "ICRS",
         # The conventions the tracking geometry was built with, so a consumer can
-        # rebuild it rather than guess. "apparent" is the J2000 centre above taken
+        # rebuild it rather than guess. "apparent" is the ICRS centre above taken
         # to its apparent place of date (tabsim.time.apparent_radec_of_date),
         # which is the direction that pairs with GAST. See tab-sim#73 and
         # tabascal#252.
@@ -706,7 +707,10 @@ def construct_ms_direction_table(ds: Dataset, ms_path: str):
 
     data_vars = {"DIRECTION": (("row", "radec"), target)}
 
-    return xds_to_table([Dataset(data_vars)], ms_path + "::SOURCE", columns="ALL")
+    return xds_to_table(
+        [Dataset(data_vars)], ms_path + "::SOURCE", columns="ALL",
+        column_keywords={"DIRECTION": {"MEASINFO": {"type": "direction", "Ref": "ICRS"}}},
+    )
 
     #####################
 
@@ -760,7 +764,15 @@ def construct_ms_field_table(ds: Dataset, ms_path: str):
         "NAME": (("row"), name),
     }
 
-    return xds_to_table([Dataset(data_vars)], ms_path + "::FIELD", columns="ALL")
+    # The config direction is ICRS, as used by apparent_radec_of_date. The MS
+    # default J2000 means FK5 and would introduce a frame bias on readback.
+    return xds_to_table(
+        [Dataset(data_vars)], ms_path + "::FIELD", columns="ALL",
+        column_keywords={
+            name: {"MEASINFO": {"type": "direction", "Ref": "ICRS"}}
+            for name in ("PHASE_DIR", "DELAY_DIR", "REFERENCE_DIR")
+        },
+    )
 
     #####################
 

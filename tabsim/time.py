@@ -1,9 +1,9 @@
-"""Sidereal angles and the direction a correlator tracks for a J2000 phase centre.
+"""Sidereal angles and the direction a correlator tracks for an ICRS phase centre.
 
 The phase-tracking geometry pairs a sidereal angle with a direction, and the two
 must be referred to the same equator and equinox. GAST is measured from the true
 equinox of date, so it pairs with the phase centre's apparent place of date, not
-with its J2000 coordinates. Pairing GAST with J2000 displaces every modelled RFI
+with its ICRS coordinates. Pairing GAST with ICRS displaces every modelled RFI
 source by the precession since J2000 -- 0.25 deg by 2019, growing by about 50
 arcsec a year. See chrisfinlay/tab-sim#73 and epfl-radio-astro/tabascal#252.
 
@@ -12,6 +12,9 @@ function of that name, deliberately: tabascal models what tab-sim simulates, so
 the two packages have to agree on where the phase centre is. Both apply annual
 aberration from pyerfa's analytic series and then skyfield's
 bias-precession-nutation matrix.
+
+Input directions are ICRS, not FK5 mean equator/equinox J2000 (the MS ``J2000``
+reference). The frame bias between them is already included in that matrix.
 
 Times here are read as UTC, as every skyfield call in tab-sim is (see
 :func:`skyfield_time`).
@@ -269,9 +272,9 @@ def gast_deg(times_jd) -> NDArray:
 
 
 def apparent_radec_of_date(ra_deg: float, dec_deg: float, times_jd):
-    """A J2000 (ICRS) direction as the apparent geocentric RA/Dec of date.
+    """An ICRS direction as the apparent geocentric RA/Dec of date.
 
-    This is the direction a correlator tracks for a J2000 phase centre, on the
+    This is the direction a correlator tracks for an ICRS phase centre, on the
     true equator and equinox of date, and so the one to pair with
     :func:`gast_deg`: ``GAST - ra`` is then its Greenwich hour angle. It applies
     annual aberration (up to 20.5 arcsec) and then frame bias, precession and
@@ -292,7 +295,7 @@ def apparent_radec_of_date(ra_deg: float, dec_deg: float, times_jd):
     Parameters
     ----------
     ra_deg, dec_deg : float
-        The J2000 phase centre in degrees, as a simulation config gives it.
+        The ICRS phase centre in degrees, as a simulation config gives it.
     times_jd : array_like
         Observation times as Julian Dates.
 
@@ -313,26 +316,26 @@ def tracking_basis_roll(ra_deg: float, dec_deg: float, times_jd) -> NDArray:
     ``w`` points at the phase centre's apparent place of date
     (:func:`apparent_radec_of_date`), and :func:`tabsim.jax.coordinates.itrf_to_uvw`
     would otherwise complete the basis with the east and north of *that* frame's
-    pole. Those are not the J2000 east and north, and
+    pole. Those are not the ICRS east and north, and
     :func:`tabsim.jax.coordinates.radec_to_lmn` takes its tangent basis from the
-    pole of the frame it is handed, so J2000 direction cosines would not pair
+    pole of the frame it is handed, so ICRS direction cosines would not pair
     with them.
 
-    This angle rolls the basis so that ``u`` and ``v`` are instead the J2000
-    east and north carried rigidly onto the tracked frame. J2000 direction
+    This angle rolls the basis so that ``u`` and ``v`` are instead the ICRS
+    east and north carried rigidly onto the tracked frame. ICRS direction
     cosines then pair with them exactly, the sky model needs no transformation,
-    and a position angle measured from J2000 north stays a position angle.
+    and a position angle measured from ICRS north stays a position angle.
 
     It is small where the celestial pole is far away -- 0.08 deg at the equator,
     0.11 at a declination of -45 -- and large near it: 72 deg at a declination
-    of -89.9, where the J2000 and of-date poles are 0.145 deg apart and the
+    of -89.9, where the ICRS and of-date poles are 0.145 deg apart and the
     field sits between them. Completing the basis from the of-date pole there
     would rotate an extended source by that much.
 
     Parameters
     ----------
     ra_deg, dec_deg : float
-        The J2000 phase centre in degrees.
+        The ICRS phase centre in degrees.
     times_jd : array_like
         Observation times as Julian Dates.
 
@@ -370,13 +373,13 @@ def _gast_deg(t) -> NDArray:
 
 
 def _tracked_frame(ra_deg, dec_deg, t):
-    """The tracked direction and the carried J2000 east, ``(n, 3)``, of date."""
+    """The tracked direction and the carried ICRS east, ``(n, 3)``, of date."""
 
     east0, _, w0 = _tangent_vectors(ra_deg, dec_deg)
     s_app = erfa.ab(w0, *_annual_aberration(t))
 
     # Rodrigues for the rigid rotation carrying w0 onto its apparent place,
-    # applied to the J2000 east. The axis degenerates only where there is no
+    # applied to the ICRS east. The axis degenerates only where there is no
     # aberration to apply, and there the rotation is the identity.
     axis = np.cross(w0, s_app)
     sin_theta = np.linalg.norm(axis, axis=-1, keepdims=True)
@@ -394,7 +397,7 @@ def _tracked_frame(ra_deg, dec_deg, t):
 
 
 def _basis_roll(east, ra_deg, dec_deg) -> NDArray:
-    """Angle from the tracked frame's east to the carried J2000 east, degrees."""
+    """Angle from the tracked frame's east to the carried ICRS east, degrees."""
 
     tracked = _tangent_vectors(ra_deg, dec_deg)
 

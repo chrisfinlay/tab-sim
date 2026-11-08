@@ -1,8 +1,12 @@
 # Phase tracking
 
 The visibilities are fringe-stopped to the phase centre's **apparent place of
-date**, not to its J2000 coordinates. The J2000 centre is still what you give in
+date**, not to its ICRS coordinates. The ICRS centre is still what you give in
 the config and what the output records as the target direction.
+
+Here ICRS is the inertial reference frame, distinct from FK5 mean equator and
+equinox J2000 (casacore's `J2000`). Earlier documentation called the input
+direction “J2000”; the apparent-place calculation treats it as ICRS.
 
 ## Why the two differ
 
@@ -11,23 +15,23 @@ axis points at the phase centre, using the centre's Greenwich hour angle,
 `GAST - RA`. GAST is measured from the true equator and equinox *of date*, so
 the RA and Dec it is paired with have to be on that equator and equinox too.
 
-A J2000 RA/Dec is not. Pairing them leaves out frame bias, precession, nutation
+An ICRS RA/Dec is not. Pairing them leaves out frame bias, precession, nutation
 and annual aberration: 0.248 degrees in RA and -0.070 degrees in Dec for a 2019
 observation, growing by about 50 arcsec a year from J2000. tab-sim did pair them
 up to and including v0.0.13, which displaced every modelled RFI source by that
 angle — about 15 m of extra path on MeerKAT's longest baseline, or 63
 wavelengths at L band.
 
-## The sky model stays in J2000, the basis rolls to meet it
+## The sky model stays in ICRS, the basis rolls to meet it
 
 It is tempting to argue that astronomical sources are unaffected, since `lmn`
 are offsets from the phase centre and rotating centre and source alike leaves
 them unchanged. That is wrong: `radec_to_lmn` builds its tangent basis from the
-pole of the frame it is handed, and the J2000 pole is not the true pole of date.
+pole of the frame it is handed, and the ICRS pole is not the true pole of date.
 
 So `w` is pointed at the apparent place, but `u` and `v` are then **rolled**
-about it, by `tabsim.time.tracking_basis_roll`, so that they are the J2000 east
-and north carried rigidly onto the tracked frame. J2000 direction cosines pair
+about it, by `tabsim.time.tracking_basis_roll`, so that they are the ICRS east
+and north carried rigidly onto the tracked frame. ICRS direction cosines pair
 with them exactly. The roll leaves `w` untouched, so the RFI fringe-stopping
 term does not depend on it.
 
@@ -41,15 +45,15 @@ rolled apart by that angle:
 | -89 | 5.1 deg |
 | -89.9 | 72 deg |
 
-It is small away from the pole and enormous beside it, where the J2000 and
+It is small away from the pole and enormous beside it, where the ICRS and
 of-date poles are 0.145 deg apart and the field sits between them. Ignoring it
 costs 0.5 wavelengths of path for a source 2 deg off axis near the equator, 1.0
 at -45 and 500 for a polar field, and it would rotate an extended source
 outright.
 
 Rolling the basis rather than transforming the sky keeps three things simple:
-source positions are still given *and* recorded in J2000; a position angle
-measured from J2000 north stays a position angle, with no correction; and the
+source positions are still given *and* recorded in ICRS; a position angle
+measured from ICRS north stays a position angle, with no correction; and the
 direction cosines stay genuinely time independent, so nothing has to be frozen
 at a reference time.
 
@@ -61,7 +65,7 @@ uniform assumption, and standard imaging ignores the effect.
 
 ## What is applied
 
-`tabsim.time.apparent_radec_of_date` takes the J2000 (ICRS) centre to its
+`tabsim.time.apparent_radec_of_date` takes the ICRS centre to its
 apparent geocentric place at each fine time step:
 
 1. annual aberration, up to 20.5 arcsec, from pyerfa's analytic `epv00` series —
@@ -80,15 +84,27 @@ measured from the antenna positions cannot drift apart.
 
 ## What the output records
 
-Two zarr attributes name the conventions the geometry was built with:
+Three zarr attributes name the conventions the geometry was built with:
 
 | attribute | value | meaning |
 |-----------|-------|---------|
+| `target_frame` | `ICRS` | the reference frame of `target_ra` and `target_dec` |
 | `phase_tracking` | `apparent` | the apparent place of date, as above |
 | `geometry_time_scale` | `utc` | the scale the epochs behind the geometry are read on |
 
 The direction convention alone does not pin the geometry down, which is why the
-second is there.
+time scale is there.
+
+The MS `FIELD` columns `PHASE_DIR`, `DELAY_DIR`, and `REFERENCE_DIR`, and
+`SOURCE::DIRECTION`, store the configured coordinates in radians with
+`MEASINFO.Ref=ICRS`. No coordinate conversion is needed: frame bias is already
+part of the apparent-place calculation. Declaring those same numbers as
+`J2000` instead makes a frame-aware reader track a direction about 20 mas away.
+[Casacore supports ICRS](https://casacore.github.io/casacore/classcasacore_1_1MDirection.html),
+as do [CASA phase centres](https://casadocs.readthedocs.io/en/stable/api/tt/casatasks.manipulation.phaseshift.html).
+`write-config` reads the first constant `FIELD::PHASE_DIR`, respects its declared
+frame, and converts to ICRS when necessary. It does not infer the frame of older
+MS files whose ICRS coordinates were incorrectly labelled `J2000`.
 
 ## Time scale
 
@@ -171,7 +187,7 @@ tries to refresh that table from IERS and IANA, which is five connection
 attempts on a cold cache and five timeouts per worker on an offline node.
 
 `target_ra` and `target_dec`, and the Measurement Set's `FIELD::PHASE_DIR`,
-remain the J2000 centre. The tracked direction is not recorded separately
+remain the ICRS centre. The tracked direction is not recorded separately
 because it follows from those, the convention and the times, through
 `apparent_radec_of_date`.
 
