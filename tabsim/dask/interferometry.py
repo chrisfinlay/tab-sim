@@ -380,7 +380,7 @@ def rfi_vis_beam(
     n_bl = a1.shape[0]
 
     # Every input on the layout the output takes from distances and freqs.
-    Pv = Pv.rechunk(distances.chunks[:3] + freqs.chunks)
+    Pv = da.broadcast_to(Pv, distances.shape[:3] + freqs.shape).rechunk(distances.chunks[:3] + freqs.chunks)
     w = w.rechunk(distances.chunks[1:])
     ang_sep = ang_sep.rechunk(distances.chunks)
     time_chunk = distances.chunksize[1]
@@ -457,7 +457,7 @@ def rfi_amplitude(
     n_freq = freqs.shape[0]
 
     # Every input on the layout the output takes from distances and freqs.
-    Pv = Pv.rechunk(distances.chunks[:2] + freqs.chunks)
+    Pv = da.broadcast_to(Pv, distances.shape[:2] + freqs.shape).rechunk(distances.chunks[:2] + freqs.chunks)
     ang_sep = ang_sep.rechunk(distances.chunks)
     src_chunk, time_chunk, ant_chunk = distances.chunksize
     freq_chunk = freqs.chunksize[0]

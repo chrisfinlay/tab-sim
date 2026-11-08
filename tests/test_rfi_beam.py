@@ -142,9 +142,10 @@ def test_rfi_path_is_bounded_and_on_device(tmp_path, monkeypatch, capsys):
         assert execution_stats()['calls'] > 0
 
 
-def test_dask_rfi_beam_accepts_mismatched_input_chunks():
+@pytest.mark.parametrize('n_power_freq', [5, 1])
+def test_dask_rfi_beam_accepts_mismatched_input_chunks(n_power_freq):
     from tabsim.dask import interferometry as dask_itf
-    Pv = da.full((2, 7, 5), 1e-14, chunks=(2, 3, 2))
+    Pv = da.full((2, 7, n_power_freq), 1e-14, chunks=(2, 3, 2))
     d = da.full((2, 7, 4), 1e6, chunks=(2, 3, 4))
     ang = da.full(d.shape, 15.0, chunks=(1, 7, 2))
     freqs = da.from_array(np.linspace(1e9, 1.4e9, 5), chunks=3)
