@@ -44,3 +44,13 @@ def test_wrapper_keeps_irregular_chunks(name):
     out = fn(*[da.from_array(x, chunks=c) for x, c in zip(arrays, chunks)])
     assert out.chunks[axis] == TIME
     np.testing.assert_allclose(out.compute(), fn(*[da.from_array(x) for x in arrays]).compute(), rtol=1e-12)
+
+
+@pytest.mark.parametrize("fn", [
+    lambda itrf: dc.ITRF_to_UVW(itrf, da.from_array(np.array([0.0, 15.0])), -30.0),
+    lambda enu: dc.ENU_to_GEO(da.from_array(np.array([-30.0, 21.0, 1e3])), enu),
+])
+def test_split_antenna_axis_matches_one_block(fn):
+    positions = np.array([[10.0, 0, 0], [20, 5, 0], [30, 0, 2], [40, 1, 0]])
+    split = fn(da.from_array(positions, chunks=((1, 2, 1), 3))).compute()
+    np.testing.assert_allclose(split, fn(da.from_array(positions)).compute(), rtol=1e-12)

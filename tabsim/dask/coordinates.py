@@ -117,7 +117,7 @@ def ENU_to_GEO(geo_ref: Array, ENU: Array) -> Array:
     output = xr.Dataset(
         {
             "GEO": (
-                ["bl", "space"],
+                ["ant", "space"],
                 da.zeros(  # type: ignore
                     shape=(n_ant, 3),
                     chunks=(ant_chunk, 3),
@@ -415,6 +415,9 @@ def ITRF_to_UVW(
     n_ant = itrf.shape[0]
     n_time = h0.shape[0]
 
+    # Antenna zero is the UVW origin, so every antenna must share one block:
+    # a split antenna axis would measure each block from its own first antenna.
+    itrf = itrf.rechunk((-1, 3))
     ant_chunk = itrf.chunks[0]
     h0 = da.atleast_1d(h0)  # type: ignore
     # The hour angle's actual chunk layout, not chunksize, which is only its
