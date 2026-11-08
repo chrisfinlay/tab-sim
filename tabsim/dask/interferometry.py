@@ -384,9 +384,9 @@ def rfi_vis_beam(
     Pv = da.broadcast_to(Pv, distances.shape[:3] + freqs.shape).rechunk(distances.chunks[:3] + freqs.chunks)
     w = da.broadcast_to(w, distances.shape[1:]).rechunk(distances.chunks[1:])
     ang_sep = da.broadcast_to(ang_sep, distances.shape).rechunk(distances.chunks)
-    time_chunk = distances.chunksize[1]
-    freq_chunk = freqs.chunksize[0]
-    bl_chunk = a1.chunksize[0]
+    time_chunk = distances.chunks[1]
+    freq_chunk = freqs.chunks[0]
+    bl_chunk = a1.chunks[0]
 
     input = xr.Dataset(
         {
@@ -427,7 +427,7 @@ def rfi_vis_beam(
         )
         return xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
 
-    ds = xr.map_blocks(_rfi_vis_beam, input, template=output)
+    ds = xr.map_blocks(_rfi_vis_beam, whole_absent_dims(input, output), template=output)
 
     return ds.vis.data
 
@@ -460,8 +460,8 @@ def rfi_amplitude(
     # Every input on the layout the output takes from distances and freqs.
     Pv = da.broadcast_to(Pv, distances.shape[:2] + freqs.shape).rechunk(distances.chunks[:2] + freqs.chunks)
     ang_sep = da.broadcast_to(ang_sep, distances.shape).rechunk(distances.chunks)
-    src_chunk, time_chunk, ant_chunk = distances.chunksize
-    freq_chunk = freqs.chunksize[0]
+    src_chunk, time_chunk, ant_chunk = distances.chunks
+    freq_chunk = freqs.chunks[0]
 
     input = xr.Dataset(
         {
@@ -495,7 +495,7 @@ def rfi_amplitude(
         )
         return xr.Dataset({"amplitude": (["src", "time", "ant", "freq"], amplitude)})
 
-    ds = xr.map_blocks(_rfi_amplitude, input, template=output)
+    ds = xr.map_blocks(_rfi_amplitude, whole_absent_dims(input, output), template=output)
 
     return ds.amplitude.data
 
