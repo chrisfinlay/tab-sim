@@ -1935,6 +1935,29 @@ class TestSelectionEpoch:
         assert calls[0][1] == pytest.approx(epoch_jd, abs=1e-6)
 
 
+def test_max_n_sat_logs_the_ids_it_keeps(monkeypatch, capsys):
+    """When max_n_sat drops satellites, the log names the ones simulated (#40)."""
+    from tabsim import config as config_module
+
+    epoch_jd = jd(2023, 2, 21, 12)
+    ids = [ISS_NORAD_ID, GPS_NORAD_ID]
+    stub_service(monkeypatch, {nid: tle_record_at(nid, epoch_jd) for nid in ids})
+    monkeypatch.setattr(
+        tle_module,
+        "check_satellite_visibilibities",
+        lambda *args, **kwargs: pd.DataFrame({"norad_id": ids}),
+    )
+    obs = FakeObservation(times_jd=[epoch_jd, epoch_jd + 1e-4])
+
+    config_module.add_tle_satellite_sources(
+        obs, sim_rfi_config(norad_ids=ids, max_n_sat=1)
+    )
+
+    kept = [nid for added, _ in obs.added for nid in added]
+    assert len(kept) == 1
+    assert f"NORAD IDs used (max_n_sat=1) : {kept}" in capsys.readouterr().out
+
+
 class TestReplaySelection:
     @pytest.mark.parametrize("max_n_sat", [None, 1, 0])
     def test_replay_is_not_reselected_by_limits_or_spectra(
