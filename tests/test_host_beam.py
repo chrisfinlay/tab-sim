@@ -54,7 +54,7 @@ def test_device_beam_matches_host(diameter):
     from tabsim.jax import beam
     eps=sys.float_info.epsilon
     x=np.r_[np.linspace(-1e3,1e3,20001),5-1e-12,5+1e-12,-5-1e-12,-5+1e-12,eps,-eps,0.,-0.,np.nan,np.inf,-np.inf,
-            2.**-26,5.,10.,*(np.nextafter(e,[0.,np.inf]) for e in (2.**-26,5.,10.))]
+            2.**-26,5.,10.,np.nextafter(np.array([2.**-26,5.,10.])[:,None],[0.,np.inf]).ravel()]
     angles=contract_angles(diameter)
     inputs=jax.device_put((x,angles,FREQS,np.float64(diameter)))
     with jax.transfer_guard('disallow'):
@@ -62,7 +62,8 @@ def test_device_beam_matches_host(diameter):
         actual=jax.jit(beam.airy_beam)(*inputs[1:])
     j1,actual=np.asarray(j1),np.asarray(actual)
     expected=airy_beam(angles,FREQS,diameter)
-    np.testing.assert_allclose(j1,reference_j1(x),rtol=0,atol=5e-16)
+    # jaxlib < 0.7 (the last on Python 3.10) evaluates sin/cos ~1e-15 off for |x| > 10.
+    np.testing.assert_allclose(j1,reference_j1(x),rtol=0,atol=2e-15)
     np.testing.assert_array_equal(np.signbit(j1[x==0]),np.signbit(x[x==0]))
     assert actual.dtype==np.float64 and actual.shape==expected.shape
     np.testing.assert_allclose(actual,expected,rtol=2e-12,atol=2e-14)

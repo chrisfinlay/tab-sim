@@ -43,6 +43,7 @@ above x of about 40, and RFI arguments reach about 200.
 one jitted block, so computing `vis_rfi` never transfers the fine-time amplitude to
 the host. Saved `rfi_*_A` amplitudes and the fringe diagnostics are computed lazily
 by `rfi_amplitude`, which transfers bounded tiles through `execute_kernel`. Both
-entry points require JAX x64. `J1` matches `scipy.special.j1` within `5e-16` on
-[-1000, 1000] on every backend, keeps signed zeros, and the beam keeps the host
+entry points require JAX x64. `J1` matches `scipy.special.j1` within `2e-15` on
+[-1000, 1000] (about `2e-16` with current jaxlib; jaxlib 0.6, the last on Python 3.10,
+evaluates sin and cos less accurately at large arguments), keeps signed zeros, and the beam keeps the host
 tolerances above. Astronomical sources keep the host beam.
