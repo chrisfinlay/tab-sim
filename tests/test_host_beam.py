@@ -62,7 +62,7 @@ def test_device_beam_matches_host(diameter):
         actual=jax.jit(beam.airy_beam)(*inputs[1:])
     j1,actual=np.asarray(j1),np.asarray(actual)
     expected=airy_beam(angles,FREQS,diameter)
-    # jaxlib < 0.7 (the last on Python 3.10) evaluates sin/cos ~1e-15 off for |x| > 10.
+    # SciPy 1.15 (the last on Python 3.10) differs from later j1 by ~1e-15 for |x| > 10.
     np.testing.assert_allclose(j1,reference_j1(x),rtol=0,atol=2e-15)
     np.testing.assert_array_equal(np.signbit(j1[x==0]),np.signbit(x[x==0]))
     assert actual.dtype==np.float64 and actual.shape==expected.shape
