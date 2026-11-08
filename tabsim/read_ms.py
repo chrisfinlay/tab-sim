@@ -52,9 +52,13 @@ def read_time_data_from_ms(ms_path: str) -> tuple[str, float, int]:
     times = np.unique(xds_ms.TIME.data.compute())
 
     n_time = len(times)
-    # On SI seconds: TIME steps back by any leap second between the samples.
-    first = np.sort(times)[:2]
-    int_time = float(np.diff(first)[0] + np.diff(ms_time_tai_minus_utc(first))[0])
+    if n_time == 1:
+        # No spacing to measure: the one integration's INTERVAL is its length.
+        int_time = float(xds_ms.INTERVAL.data[0].compute())
+    else:
+        # On SI seconds: TIME steps back by any leap second between the samples.
+        first = np.sort(times)[:2]
+        int_time = float(np.diff(first)[0] + np.diff(ms_time_tai_minus_utc(first))[0])
 
     start_time_isot = Time(utc_mjd_from_ms_time(np.min(times)), format="mjd").isot
 

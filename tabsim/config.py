@@ -1088,6 +1088,10 @@ def save_inputs(obs: Observation, sim_config: dict, save_path: str) -> None:
 
 
 def print_fringe_freq_sat(obs: Observation):
+    # The fringe rate is a difference between samples, so one sample has none.
+    if len(obs.times_fine) < 2:
+        print("\nFringe frequency estimate skipped: it needs at least two samples.")
+        return
     if len(obs.times_fine) == obs.n_int_samples:
         n_int = int(obs.n_int_samples) - 1
     elif obs.times[-1] - obs.times[0] > 120:
@@ -1126,6 +1130,10 @@ def print_fringe_freq_sat(obs: Observation):
 
 
 def print_fringe_freq_tle_sat(obs: Observation):
+    # The fringe rate is a difference between samples, so one sample has none.
+    if len(obs.times_fine) < 2:
+        print("\nFringe frequency estimate skipped: it needs at least two samples.")
+        return
     if len(obs.times_fine) == obs.n_int_samples:
         n_int = obs.n_int_samples - 1
     elif obs.times[-1] - obs.times[0] > 120:
