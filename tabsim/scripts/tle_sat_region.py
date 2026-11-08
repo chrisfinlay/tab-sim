@@ -20,13 +20,15 @@ from tabsim.jax.coordinates import itrf_to_xyz, mjd_to_jd
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
 
-from skyfield.api import load, wgs84
+from skyfield.api import wgs84
+
+from tabsim.time import skyfield_time, timescale
 
 
 def sat_radec(record, times_jd: np.ndarray, obs_xyz: np.ndarray) -> np.ndarray:
 
-    ts = load.timescale()
-    t = ts.ut1_jd(times_jd)
+    ts = timescale()
+    t = skyfield_time(times_jd)
 
     satellite = earth_satellite(record, ts)
     location = EarthLocation(x=obs_xyz[0], y=obs_xyz[1], z=obs_xyz[2], unit="m")

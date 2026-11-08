@@ -19,6 +19,8 @@ import numpy as np
 
 from dask.array.core import Array
 
+from tabsim.time import ms_time_from_utc_mjd
+
 
 def rm_dir(path: str, overwrite: bool = True):
     """Remove a directory but check for existence and overwrite flag before.
@@ -176,6 +178,17 @@ def get_observation_attributes(obs: Observation):
         "target_name": obs.target_name,
         "target_ra": obs.ra,
         "target_dec": obs.dec,
+        # The conventions the tracking geometry was built with, so a consumer can
+        # rebuild it rather than guess. "apparent" is the J2000 centre above taken
+        # to its apparent place of date (tabsim.time.apparent_radec_of_date),
+        # which is the direction that pairs with GAST. See tab-sim#73 and
+        # tabascal#252.
+        "phase_tracking": getattr(obs, "phase_tracking", "apparent"),
+        # The scale the times below are read on. The direction convention alone
+        # does not pin the geometry down, so the scale is recorded beside it.
+        # UTC is what the MS TIME column carries and what consumers read it back
+        # on, so a consumer needs no correction to reconstruct this geometry.
+        "geometry_time_scale": getattr(obs, "geometry_time_scale", "utc"),
         "int_time": obs.int_time,
         "chan_width": obs.chan_width,
         "dish_diameter": obs.dish_d,
@@ -572,9 +585,12 @@ def construct_ms_data_table(
     else:
         flags = da.asarray(flags).reshape(n_row, n_freq, n_corr)
 
+    # casacore counts 86400-second days, which a leap-second day is not.
+    time_seconds = da.asarray(ds.coords["time_mjd"].data).map_blocks(
+        ms_time_from_utc_mjd, dtype=np.float64
+    )
     row_times = da.asarray(
-        (ds.coords["time_mjd"].data[:, None] * da.ones(shape=(1, n_bl))).flatten()
-        * (24 * 3600)
+        (time_seconds[:, None] * da.ones(shape=(1, n_bl))).flatten()
     )
     ant1 = (
         (ds.antenna1.data[None, :] * da.ones(shape=(n_time, 1)))

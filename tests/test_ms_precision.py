@@ -6,9 +6,14 @@ import pytest
 pytest.importorskip("casacore.tables")
 import dask
 import dask.array as da
+import erfa
 import xarray as xr
+from casacore.measures import measures
+from casacore.quanta import quantity
 from casacore.tables import table
 from daskms import xds_from_ms
+from tabsim.read_ms import read_time_data_from_ms
+from tabsim.time import utc_mjd_after
 from tabsim.write import write_ms, construct_ms_data_table, add_to_ms
 
 
@@ -131,3 +136,36 @@ def test_single_rfi_can_accumulate_into_double_ms(tmp_path):
     with table(str(path), ack=False) as ms:
         assert ms.getcol("DATA").dtype == np.dtype(np.complex128)
         np.testing.assert_array_equal(ms.getcol("DATA"), expected)
+
+
+@pytest.mark.parametrize(
+    "elapsed, early", [(1799.5, 0.0), (1800.5, 1.0), (1801.5, 0.0)]
+)
+def test_ms_time_reads_back_through_casacore_across_a_leap_second(
+    elapsed, early, tmp_path
+):
+    """casacore and read_ms read TIME back as the simulated instant and SI spacing,
+    but for the leap second itself, which their count cannot name: a second early."""
+    day, fraction = erfa.dtf2d("UTC", 2016, 12, 31, 23, 30, 0.0)
+    times = utc_mjd_after((day - erfa.DJM0) + fraction, [0.0, elapsed])
+    path = tmp_path / "leap.ms"
+    ds = observation_dataset(np.complex64).assign_coords(time_mjd=("time", times))
+    write_ms(ds, path)
+    with table(str(path), ack=False) as ms:
+        seconds = ms.getcol("TIME")
+    m = measures()
+    read = [
+        m.measure(m.epoch("utc", quantity(s, "s")), "tai")["m0"]["value"]
+        for s in seconds
+    ]
+    whole = np.floor(times)
+    tai_day, tai_fraction = erfa.utctai(erfa.DJM0 + whole, times - whole)
+    simulated = (tai_day - erfa.DJM0) + tai_fraction
+    np.testing.assert_allclose(
+        (np.array(read) - simulated) * 86400, [0.0, -early], atol=1e-5
+    )
+    assert read_time_data_from_ms(str(path)) == (
+        "2016-12-31T23:30:00.000",
+        pytest.approx(elapsed - early, abs=1e-5),
+        2,
+    )

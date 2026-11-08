@@ -13,8 +13,10 @@ its output schema — but a record here may be either kind.
 
 from astropy.time import Time
 from astropy.coordinates import EarthLocation
-from skyfield.api import load, wgs84, EarthSatellite
+from skyfield.api import wgs84, EarthSatellite
 from skyfield.positionlib import position_of_radec
+
+from tabsim.time import skyfield_time, timescale
 from sgp4.api import WGS72, Satrec
 import numpy as np
 import pandas as pd
@@ -148,8 +150,8 @@ def get_satellite_positions(records: list, times_jd: list) -> ArrayLike:
         Satellite positions over time, in metres.
     """
 
-    ts = load.timescale()
-    sf_times = ts.ut1_jd(times_jd)
+    ts = timescale()
+    sf_times = skyfield_time(times_jd)
 
     sat_pos = np.array(
         [
@@ -163,8 +165,7 @@ def get_satellite_positions(records: list, times_jd: list) -> ArrayLike:
 
 def ant_pos(ant_itrf: ArrayLike, times_jd: ArrayLike) -> ArrayLike:
 
-    ts = load.timescale()
-    t = ts.ut1_jd(times_jd)
+    t = skyfield_time(times_jd)
 
     location = EarthLocation(x=ant_itrf[0], y=ant_itrf[1], z=ant_itrf[2], unit="m")
     observer = wgs84.latlon(
@@ -184,9 +185,9 @@ def ants_pos(ants_itrf: ArrayLike, times_jd: ArrayLike) -> ArrayLike:
 
 def sat_distance(record, times_jd: ArrayLike, obs_itrf: ArrayLike) -> ArrayLike:
 
-    ts = load.timescale()
+    ts = timescale()
 
-    t = ts.ut1_jd(times_jd)
+    t = skyfield_time(times_jd)
 
     satellite = earth_satellite(record, ts)
 
@@ -218,9 +219,9 @@ def get_sat_pos_tle(record, sat_name: str, times_jd: float) -> ArrayLike:
         Satellite positions in metres in the GCRS (ECI) frame.
     """
 
-    ts = load.timescale()
+    ts = timescale()
     sat = earth_satellite(record, ts)
-    t_s = ts.ut1_jd(times_jd)
+    t_s = skyfield_time(times_jd)
     sat_pos = sat.at(t_s).position.m
 
     return sat_pos
@@ -560,8 +561,8 @@ def check_visibility(
     target.
     """
 
-    ts = load.timescale()
-    sf_times = ts.ut1_jd(times.jd)
+    ts = timescale()
+    sf_times = skyfield_time(times.jd)
 
     # Set up observer location
     observer_location = wgs84.latlon(observer_lat, observer_lon, observer_elevation)

@@ -8,6 +8,7 @@ from astropy.utils import iers
 
 from tabsim.dask import coordinates as dc
 from tabsim import tle
+from tabsim import time as tabsim_time
 from benchmarks.harness import build_observation
 from orbit_helpers import ISS_EPOCH_JD, ISS_NORAD_ID, tle_record, omm_record_from_tle
 
@@ -71,16 +72,23 @@ def test_graph_construction_and_slice_do_not_propagate_full_history(monkeypatch)
 def test_observation_setup_only_evaluates_first_uvw_tile(monkeypatch):
     calls = []
     original = dc._itrf_to_uvw_jit
-    def uvw(positions, hour_angle, dec):
+    def uvw(positions, hour_angle, dec, roll):
         calls.append(len(hour_angle))
-        return original(positions, hour_angle, dec)
+        return original(positions, hour_angle, dec, roll)
     monkeypatch.setattr(dc, '_itrf_to_uvw_jit', uvw)
     def forbidden(*args, **kwargs):
         raise AssertionError('Skyfield geometry eagerly computed during setup')
     monkeypatch.setattr(dc, 'itrs_to_gcrs_sf', forbidden)
+    epochs = []
+    original_time = tabsim_time.skyfield_time
+    def skyfield_time(times_jd):
+        epochs.append(np.size(times_jd))
+        return original_time(times_jd)
+    monkeypatch.setattr(tabsim_time, 'skyfield_time', skyfield_time)
     obs = build_observation(dict(telescope='SKA-Low-AA0.5', antennas=4, times=32,
         channels=4, samples=3, point_sources=0, rfi_sources=0), .001)
     assert calls and sum(calls) <= obs.time_fine_chunk
+    assert epochs and sum(epochs) <= obs.time_fine_chunk
     assert obs.time_fine_chunk < obs.n_time_fine
     obs.addTLESatelliteRFI(np.ones((1, 1, 4))*1e-14, [ISS_NORAD_ID], [tle_record()])
     assert sum(calls) <= obs.time_fine_chunk
@@ -118,7 +126,17 @@ def test_uvw_and_baselines_preserve_origin_and_no_w(no_w):
         ra=30., dec=-30., ITRF_array=positions.tolist(), times_mjd=60000.+np.arange(8)*2/86400,
         freqs=np.array([150e6,151e6]), SEFD=np.ones(2)*5000, int_time=2,
         n_int_samples=3, max_chunk_MB=.001, no_w=no_w)
-    expected = np.array(itrf_to_uvw(positions, np.asarray(obs.gha), -30.))
+    # The tracking geometry follows the phase centre's apparent place of date,
+    # and u/v are rolled onto the J2000 east and north; test_phase_centre_of_date
+    # covers that frame.
+    expected = np.array(
+        itrf_to_uvw(
+            positions,
+            np.asarray(obs.gha),
+            np.asarray(obs.tracked_dec),
+            np.asarray(obs.tracked_roll),
+        )
+    )
     if no_w:
         expected[:, :, 2] = 0
     np.testing.assert_allclose(obs.ants_uvw.compute(), expected, rtol=1e-12, atol=1e-9)
