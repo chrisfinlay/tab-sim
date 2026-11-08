@@ -280,3 +280,15 @@ def test_scalar_diagnostics_share_one_graph_execution(capsys):
     assert calls == [1]
     output = capsys.readouterr().out
     assert '3.00 Jy' in output and '0.00 Jy' in output and '100.0 %' in output
+
+
+def test_ms_only_output_writes_the_observed_visibilities(obs, tmp_path):
+    """An MS without a zarr beside it holds vis_obs and leaves no stage behind (#42)."""
+    from casacore.tables import table
+    settings = dict(output=dict(zarr=False, ms=True, overwrite=False, flag_data=False))
+    config.save_data(obs, settings, tmp_path / 'result.zarr', tmp_path / 'result.ms')
+    expected = obs.dataset.vis_obs.values
+    with table(str(tmp_path / 'result.ms'), ack=False) as ms:
+        data = ms.getcol('DATA')
+    np.testing.assert_allclose(data[..., 0].reshape(expected.shape), expected, rtol=1e-6)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['result.ms']
