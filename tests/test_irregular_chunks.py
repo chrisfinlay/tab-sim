@@ -74,3 +74,9 @@ SPLIT = {
 def test_split_reduced_axis_is_not_truncated(name):
     fn, arrays, chunks, expected = SPLIT[name]
     np.testing.assert_allclose(fn(*[da.from_array(x, chunks=c) for x, c in zip(arrays, chunks)]).compute(), expected)
+
+
+def test_numpy_inputs_beside_split_dask_inputs():
+    ra = da.from_array(np.linspace(0, 40, 5), chunks=(2, 2, 1))
+    np.testing.assert_allclose(dc.radec_to_XYZ(ra, np.full(5, -30.0)).compute(),
+                               dc.radec_to_XYZ(da.from_array(np.linspace(0, 40, 5)), da.from_array(np.full(5, -30.0))).compute())

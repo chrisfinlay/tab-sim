@@ -121,4 +121,11 @@ def whole_absent_dims(inputs, template):
     does not have, so a kernel that sums over sources or indexes antennas would
     silently see part of the axis if it were split.
     """
-    return inputs.chunk({dim: -1 for dim in inputs.dims if dim not in template.dims})
+    absent = {dim for dim in inputs.dims if dim not in template.dims}
+    # Only Dask-backed variables are rechunked: chunking a NumPy-backed one would
+    # give it a single chunk that clashes with its split neighbours.
+    return inputs.assign({
+        name: var.chunk({dim: -1 for dim in var.dims if dim in absent})
+        for name, var in inputs.data_vars.items()
+        if var.chunks is not None and absent.intersection(var.dims)
+    })
