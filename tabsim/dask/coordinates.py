@@ -27,7 +27,7 @@ _orbit_vmap_jit = jit(coord.orbit_vmap)
 def radec_to_lmn(ra: Array, dec: Array, phase_centre: Array) -> Array:
     n_src = ra.shape[0]
 
-    src_chunk = ra.chunksize[0]
+    src_chunk = ra.chunks[0]
 
     input = xr.Dataset(
         {
@@ -67,7 +67,7 @@ radec_to_lmn.__doc__ = coord.radec_to_lmn.__doc__
 def radec_to_XYZ(ra: Array, dec: Array) -> Array:
     n_src = ra.shape[0]
 
-    src_chunk = ra.chunksize[0]
+    src_chunk = ra.chunks[0]
 
     input = xr.Dataset(
         {
@@ -106,7 +106,7 @@ radec_to_XYZ.__doc__ = coord.radec_to_XYZ.__doc__
 def ENU_to_GEO(geo_ref: Array, ENU: Array) -> Array:
     n_ant = ENU.shape[0]
 
-    ant_chunk = ENU.chunksize[0]
+    ant_chunk = ENU.chunks[0]
 
     input = xr.Dataset(
         {
@@ -145,7 +145,7 @@ ENU_to_GEO.__doc__ = coord.ENU_to_GEO.__doc__
 def GEO_to_XYZ(geo: Array, times: Array) -> Array:
     n_time = geo.shape[0]
 
-    time_chunk = geo.chunksize[0]
+    time_chunk = geo.chunks[0]
 
     input = xr.Dataset(
         {
@@ -184,8 +184,8 @@ GEO_to_XYZ.__doc__ = coord.GEO_to_XYZ.__doc__
 def GEO_to_XYZ_vmap0(geo: Array, times: Array) -> Array:
     n_src, n_time = geo.shape[:2]
 
-    src_chunk = geo.chunks[0][0]
-    time_chunk = geo.chunks[1][0]
+    src_chunk = geo.chunks[0]
+    time_chunk = geo.chunks[1]
 
     input = xr.Dataset(
         {
@@ -224,7 +224,7 @@ GEO_to_XYZ_vmap0.__doc__ = coord.GEO_to_XYZ_vmap0.__doc__
 def GEO_to_XYZ_vmap1(geo: Array, times: Array) -> Array:
     n_time, n_ant = geo.shape[:2]
 
-    time_chunk, ant_chunk = geo.chunksize[:2]
+    time_chunk, ant_chunk = geo.chunks[:2]
 
     input = xr.Dataset(
         {
@@ -325,8 +325,8 @@ def ITRF_to_XYZ(itrf: Array, gsa: Array) -> Array:
     n_time = gsa.shape[0]
     n_ant = itrf.shape[0]
 
-    time_chunk = gsa.chunksize[0]
-    ant_chunk = itrf.chunksize[0]
+    time_chunk = gsa.chunks[0]
+    ant_chunk = itrf.chunks[0]
 
     input = xr.Dataset(
         {
@@ -365,7 +365,7 @@ ITRF_to_XYZ.__doc__ = coord.itrf_to_xyz.__doc__
 def ENU_to_ITRF(ENU: Array, lat: Array, lon: Array, el: Array) -> Array:
     n_ant = ENU.shape[0]
 
-    ant_chunk = ENU.chunksize[0]
+    ant_chunk = ENU.chunks[0]
 
     input = xr.Dataset(
         {
@@ -415,7 +415,7 @@ def ITRF_to_UVW(
     n_ant = itrf.shape[0]
     n_time = h0.shape[0]
 
-    ant_chunk = itrf.chunksize[0]
+    ant_chunk = itrf.chunks[0]
     h0 = da.atleast_1d(h0)  # type: ignore
     # The hour angle's actual chunk layout, not chunksize, which is only its
     # longest chunk: an h0 chunked (2, 1, 2) would put the quantities below on
@@ -478,8 +478,8 @@ def angular_separation(rfi_xyz: Array, ants_xyz: Array, ra: Array, dec: Array) -
     n_src, n_time = rfi_xyz.shape[:2]
     n_ant = ants_xyz.shape[1]
 
-    src_chunk, time_chunk = rfi_xyz.chunksize[:2]
-    ant_chunk = ants_xyz.chunksize[1]
+    src_chunk, time_chunk = rfi_xyz.chunks[:2]
+    ant_chunk = ants_xyz.chunks[1]
 
     input = xr.Dataset(
         {
@@ -528,8 +528,8 @@ def orbit_vmap(
     n_time = times.shape[0]
     n_src = elevation.shape[0]
 
-    time_chunk = times.chunksize[0]
-    src_chunk = elevation.chunksize[0]
+    time_chunk = times.chunks[0]
+    src_chunk = elevation.chunks[0]
 
     input = xr.Dataset(
         {
