@@ -10,9 +10,11 @@ import erfa
 import xarray as xr
 from casacore.measures import measures
 from casacore.quanta import quantity
-from casacore.tables import table
+from casacore.tables import table, makescacoldesc
 from daskms import xds_from_ms
-from tabsim.read_ms import construct_config_from_ms, read_time_data_from_ms
+from tabsim.read_ms import (
+    construct_config_from_ms, read_phase_centre_from_ms, read_time_data_from_ms,
+)
 from tabsim.time import utc_mjd_after
 from tabsim.write import write_ms, construct_ms_data_table, add_to_ms
 
@@ -139,6 +141,31 @@ def test_ms_direction_frame_roundtrip(tmp_path):
         [config["observation"][k] for k in ("ra", "dec")],
         expected, rtol=0, atol=1e-12,
     )
+
+
+@pytest.mark.parametrize("ephemeris_id,ref,error", [
+    (-1, "ICRS", None),
+    (0, "ICRS", "moving ephemeris"),
+    (3, "ICRS", "moving ephemeris"),
+    (None, "NOT_A_FRAME", "Unsupported FIELD direction reference"),
+    (None, "ICRZ", "Unsupported FIELD direction reference"),
+])
+def test_ms_phase_centre_requires_a_known_fixed_direction(
+    tmp_path, capsys, ephemeris_id, ref, error
+):
+    path = tmp_path / "direction.ms"
+    write_ms(observation_dataset(np.complex64), path)
+    with table(str(path) + "::FIELD", readonly=False, ack=False) as field:
+        if ephemeris_id is not None:
+            field.addcols(makescacoldesc("EPHEMERIS_ID", -1))
+            field.putcell("EPHEMERIS_ID", 0, ephemeris_id)
+        field.putcolkeyword("PHASE_DIR", "MEASINFO", {"type": "direction", "Ref": ref})
+    direction = read_phase_centre_from_ms(str(path))
+    if error is None:
+        np.testing.assert_allclose(direction, [30., -30.], rtol=0, atol=1e-12)
+    else:
+        assert direction == (None, None)
+        assert error in capsys.readouterr().out
 
 
 def test_existing_single_columns_reject_double_before_writing(tmp_path):

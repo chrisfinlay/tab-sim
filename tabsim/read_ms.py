@@ -93,8 +93,19 @@ def read_phase_centre_from_ms(
             info = field.getcolkeyword("PHASE_DIR", "MEASINFO")
             if "VarRefCol" in info or field.getcell("NUM_POLY", 0) != 0:
                 raise ValueError("Only fixed-frame, constant FIELD directions are supported")
+            if (
+                "EPHEMERIS_ID" in field.colnames()
+                and field.getcell("EPHEMERIS_ID", 0) >= 0
+            ):
+                raise ValueError("FIELD direction is an offset from a moving ephemeris")
             direction = field.getcell("PHASE_DIR", 0)[0]
         ref = info["Ref"].upper()
+        # Only celestial frames convertible without an epoch or observer. Check
+        # before direction(): casacore silently falls back to J2000 for typos.
+        if ref not in {
+            "ICRS", "J2000", "B1950", "B1950_VLA", "GALACTIC", "SUPERGAL", "ECLIPTIC"
+        }:
+            raise ValueError(f"Unsupported FIELD direction reference: {ref}")
         if ref != "ICRS":
             m = measures()
             converted = m.measure(

@@ -23,6 +23,7 @@ from astropy.time import Time
 from skyfield.api import wgs84
 
 from tabsim.time import skyfield_time, timescale
+from tabsim.read_ms import read_phase_centre_from_ms
 
 
 def sat_radec(record, times_jd: np.ndarray, obs_xyz: np.ndarray) -> np.ndarray:
@@ -153,8 +154,9 @@ def main():
 
     if n_tles > 0:
 
-        xds_src = xds_from_table(ms_path + "::SOURCE")[0]
-        ra, dec = np.rad2deg(xds_src.DIRECTION.data[0].compute())
+        ra, dec = read_phase_centre_from_ms(ms_path)
+        if ra is None or dec is None:
+            raise ValueError("Cannot draw satellite regions without a fixed phase centre")
 
         xds_ants = xds_from_table(ms_path + "::ANTENNA")[0]
         ants_itrf = np.mean(xds_ants.POSITION.data.compute(), axis=0, keepdims=True)
@@ -174,8 +176,8 @@ def main():
                 [sat_radec(orbit, times_jd, ants_itrf[0]) for orbit in orbits]
             )
 
-        c0 = SkyCoord(ra, dec, unit="deg", frame="fk5")
-        c = SkyCoord(radec[:, :, 0], radec[:, :, 1], unit="deg", frame="fk5")
+        c0 = SkyCoord(ra, dec, unit="deg", frame="icrs")
+        c = SkyCoord(radec[:, :, 0], radec[:, :, 1], unit="deg", frame="icrs")
 
         min_sep = c0.separation(c).min(axis=1).deg
         print(
