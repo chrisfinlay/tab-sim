@@ -334,7 +334,7 @@ class Observation(Telescope):
         self.n_int_samples = n_int_samples
 
         self.times_fine = da.asarray(
-            int_sample_times(self.times.compute(), n_int_samples)
+            int_sample_times(self.times.compute(), n_int_samples, int_time)
         ).rechunk(self.time_fine_chunk)
 
         self.times_mjd_fine = da.asarray(

@@ -675,7 +675,7 @@ def SEFD_to_noise_std(
     return SEFD / jnp.sqrt(2 * chan_width * int_time)
 
 
-def int_sample_times(times: jnp.ndarray, n_int_samples: int = 1):
+def int_sample_times(times: jnp.ndarray, n_int_samples: int = 1, int_time=None):
     """Calculate the times at which to sample the visibilities given the time centroids.
     This shoudl produce `n_int_samples` times per integration time that are evenly
     spaced around the time centroid.
@@ -686,6 +686,10 @@ def int_sample_times(times: jnp.ndarray, n_int_samples: int = 1):
         The time centroids at which to sample the visibilities.
     n_int_samples: int
         The number of samples to take per integration time.
+    int_time: float, optional
+        The integration time. Defaults to the spacing of the first two times,
+        so it is required for a single time; with several times it must equal
+        that spacing, since the samples form one contiguous grid.
 
     Returns
     -------
@@ -694,7 +698,13 @@ def int_sample_times(times: jnp.ndarray, n_int_samples: int = 1):
     """
     times = jnp.asarray(times)
     n_int_samples = jnp.asarray(n_int_samples)  # type: ignore
-    int_time = times[1] - times[0]
+    if len(times) > 1:
+        spacing = times[1] - times[0]
+        if int_time is not None and not jnp.isclose(int_time, spacing, rtol=1e-9, atol=0):
+            raise ValueError(f"int_time {int_time} differs from the time spacing {spacing}")
+        int_time = spacing
+    elif int_time is None:
+        raise ValueError("int_time is required to sample a single time")
     times_fine = (
         int_time / (2 * n_int_samples)
         + jnp.arange(
