@@ -81,8 +81,10 @@ def airy_beam(theta, freqs, dish_d):
             "The device Airy beam requires JAX x64; set JAX_ENABLE_X64=true "
             "or jax.config.update('jax_enable_x64', True)"
         )
-    theta = jnp.deg2rad(jnp.asarray(theta)[..., None])
-    scale = jnp.pi * jnp.asarray(freqs) * jnp.asarray(dish_d).reshape(-1)[0]
+    # Float32 inputs are promoted: the beam is evaluated in float64 regardless.
+    theta = jnp.deg2rad(jnp.asarray(theta, jnp.float64)[..., None])
+    scale = (jnp.pi * jnp.asarray(freqs, jnp.float64)
+             * jnp.asarray(dish_d, jnp.float64).reshape(-1)[0])
     x = jnp.where(theta == 0.0, sys.float_info.epsilon,
                   scale * jnp.sin(theta) / 2.99792458e8)
     return 2 * j1(x) / x

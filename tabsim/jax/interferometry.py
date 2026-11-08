@@ -106,8 +106,8 @@ def rfi_amplitude(Pv, distances, ang_sep, freqs, dish_d):
         Float64 apparent amplitude in sqrt(Jy).
     """
     _require_x64()
-    Pv = jnp.asarray(Pv)
-    d = jnp.asarray(distances)
+    Pv = jnp.asarray(Pv, jnp.float64)
+    d = jnp.asarray(distances, jnp.float64)
     # Same expression order as Pv_to_Sv, for any leading dimensions.
     Sv = Pv[..., None, :] / (4 * jnp.pi * d[..., None] ** 2) * 1e26
     return jnp.sqrt(jnp.abs(Sv)) * device_airy_beam(ang_sep, freqs, dish_d)

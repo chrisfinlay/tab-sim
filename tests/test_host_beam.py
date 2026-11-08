@@ -70,6 +70,10 @@ def test_device_beam_matches_host(diameter):
     np.testing.assert_allclose(actual[0],1.,rtol=0,atol=3e-15)
     signed=np.abs(expected)>1e-13
     np.testing.assert_array_equal(np.sign(actual[signed]),np.sign(expected[signed]))
+    # Float32 inputs are promoted, so they match the float64 host beam of the same values.
+    as64=lambda v:np.asarray(v,np.float32).astype(float)
+    single=np.asarray(jax.jit(beam.airy_beam)(*(np.float32(v) for v in (angles,FREQS,diameter))))
+    np.testing.assert_allclose(single,airy_beam(as64(angles),as64(FREQS),as64(diameter)),rtol=2e-12,atol=2e-14)
 
 
 @pytest.mark.parametrize('dtype',[np.float32,np.float64])
