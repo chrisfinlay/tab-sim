@@ -1,4 +1,5 @@
 from tabsim.execution import execute_kernel
+from tabsim.dask.extras import whole_absent_dims
 from tabsim.jax import coordinates as coord
 
 from jax import jit
@@ -27,7 +28,7 @@ _orbit_vmap_jit = jit(coord.orbit_vmap)
 def radec_to_lmn(ra: Array, dec: Array, phase_centre: Array) -> Array:
     n_src = ra.shape[0]
 
-    src_chunk = ra.chunksize[0]
+    src_chunk = ra.chunks[0]
 
     input = xr.Dataset(
         {
@@ -56,7 +57,7 @@ def radec_to_lmn(ra: Array, dec: Array, phase_centre: Array) -> Array:
         ds_out = xr.Dataset({"lmn": (["src", "lmn_space"], lmn)})
         return ds_out
 
-    ds = xr.map_blocks(_radec_to_lmn, input, template=output)
+    ds = xr.map_blocks(_radec_to_lmn, whole_absent_dims(input, output), template=output)
 
     return ds.lmn.data
 
@@ -67,7 +68,7 @@ radec_to_lmn.__doc__ = coord.radec_to_lmn.__doc__
 def radec_to_XYZ(ra: Array, dec: Array) -> Array:
     n_src = ra.shape[0]
 
-    src_chunk = ra.chunksize[0]
+    src_chunk = ra.chunks[0]
 
     input = xr.Dataset(
         {
@@ -95,7 +96,7 @@ def radec_to_XYZ(ra: Array, dec: Array) -> Array:
         ds_out = xr.Dataset({"XYZ": (["src", "space"], XYZ)})
         return ds_out
 
-    ds = xr.map_blocks(_radec_to_XYZ, input, template=output)
+    ds = xr.map_blocks(_radec_to_XYZ, whole_absent_dims(input, output), template=output)
 
     return ds.XYZ.data
 
@@ -106,7 +107,7 @@ radec_to_XYZ.__doc__ = coord.radec_to_XYZ.__doc__
 def ENU_to_GEO(geo_ref: Array, ENU: Array) -> Array:
     n_ant = ENU.shape[0]
 
-    ant_chunk = ENU.chunksize[0]
+    ant_chunk = ENU.chunks[0]
 
     input = xr.Dataset(
         {
@@ -117,7 +118,7 @@ def ENU_to_GEO(geo_ref: Array, ENU: Array) -> Array:
     output = xr.Dataset(
         {
             "GEO": (
-                ["bl", "space"],
+                ["ant", "space"],
                 da.zeros(  # type: ignore
                     shape=(n_ant, 3),
                     chunks=(ant_chunk, 3),
@@ -134,7 +135,7 @@ def ENU_to_GEO(geo_ref: Array, ENU: Array) -> Array:
         ds_out = xr.Dataset({"GEO": (["ant", "space"], GEO)})
         return ds_out
 
-    ds = xr.map_blocks(_ENU_to_GEO, input, template=output)
+    ds = xr.map_blocks(_ENU_to_GEO, whole_absent_dims(input, output), template=output)
 
     return ds.GEO.data
 
@@ -145,7 +146,7 @@ ENU_to_GEO.__doc__ = coord.ENU_to_GEO.__doc__
 def GEO_to_XYZ(geo: Array, times: Array) -> Array:
     n_time = geo.shape[0]
 
-    time_chunk = geo.chunksize[0]
+    time_chunk = geo.chunks[0]
 
     input = xr.Dataset(
         {
@@ -173,7 +174,7 @@ def GEO_to_XYZ(geo: Array, times: Array) -> Array:
         ds_out = xr.Dataset({"XYZ": (["time", "space"], XYZ)})
         return ds_out
 
-    ds = xr.map_blocks(_GEO_to_XYZ, input, template=output)
+    ds = xr.map_blocks(_GEO_to_XYZ, whole_absent_dims(input, output), template=output)
 
     return ds.XYZ.data
 
@@ -184,8 +185,8 @@ GEO_to_XYZ.__doc__ = coord.GEO_to_XYZ.__doc__
 def GEO_to_XYZ_vmap0(geo: Array, times: Array) -> Array:
     n_src, n_time = geo.shape[:2]
 
-    src_chunk = geo.chunks[0][0]
-    time_chunk = geo.chunks[1][0]
+    src_chunk = geo.chunks[0]
+    time_chunk = geo.chunks[1]
 
     input = xr.Dataset(
         {
@@ -213,7 +214,7 @@ def GEO_to_XYZ_vmap0(geo: Array, times: Array) -> Array:
         ds_out = xr.Dataset({"XYZ": (["src", "time", "space"], XYZ)})
         return ds_out
 
-    ds = xr.map_blocks(_GEO_to_XYZ, input, template=output)
+    ds = xr.map_blocks(_GEO_to_XYZ, whole_absent_dims(input, output), template=output)
 
     return ds.XYZ.data
 
@@ -224,7 +225,7 @@ GEO_to_XYZ_vmap0.__doc__ = coord.GEO_to_XYZ_vmap0.__doc__
 def GEO_to_XYZ_vmap1(geo: Array, times: Array) -> Array:
     n_time, n_ant = geo.shape[:2]
 
-    time_chunk, ant_chunk = geo.chunksize[:2]
+    time_chunk, ant_chunk = geo.chunks[:2]
 
     input = xr.Dataset(
         {
@@ -252,7 +253,7 @@ def GEO_to_XYZ_vmap1(geo: Array, times: Array) -> Array:
         ds_out = xr.Dataset({"XYZ": (["time", "ant", "space"], XYZ)})
         return ds_out
 
-    ds = xr.map_blocks(_GEO_to_XYZ, input, template=output)
+    ds = xr.map_blocks(_GEO_to_XYZ, whole_absent_dims(input, output), template=output)
 
     return ds.XYZ.data
 
@@ -325,8 +326,8 @@ def ITRF_to_XYZ(itrf: Array, gsa: Array) -> Array:
     n_time = gsa.shape[0]
     n_ant = itrf.shape[0]
 
-    time_chunk = gsa.chunksize[0]
-    ant_chunk = itrf.chunksize[0]
+    time_chunk = gsa.chunks[0]
+    ant_chunk = itrf.chunks[0]
 
     input = xr.Dataset(
         {
@@ -354,7 +355,7 @@ def ITRF_to_XYZ(itrf: Array, gsa: Array) -> Array:
         ds_out = xr.Dataset({"xyz": (["time", "ant", "space"], XYZ)})
         return ds_out
 
-    ds = xr.map_blocks(_ITRF_to_XYZ, input, template=output)
+    ds = xr.map_blocks(_ITRF_to_XYZ, whole_absent_dims(input, output), template=output)
 
     return ds.xyz.data
 
@@ -365,7 +366,7 @@ ITRF_to_XYZ.__doc__ = coord.itrf_to_xyz.__doc__
 def ENU_to_ITRF(ENU: Array, lat: Array, lon: Array, el: Array) -> Array:
     n_ant = ENU.shape[0]
 
-    ant_chunk = ENU.chunksize[0]
+    ant_chunk = ENU.chunks[0]
 
     input = xr.Dataset(
         {
@@ -398,7 +399,7 @@ def ENU_to_ITRF(ENU: Array, lat: Array, lon: Array, el: Array) -> Array:
         ds_out = xr.Dataset({"ITRF": (["ant", "space"], ITRF)})
         return ds_out
 
-    ds = xr.map_blocks(_ENU_to_ITRF, input, template=output)
+    ds = xr.map_blocks(_ENU_to_ITRF, whole_absent_dims(input, output), template=output)
 
     return ds.ITRF.data
 
@@ -415,7 +416,10 @@ def ITRF_to_UVW(
     n_ant = itrf.shape[0]
     n_time = h0.shape[0]
 
-    ant_chunk = itrf.chunksize[0]
+    # Antenna zero is the UVW origin, so every antenna must share one block:
+    # a split antenna axis would measure each block from its own first antenna.
+    itrf = itrf.rechunk((-1, 3))
+    ant_chunk = itrf.chunks[0]
     h0 = da.atleast_1d(h0)  # type: ignore
     # The hour angle's actual chunk layout, not chunksize, which is only its
     # longest chunk: an h0 chunked (2, 1, 2) would put the quantities below on
@@ -466,7 +470,7 @@ def ITRF_to_UVW(
         ds_out = xr.Dataset({"uvw": (["time", "ant", "space"], uvw)})
         return ds_out
 
-    ds = xr.map_blocks(_ITRF_to_UVW, input, template=output)
+    ds = xr.map_blocks(_ITRF_to_UVW, whole_absent_dims(input, output), template=output)
 
     return ds.uvw.data
 
@@ -478,8 +482,8 @@ def angular_separation(rfi_xyz: Array, ants_xyz: Array, ra: Array, dec: Array) -
     n_src, n_time = rfi_xyz.shape[:2]
     n_ant = ants_xyz.shape[1]
 
-    src_chunk, time_chunk = rfi_xyz.chunksize[:2]
-    ant_chunk = ants_xyz.chunksize[1]
+    src_chunk, time_chunk = rfi_xyz.chunks[:2]
+    ant_chunk = ants_xyz.chunks[1]
 
     input = xr.Dataset(
         {
@@ -510,7 +514,7 @@ def angular_separation(rfi_xyz: Array, ants_xyz: Array, ra: Array, dec: Array) -
         ds_out = xr.Dataset({"sep": (["src", "time", "ant"], sep)})
         return ds_out
 
-    ds = xr.map_blocks(_angular_separation, input, template=output)
+    ds = xr.map_blocks(_angular_separation, whole_absent_dims(input, output), template=output)
 
     return ds.sep.data
 
@@ -528,8 +532,8 @@ def orbit_vmap(
     n_time = times.shape[0]
     n_src = elevation.shape[0]
 
-    time_chunk = times.chunksize[0]
-    src_chunk = elevation.chunksize[0]
+    time_chunk = times.chunks[0]
+    src_chunk = elevation.chunks[0]
 
     input = xr.Dataset(
         {
@@ -565,7 +569,7 @@ def orbit_vmap(
         ds_out = xr.Dataset({"orbit": (["src", "time", "space"], orbit)})
         return ds_out
 
-    ds = xr.map_blocks(_orbit_vmap, input, template=output)
+    ds = xr.map_blocks(_orbit_vmap, whole_absent_dims(input, output), template=output)
 
     return ds.orbit.data
 

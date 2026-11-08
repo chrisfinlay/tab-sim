@@ -1,6 +1,7 @@
 from functools import partial
 from tabsim.precision import visibility_dtype
 from tabsim.execution import execute_kernel
+from tabsim.dask.extras import whole_absent_dims
 from tabsim.beam import airy_beam as host_airy_beam
 from jax import jit
 
@@ -63,8 +64,8 @@ def astro_vis(
     n_time, n_bl = uvw.shape[:2]
     n_freq = freqs.shape[0]
 
-    time_chunk, bl_chunk = uvw.chunksize[:2]
-    freq_chunk = freqs.chunksize[0]
+    time_chunk, bl_chunk = uvw.chunks[:2]
+    freq_chunk = freqs.chunks[0]
 
     src_n_time = sources.shape[1]
     if src_n_time != n_time and src_n_time != 1:
@@ -101,7 +102,7 @@ def astro_vis(
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
         return ds_out
 
-    ds = xr.map_blocks(_astro_vis, input, template=output)
+    ds = xr.map_blocks(_astro_vis, whole_absent_dims(input, output), template=output)
 
     return ds.vis.data
 
@@ -142,8 +143,8 @@ def astro_vis_gauss(
     n_time, n_bl = uvw.shape[:2]
     n_freq = freqs.shape[0]
 
-    time_chunk, bl_chunk = uvw.chunksize[:2]
-    freq_chunk = freqs.chunksize[0]
+    time_chunk, bl_chunk = uvw.chunks[:2]
+    freq_chunk = freqs.chunks[0]
 
     input = xr.Dataset(
         {
@@ -183,7 +184,7 @@ def astro_vis_gauss(
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
         return ds_out
 
-    ds = xr.map_blocks(_astro_vis_gauss, input, template=output)
+    ds = xr.map_blocks(_astro_vis_gauss, whole_absent_dims(input, output), template=output)
 
     return ds.vis.data
 
@@ -222,8 +223,8 @@ def astro_vis_exp(
     n_time, n_bl = uvw.shape[:2]
     n_freq = freqs.shape[0]
 
-    time_chunk, bl_chunk = uvw.chunksize[:2]
-    freq_chunk = freqs.chunksize[0]
+    time_chunk, bl_chunk = uvw.chunks[:2]
+    freq_chunk = freqs.chunks[0]
 
     input = xr.Dataset(
         {
@@ -254,7 +255,7 @@ def astro_vis_exp(
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
         return ds_out
 
-    ds = xr.map_blocks(_astro_vis_exp, input, template=output)
+    ds = xr.map_blocks(_astro_vis_exp, whole_absent_dims(input, output), template=output)
 
     return ds.vis.data
 
@@ -293,9 +294,9 @@ def rfi_vis(
     n_freq = freqs.shape[0]
     n_bl = a1.shape[0]
 
-    time_chunk = app_amplitude.chunksize[1]
-    freq_chunk = freqs.chunksize[0]
-    bl_chunk = a1.chunksize[0]
+    time_chunk = app_amplitude.chunks[1]
+    freq_chunk = freqs.chunks[0]
+    bl_chunk = a1.chunks[0]
 
     input = xr.Dataset(
         {
@@ -331,7 +332,7 @@ def rfi_vis(
         ds_out = xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
         return ds_out
 
-    ds = xr.map_blocks(_rfi_vis, input, template=output)
+    ds = xr.map_blocks(_rfi_vis, whole_absent_dims(input, output), template=output)
 
     return ds.vis.data
 
@@ -383,9 +384,9 @@ def rfi_vis_beam(
     Pv = da.broadcast_to(Pv, distances.shape[:3] + freqs.shape).rechunk(distances.chunks[:3] + freqs.chunks)
     w = da.broadcast_to(w, distances.shape[1:]).rechunk(distances.chunks[1:])
     ang_sep = da.broadcast_to(ang_sep, distances.shape).rechunk(distances.chunks)
-    time_chunk = distances.chunksize[1]
-    freq_chunk = freqs.chunksize[0]
-    bl_chunk = a1.chunksize[0]
+    time_chunk = distances.chunks[1]
+    freq_chunk = freqs.chunks[0]
+    bl_chunk = a1.chunks[0]
 
     input = xr.Dataset(
         {
@@ -426,7 +427,7 @@ def rfi_vis_beam(
         )
         return xr.Dataset({"vis": (["time", "bl", "freq"], vis)})
 
-    ds = xr.map_blocks(_rfi_vis_beam, input, template=output)
+    ds = xr.map_blocks(_rfi_vis_beam, whole_absent_dims(input, output), template=output)
 
     return ds.vis.data
 
@@ -459,8 +460,8 @@ def rfi_amplitude(
     # Every input on the layout the output takes from distances and freqs.
     Pv = da.broadcast_to(Pv, distances.shape[:2] + freqs.shape).rechunk(distances.chunks[:2] + freqs.chunks)
     ang_sep = da.broadcast_to(ang_sep, distances.shape).rechunk(distances.chunks)
-    src_chunk, time_chunk, ant_chunk = distances.chunksize
-    freq_chunk = freqs.chunksize[0]
+    src_chunk, time_chunk, ant_chunk = distances.chunks
+    freq_chunk = freqs.chunks[0]
 
     input = xr.Dataset(
         {
@@ -494,7 +495,7 @@ def rfi_amplitude(
         )
         return xr.Dataset({"amplitude": (["src", "time", "ant", "freq"], amplitude)})
 
-    ds = xr.map_blocks(_rfi_amplitude, input, template=output)
+    ds = xr.map_blocks(_rfi_amplitude, whole_absent_dims(input, output), template=output)
 
     return ds.amplitude.data
 
@@ -503,8 +504,8 @@ def ants_to_bl(G: Array, a1: Array, a2: Array) -> Array:
     n_time, _, n_freq = G.shape
     n_bl = a1.shape[0]
 
-    time_chunk, _, freq_chunk = G.chunksize
-    bl_chunk = a1.chunksize[0]
+    time_chunk, _, freq_chunk = G.chunks
+    bl_chunk = a1.chunks[0]
 
     input = xr.Dataset(
         {"G": (["time", "ant", "freq"], G), "a1": (["bl"], a1), "a2": (["bl"], a2)}
@@ -528,7 +529,7 @@ def ants_to_bl(G: Array, a1: Array, a2: Array) -> Array:
         ds_out = xr.Dataset({"G_bl": (["time", "bl", "freq"], G_bl)})
         return ds_out
 
-    ds = xr.map_blocks(_ants_to_bl, input, template=output)
+    ds = xr.map_blocks(_ants_to_bl, whole_absent_dims(input, output), template=output)
 
     return ds.G_bl.data
 
@@ -540,8 +541,8 @@ def airy_beam(theta, freqs, dish_d):
     n_src, n_time, n_ant = theta.shape
     n_freq = freqs.shape[0]
 
-    src_chunk, time_chunk, ant_chunk = theta.chunksize
-    freq_chunk = freqs.chunksize[0]
+    src_chunk, time_chunk, ant_chunk = theta.chunks
+    freq_chunk = freqs.chunks[0]
 
     input = xr.Dataset(
         {
@@ -568,7 +569,7 @@ def airy_beam(theta, freqs, dish_d):
         ds_out = xr.Dataset({"beam": (["src", "time", "ant", "freq"], beam)})
         return ds_out
 
-    ds = xr.map_blocks(_airy_beam, input, template=output)
+    ds = xr.map_blocks(_airy_beam, whole_absent_dims(input, output), template=output)
 
     return ds.beam.data
 
@@ -580,8 +581,8 @@ def Pv_to_Sv(Pv, d):
     n_src, _, n_freq = Pv.shape
     n_time, n_ant = d.shape[1:]
 
-    src_chunk, _, freq_chunk = Pv.chunksize
-    time_chunk, ant_chunk = d.chunksize[1:]
+    src_chunk, _, freq_chunk = Pv.chunks
+    time_chunk, ant_chunk = d.chunks[1:]
 
     input = xr.Dataset(
         {"Pv": (["src", "time", "freq"], Pv), "d": (["src", "time", "ant"], d)}
@@ -604,7 +605,7 @@ def Pv_to_Sv(Pv, d):
         ds_out = xr.Dataset({"Sv": (["src", "time", "ant", "freq"], Sv)})
         return ds_out
 
-    ds = xr.map_blocks(_Pv_to_Sv, input, template=output)
+    ds = xr.map_blocks(_Pv_to_Sv, whole_absent_dims(input, output), template=output)
 
     return ds.Sv.data
 
@@ -786,7 +787,7 @@ def apply_gains(
 ) -> Array:
     n_time, n_bl, n_freq = vis_ast.shape
 
-    time_chunk, bl_chunk, freq_chunk = vis_ast.chunksize
+    time_chunk, bl_chunk, freq_chunk = vis_ast.chunks
 
     input = xr.Dataset(
         {
@@ -823,7 +824,7 @@ def apply_gains(
         ds_out = xr.Dataset({"vis_obs": (["time", "bl", "freq"], vis_obs)})
         return ds_out
 
-    ds = xr.map_blocks(_apply_gains, input, template=output)
+    ds = xr.map_blocks(_apply_gains, whole_absent_dims(input, output), template=output)
 
     return ds.vis_obs.data
 
