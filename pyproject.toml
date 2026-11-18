@@ -23,6 +23,9 @@ dependencies = [
     # which zarr 2 does not accept, so the zarr pin implies a ceiling here too.
     "jax", "dask", "psutil", "xarray<2026.9", "zarr<3.0.0",
     "dask-ms>=0.2.21", "scipy", "tqdm", "matplotlib",
+    # tabsim.write and tabsim.read_ms import casacore themselves. dask-ms 0.3
+    # moved its own table access to arcae and stopped pulling it in.
+    "python-casacore",
     # skyfield floor: tabsim.time.skyfield_time passes a two-part Julian Date
     # to the public tai_jd. The major bound guards an API break.
     "astropy", "skyfield>=1.45,<2", "sgp4", "platformdirs", "numpy", "pyyaml", "pandas",
