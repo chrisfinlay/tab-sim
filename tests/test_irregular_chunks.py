@@ -89,3 +89,13 @@ def test_numpy_inputs_beside_split_dask_inputs():
     ra = da.from_array(np.linspace(0, 40, 5), chunks=(2, 2, 1))
     np.testing.assert_allclose(dc.radec_to_XYZ(ra, np.full(5, -30.0)).compute(),
                                dc.radec_to_XYZ(da.from_array(np.linspace(0, 40, 5)), da.from_array(np.full(5, -30.0))).compute())
+
+
+def test_astro_vis_time_axis_beyond_small_int_cache():
+    # CPython only interns small ints, so 300 is not 300 when the sizes come from
+    # separate arrays; the sources must still be chunked along the uvw time axis.
+    n_time = 300
+    sources = da.from_array(np.ones((2, n_time, 1)), chunks=(2, 50, 1))
+    uvw = da.from_array(np.zeros((n_time, 1, 3)), chunks=(50, 1, 3))
+    vis = di.astro_vis(sources, uvw, da.from_array(np.tile([0.0, 0, 1], (2, 1))), da.from_array(np.full(1, 1e8)))
+    np.testing.assert_allclose(vis.compute(), 2)
